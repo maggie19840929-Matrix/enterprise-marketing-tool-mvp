@@ -1,0 +1,38 @@
+{
+  "customers": [
+    {
+      "company_name": "样例客户A｜本地生活门店",
+      "contact_name": "王总",
+      "phone": "微信待补充",
+      "source_channel": "转介绍",
+      "need_summary": "希望提升到店咨询和老客户复购",
+      "intent_level": "高",
+      "stage": "已联系",
+      "owner": "赵娜",
+      "next_action": "整理3个同行案例，约明天下午沟通",
+      "next_follow_date": "2026-05-15"
+    },
+    {
+      "company_name": "样例客户B｜企业服务公司",
+      "contact_name": "李经理",
+      "phone": "电话待补充",
+      "source_channel": "微信社群",
+      "need_summary": "线索多但跟进混乱，需要销售过程可视化",
+      "intent_level": "中",
+      "stage": "新线索",
+      "owner": "赵娜",
+      "next_action": "确认目前用什么方式记录客户",
+      "next_follow_date": "2026-05-16"
+    }
+  ],
+  "marketing_activities": [
+    {
+      "title": "老板最容易漏掉的3类高意向客户",
+      "channel": "朋友圈",
+      "publish_date": "2026-05-14",
+      "target_customer": "中小企业老板",
+      "message": "客户管理不是记表格，是别漏掉能成交的人",
+      "owner": "赵娜"
+    }
+  ]
+}

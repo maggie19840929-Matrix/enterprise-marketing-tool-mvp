@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>企业营销工具｜轻量级业务管理系统 Demo</title>
+  <style>
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7f9;color:#172033}
+    header{background:#111827;color:#fff;padding:20px 28px}
+    header h1{margin:0;font-size:22px} header p{margin:8px 0 0;color:#cbd5e1}
+    .wrap{max-width:1180px;margin:0 auto;padding:24px}
+    .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:20px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    .num{font-size:30px;font-weight:800;margin:8px 0}.muted{color:#64748b;font-size:13px}
+    .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.panel{background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden}
+    .panel h2{font-size:17px;margin:0;padding:16px 18px;border-bottom:1px solid #eef2f7}
+    table{width:100%;border-collapse:collapse}th,td{padding:12px 14px;border-bottom:1px solid #eef2f7;text-align:left;font-size:14px}th{color:#64748b;font-weight:600;background:#fafafa}
+    .tag{display:inline-block;border-radius:999px;padding:4px 9px;font-size:12px;background:#eef2ff;color:#3730a3}.high{background:#fee2e2;color:#991b1b}.mid{background:#fef3c7;color:#92400e}.stage{background:#dcfce7;color:#166534}
+    .timeline{padding:0 18px 18px}.item{border-left:3px solid #dbeafe;padding:0 0 16px 14px;margin-left:6px}.item b{display:block;margin-bottom:4px}.actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+    button{border:0;border-radius:10px;background:#2563eb;color:#fff;padding:10px 14px;font-weight:700}.secondary{background:#e2e8f0;color:#0f172a}
+    @media(max-width:800px){.cards,.grid{grid-template-columns:1fr}.wrap{padding:14px}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>企业营销工具｜业务管理工作台 Demo</h1>
+    <p>把客户线索、跟进动作、营销反馈放到一个轻量级 Web 页面里。</p>
+  </header>
+  <main class="wrap">
+    <section class="cards">
+      <div class="card"><div class="muted">今日新增线索</div><div class="num">6</div><div class="muted">其中 2 个高意向</div></div>
+      <div class="card"><div class="muted">今日待跟进</div><div class="num">12</div><div class="muted">3 个已逾期</div></div>
+      <div class="card"><div class="muted">高意向客户</div><div class="num">8</div><div class="muted">建议优先处理</div></div>
+      <div class="card"><div class="muted">本周预约/成交</div><div class="num">5 / 2</div><div class="muted">来自朋友圈和转介绍</div></div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <h2>客户线索</h2>
+        <table>
+          <thead><tr><th>客户</th><th>来源</th><th>意向</th><th>阶段</th><th>下一步</th></tr></thead>
+          <tbody>
+            <tr><td>本地生活门店｜王总</td><td>转介绍</td><td><span class="tag high">高</span></td><td><span class="tag stage">已联系</span></td><td>约明天下午沟通</td></tr>
+            <tr><td>企业服务公司｜李经理</td><td>微信社群</td><td><span class="tag mid">中</span></td><td><span class="tag">新线索</span></td><td>确认当前记录方式</td></tr>
+            <tr><td>门店品牌｜陈总</td><td>小红书</td><td><span class="tag high">高</span></td><td><span class="tag stage">已预约</span></td><td>准备演示案例</td></tr>
+          </tbody>
+        </table>
+        <div class="actions" style="padding:0 18px 18px">
+          <button>新增线索</button><button class="secondary">记录跟进</button><button class="secondary">导出今日任务</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>最近跟进时间线</h2>
+        <div class="timeline">
+          <div class="item"><b>王总｜电话沟通</b><span class="muted">反馈：想先看同行案例。下一步：明天下午发方案。</span></div>
+          <div class="item"><b>李经理｜微信沟通</b><span class="muted">反馈：销售跟进目前靠个人微信备注，老板看不到。</span></div>
+          <div class="item"><b>陈总｜预约演示</b><span class="muted">反馈：最关心能不能知道哪条内容带来客户。</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:18px">
+      <h2>营销反馈</h2>
+      <table>
+        <thead><tr><th>内容/活动</th><th>渠道</th><th>咨询</th><th>线索</th><th>预约</th><th>成交</th><th>复盘</th></tr></thead>
+        <tbody>
+          <tr><td>老板最容易漏掉的3类高意向客户</td><td>朋友圈</td><td>9</td><td>4</td><td>2</td><td>1</td><td>痛点明确，适合继续做案例版</td></tr>
+          <tr><td>客户跟进表为什么越用越乱</td><td>社群</td><td>5</td><td>2</td><td>1</td><td>0</td><td>标题有效，但需要加真实场景</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

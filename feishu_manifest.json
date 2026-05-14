@@ -1,0 +1,14 @@
+{
+  "created_at": "2026-05-14 21:59:11 CST",
+  "base_name": "企业营销工具｜MVP业务管理工作台｜v0.1",
+  "base_token": "F7uVbIwGSaJHxrsxi7ecQShvnch",
+  "url": "https://kcny4x1jqjwx.feishu.cn/base/F7uVbIwGSaJHxrsxi7ecQShvnch",
+  "tables": {
+    "客户线索池": "tbl8gKAi5q2Wc8p3",
+    "跟进任务看板": "tblTUjsIInleIyyp",
+    "营销内容与活动": "tblrDP37Da0OVr6w",
+    "营销反馈回流": "tbldfOwxXQ6kNNsc",
+    "功能需求评分": "tblBxSeKcqivfS0Z"
+  },
+  "note": "表格面向企业营销工具群外部协作语境，未使用内部项目代号。"
+}
