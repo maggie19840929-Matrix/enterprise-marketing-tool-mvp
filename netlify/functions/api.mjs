@@ -49,20 +49,21 @@ const scoreFor = (assessment) => {
 };
 
 const platformFor = (channels = '') =>
-  ['视频号', '小红书', '抖音', '公众号'].find((channel) => channels.includes(channel)) || '视频号';
+  channels.split(/[,，、/\s]+/).map((item) => item.trim()).find(Boolean) || '视频号';
 
-const planTemplates = (priority, target, offer) => {
+const planTemplates = (priority, industry, goal, target, offer, pain) => {
+  const cta = `想要${goal}，可以私信了解「${offer}」`;
   const items = [
-    [`${target}最常遇到的3个问题`, '痛点共鸣：先说客户正在经历的具体困扰', '短视频/图文', `想要判断自己适不适合，可以私信领取「${offer}」`, '咨询数'],
-    [`一个真实案例：${target}如何少走弯路`, '案例信任：前后变化/过程/结果', '短视频', '评论“案例”获取同类方案', '私信数'],
-    ['选择服务前最容易踩的坑', '避坑科普：降低客户决策风险', '图文', `保存这条，决策前对照检查；需要可私信「${offer}」`, '收藏数'],
-    ['为什么你现在做了内容但没有咨询？', '问题诊断：指出错误动作和修正方式', '短视频', '把你的情况发来，帮你看一个最优先修改点', '评论数'],
-    [`${offer}到底能解决什么？`, '价值说明：用客户语言解释交付结果', '图文', `想了解下一步，私信「${offer}」`, '咨询数'],
-    [`老板/负责人亲自说：我们如何服务${target}`, '人设信任：真实、专业、有温度', '短视频', '有类似问题可以直接留言', '互动数'],
-    ['本周客户问得最多的1个问题', 'FAQ：把咨询问题反向变成内容', '短视频/图文', '还有其他问题，评论区告诉我', '评论数'],
+    [`${target}最关心的3个${industry}问题`, `痛点共鸣：围绕「${pain}」说清具体困扰`, '短视频/图文', cta, '咨询数'],
+    [`一个真实场景：${target}如何判断是否需要${offer}`, '案例信任：前后变化/过程/结果', '短视频', `评论“方案”获取「${offer}」说明`, '私信数'],
+    [`${target}在选择${offer}前最容易忽略什么？`, '避坑科普：降低客户决策风险', '图文', `保存这条，决策前对照检查；需要可私信「${offer}」`, '收藏数'],
+    [`为什么你想${goal}，但内容没有带来咨询？`, '问题诊断：指出错误动作和修正方式', '短视频', `把你的情况发来，帮你看如何通过「${offer}」推进`, '评论数'],
+    [`${offer}到底能帮${target}解决什么？`, '价值说明：用客户语言解释交付结果', '图文', cta, '咨询数'],
+    [`${industry}负责人亲自说：我们如何服务${target}`, '人设信任：真实、专业、有温度', '短视频', `有「${pain}」类似问题可以直接留言`, '互动数'],
+    [`本周${target}问得最多的1个问题`, 'FAQ：把咨询问题反向变成内容', '短视频/图文', `还有关于「${offer}」的问题，评论区告诉我`, '评论数'],
   ];
   if (priority === '曝光不足') {
-    items[0] = [`别再忽略这个问题：${target}90%会踩坑`, '强钩子：用高相关痛点提升打开率', '短视频', `想避坑可私信「${offer}」`, '曝光数'];
+    items[0] = [`别再忽略：${target}遇到「${pain}」时最容易踩的坑`, '强钩子：用高相关痛点提升打开率', '短视频', cta, '曝光数'];
   }
   return items;
 };
@@ -98,8 +99,13 @@ const generateDiagnosis = (assessmentId) => {
   const assessment = state.assessments.find((item) => item.id === assessmentId);
   if (!assessment) throw new Error('体检记录不存在');
   const priority = priorityFor(assessment.biggest_problem);
+  const industry = assessment.industry || '当前行业';
+  const goal = assessment.main_goal || '获得更多有效咨询';
   const target = assessment.target_customer || '目标客户';
   const offer = assessment.offer || '明确咨询入口';
+  const pain = assessment.customer_pain || assessment.biggest_problem || '当前核心痛点';
+  const channels = assessment.current_channels || '当前平台';
+  const frequency = assessment.posting_frequency || '当前发布频率';
   const diagnosis = {
     id: state.next.diagnosis++,
     assessment_id: assessmentId,
@@ -114,24 +120,24 @@ const generateDiagnosis = (assessmentId) => {
   };
 
   if (priority === '选题不稳定') {
-    diagnosis.insight = `当前不是缺平台，而是缺少围绕「${target}」真实痛点的稳定选题测试。`;
-    diagnosis.weekly_action = '本周连续测试 7 条客户痛点/案例/避坑内容，先验证哪个角度能带来咨询。';
-    diagnosis.next_step = '先建立一周选题池，用反馈数据决定下周加码方向。';
+    diagnosis.insight = `当前「${industry}」的核心目标是「${goal}」，但内容还没有稳定围绕「${target}」和「${pain}」做选题测试。`;
+    diagnosis.weekly_action = `本周在「${channels}」连续测试 7 条围绕「${target}」痛点、案例和避坑的内容，先验证哪个角度能带来「${goal}」。`;
+    diagnosis.next_step = `先建立一周选题池，每条内容都指向「${offer}」，用反馈数据决定下周加码方向。`;
     diagnosis.risk_warning = '不要一开始追求精致大制作；先用低成本内容换真实反馈。';
   } else if (priority === '内容不转化') {
-    diagnosis.insight = `当前内容可能有曝光，但没有把客户带到「${offer}」这个行动。`;
-    diagnosis.weekly_action = '本周把内容结尾统一改成明确咨询入口，并记录私信/咨询数量。';
-    diagnosis.next_step = '把内容结尾改成明确咨询入口，并追踪私信/咨询数量。';
+    diagnosis.insight = `当前「${industry}」内容可能有曝光，但没有把「${target}」从「${pain}」自然带到「${offer}」这个行动。`;
+    diagnosis.weekly_action = `本周把「${channels}」内容结尾统一改成围绕「${goal}」的明确咨询入口，并记录私信/咨询数量。`;
+    diagnosis.next_step = `把内容结尾改成「${offer}」相关 CTA，并追踪是否真的带来「${goal}」。`;
     diagnosis.risk_warning = '只看播放量会误判，第一版必须把咨询数作为核心反馈字段。';
   } else if (priority === '曝光不足') {
-    diagnosis.insight = '当前需要先提升内容第一眼吸引力和发布节奏，再判断转化能力。';
-    diagnosis.weekly_action = '本周围绕同一痛点做 7 个不同标题角度，测试曝光差异。';
-    diagnosis.next_step = '先测标题/封面/开头三要素，不急着扩大平台。';
+    diagnosis.insight = `当前「${industry}」需要先提升内容第一眼吸引力，让「${target}」一眼看见和自己有关的「${pain}」。`;
+    diagnosis.weekly_action = `本周围绕「${pain}」做 7 个不同标题角度，在「${channels}」测试曝光差异。`;
+    diagnosis.next_step = `先测标题/封面/开头三要素，再判断是否能承接到「${offer}」。`;
     diagnosis.risk_warning = '曝光不足时不要直接加预算，先确认内容钩子是否成立。';
   } else {
-    diagnosis.insight = '当前营销动作没有形成数据复盘，下一步要建立发布-回填-复盘闭环。';
-    diagnosis.weekly_action = '本周固定发布计划和反馈字段，完成一次发布-回填-复盘闭环。';
-    diagnosis.next_step = '每条内容发布后24-72小时回填曝光、互动和咨询。';
+    diagnosis.insight = `当前「${industry}」营销动作还没有把「${channels}」发布、用户反馈和「${goal}」连成复盘闭环。`;
+    diagnosis.weekly_action = `本周按「${frequency}」固定发布计划和反馈字段，围绕「${target}」完成一次发布-回填-复盘闭环。`;
+    diagnosis.next_step = `每条内容发布后24-72小时回填曝光、互动和咨询，判断是否推动「${goal}」。`;
     diagnosis.risk_warning = '无回填就无法优化，系统会把“未回填”视为未闭环。';
   }
 
@@ -143,10 +149,19 @@ const createContentPlan = (diagnosisId) => {
   const diagnosis = state.diagnoses.find((item) => item.id === diagnosisId);
   if (!diagnosis) throw new Error('诊断记录不存在');
   const assessment = state.assessments.find((item) => item.id === diagnosis.assessment_id);
+  const industry = assessment?.industry || '当前行业';
+  const goal = assessment?.main_goal || '获得更多有效咨询';
   const target = assessment?.target_customer || '目标客户';
   const offer = assessment?.offer || '一次免费诊断';
+  const pain = assessment?.customer_pain || assessment?.biggest_problem || '当前核心痛点';
   const platform = platformFor(assessment?.current_channels);
-  const plans = planTemplates(diagnosis.priority_problem, target, offer).map(([topic, angle, content_type, cta, target_metric], index) => ({
+  state.plans = [];
+  state.feedback = [];
+  state.reviews = [];
+  state.next.plan = 1;
+  state.next.feedback = 1;
+  state.next.review = 1;
+  const plans = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain).map(([topic, angle, content_type, cta, target_metric], index) => ({
     id: state.next.plan++,
     diagnosis_id: diagnosisId,
     planned_date: todayIso(index),
@@ -259,17 +274,17 @@ const dashboard = () => {
 const seed = () => {
   state = blankState();
   const assessment_id = createAssessment({
-    company_name: '南京样板制造有限公司',
-    industry: '工业设备',
+    company_name: '示例本地服务机构',
+    industry: '本地服务',
     main_goal: '获得更多咨询',
     current_channels: '视频号, 小红书',
     posting_frequency: '偶尔发布',
     biggest_problem: '不知道发什么',
-    target_customer: '工厂采购负责人',
-    offer: '免费选型建议',
-    customer_pain: '不知道如何判断设备是否适合自己的产线',
-    content_assets: '客户案例、产品演示视频',
-    best_recent_content: '客户案例短视频',
+    target_customer: '有明确需求的本地客户',
+    offer: '一次免费咨询',
+    customer_pain: '不知道如何判断服务是否适合自己',
+    content_assets: '客户案例、服务过程照片',
+    best_recent_content: '客户案例内容',
     contact: '赵娜',
   });
   const diagnosis = generateDiagnosis(assessment_id);

@@ -53,7 +53,7 @@ def test_diagnosis_contains_score_stage_and_next_step_for_new_mvp():
 
     assert 0 <= diagnosis['score'] <= 100
     assert diagnosis['priority_problem'] == '内容不转化'
-    assert diagnosis['next_step'] == '把内容结尾改成明确咨询入口，并追踪私信/咨询数量。'
+    assert diagnosis['next_step'] == '把内容结尾改成「免费方案评估」相关 CTA，并追踪是否真的带来「获得更多咨询」。'
 
 
 def test_content_plan_uses_target_customer_and_offer():
@@ -74,6 +74,37 @@ def test_content_plan_uses_target_customer_and_offer():
     assert len(items) == 7
     assert any('设备采购负责人' in item['topic'] for item in items)
     assert any('免费选型建议' in item['cta'] for item in items)
+
+
+def test_oral_clinic_plan_uses_current_form_fields_without_old_mock():
+    conn = memory_conn()
+    assessment_id = create_assessment(conn, {
+        'industry': '口腔门诊',
+        'main_goal': '让更多家长预约儿童牙齿矫正咨询',
+        'current_channels': '小红书, 视频号',
+        'posting_frequency': '每周3条',
+        'biggest_problem': '不知道发什么',
+        'target_customer': '宝妈',
+        'offer': '儿童牙齿矫正初筛',
+        'customer_pain': '担心孩子牙齿不齐但不知道是否需要矫正',
+    })
+    diagnosis = generate_diagnosis(conn, assessment_id)
+    items = create_content_plan(conn, diagnosis['id'])
+    combined = '\n'.join([
+        diagnosis['insight'],
+        diagnosis['weekly_action'],
+        diagnosis['next_step'],
+        *[item['platform'] + item['topic'] + item['angle'] + item['cta'] for item in items],
+    ])
+
+    assert '口腔门诊' in combined
+    assert '宝妈' in combined
+    assert '儿童牙齿矫正初筛' in combined
+    assert '孩子牙齿不齐' in combined
+    assert items[0]['platform'] == '小红书'
+    assert '工厂采购负责人' not in combined
+    assert '工业设备' not in combined
+    assert '免费选型建议' not in combined
 
 
 def test_weekly_review_turns_feedback_into_next_round_suggestion():

@@ -204,6 +204,11 @@ def _score(assessment):
     return max(0, min(100, score))
 
 
+def _field(assessment, key, fallback):
+    value = assessment[key] if key in assessment.keys() else ''
+    return value or fallback
+
+
 def generate_diagnosis(conn, assessment_id):
     assessment = conn.execute('SELECT * FROM assessments WHERE id=?', (assessment_id,)).fetchone()
     if not assessment:
@@ -211,28 +216,34 @@ def generate_diagnosis(conn, assessment_id):
     stage = _stage(assessment['posting_frequency'])
     priority = _priority(assessment['biggest_problem'])
     score = _score(assessment)
-    target = assessment['target_customer'] or '目标客户'
-    offer = assessment['offer'] or '明确咨询入口'
+    industry = _field(assessment, 'industry', '当前行业')
+    goal = _field(assessment, 'main_goal', '获得更多有效咨询')
+    target = _field(assessment, 'target_customer', '目标客户')
+    offer = _field(assessment, 'offer', '明确咨询入口')
+    pain = _field(assessment, 'customer_pain', assessment['biggest_problem'])
+    channels = _field(assessment, 'current_channels', '当前平台')
+    frequency = _field(assessment, 'posting_frequency', '当前发布频率')
+    problem = _field(assessment, 'biggest_problem', priority)
 
     if priority == '选题不稳定':
-        insight = f'当前不是缺平台，而是缺少围绕「{target}」真实痛点的稳定选题测试。'
-        weekly_action = '本周连续测试 7 条客户痛点/案例/避坑内容，先验证哪个角度能带来咨询。'
-        next_step = '先建立一周选题池，用反馈数据决定下周加码方向。'
+        insight = f'当前「{industry}」的核心目标是「{goal}」，但内容还没有稳定围绕「{target}」和「{pain}」做选题测试。'
+        weekly_action = f'本周在「{channels}」连续测试 7 条围绕「{target}」痛点、案例和避坑的内容，先验证哪个角度能带来「{goal}」。'
+        next_step = f'先建立一周选题池，每条内容都指向「{offer}」，用反馈数据决定下周加码方向。'
         risk = '不要一开始追求精致大制作；先用低成本内容换真实反馈。'
     elif priority == '内容不转化':
-        insight = f'当前内容可能有曝光，但没有把客户带到「{offer}」这个行动。'
-        weekly_action = '本周把内容结尾统一改成明确咨询入口，并记录私信/咨询数量。'
-        next_step = '把内容结尾改成明确咨询入口，并追踪私信/咨询数量。'
+        insight = f'当前「{industry}」内容可能有曝光，但没有把「{target}」从「{pain}」自然带到「{offer}」这个行动。'
+        weekly_action = f'本周把「{channels}」内容结尾统一改成围绕「{goal}」的明确咨询入口，并记录私信/咨询数量。'
+        next_step = f'把内容结尾改成「{offer}」相关 CTA，并追踪是否真的带来「{goal}」。'
         risk = '只看播放量会误判，第一版必须把咨询数作为核心反馈字段。'
     elif priority == '曝光不足':
-        insight = '当前需要先提升内容第一眼吸引力和发布节奏，再判断转化能力。'
-        weekly_action = '本周围绕同一痛点做 7 个不同标题角度，测试曝光差异。'
-        next_step = '先测标题/封面/开头三要素，不急着扩大平台。'
+        insight = f'当前「{industry}」需要先提升内容第一眼吸引力，让「{target}」一眼看见和自己有关的「{pain}」。'
+        weekly_action = f'本周围绕「{pain}」做 7 个不同标题角度，在「{channels}」测试曝光差异。'
+        next_step = f'先测标题/封面/开头三要素，再判断是否能承接到「{offer}」。'
         risk = '曝光不足时不要直接加预算，先确认内容钩子是否成立。'
     else:
-        insight = '当前营销动作没有形成数据复盘，下一步要建立发布-回填-复盘闭环。'
-        weekly_action = '本周固定发布计划和反馈字段，完成一次发布-回填-复盘闭环。'
-        next_step = '每条内容发布后24-72小时回填曝光、互动和咨询。'
+        insight = f'当前「{industry}」营销动作还没有把「{channels}」发布、用户反馈和「{goal}」连成复盘闭环。'
+        weekly_action = f'本周按「{frequency}」固定发布计划和反馈字段，围绕「{target}」完成一次发布-回填-复盘闭环。'
+        next_step = f'每条内容发布后24-72小时回填曝光、互动和咨询，判断是否推动「{goal}」。'
         risk = '无回填就无法优化，系统会把“未回填”视为未闭环。'
 
     cur = conn.execute(
@@ -250,24 +261,26 @@ def preferred_platform(conn, diagnosis_id):
         (diagnosis_id,),
     ).fetchone()
     channels = row['current_channels'] if row else ''
-    for candidate in ['视频号', '小红书', '抖音', '公众号']:
-        if candidate in channels:
-            return candidate
+    for raw in channels.replace('，', ',').replace('、', ',').replace('/', ',').split(','):
+        platform = raw.strip()
+        if platform:
+            return platform
     return '视频号'
 
 
-def _plan_templates(priority, target, offer):
+def _plan_templates(priority, industry, goal, target, offer, pain):
+    cta = f'想要{goal}，可以私信了解「{offer}」'
     common = [
-        (f'{target}最常遇到的3个问题', '痛点共鸣：先说客户正在经历的具体困扰', '短视频/图文', f'想要判断自己适不适合，可以私信领取「{offer}」', '咨询数'),
-        (f'一个真实案例：{target}如何少走弯路', '案例信任：前后变化/过程/结果', '短视频', f'评论“案例”获取同类方案', '私信数'),
-        (f'选择服务前最容易踩的坑', '避坑科普：降低客户决策风险', '图文', f'保存这条，决策前对照检查；需要可私信「{offer}」', '收藏数'),
-        (f'为什么你现在做了内容但没有咨询？', '问题诊断：指出错误动作和修正方式', '短视频', '把你的情况发来，帮你看一个最优先修改点', '评论数'),
-        (f'{offer}到底能解决什么？', '价值说明：用客户语言解释交付结果', '图文', f'想了解下一步，私信「{offer}」', '咨询数'),
-        (f'老板/负责人亲自说：我们如何服务{target}', '人设信任：真实、专业、有温度', '短视频', '有类似问题可以直接留言', '互动数'),
-        (f'本周客户问得最多的1个问题', 'FAQ：把咨询问题反向变成内容', '短视频/图文', '还有其他问题，评论区告诉我', '评论数'),
+        (f'{target}最关心的3个{industry}问题', f'痛点共鸣：围绕「{pain}」说清具体困扰', '短视频/图文', cta, '咨询数'),
+        (f'一个真实场景：{target}如何判断是否需要{offer}', '案例信任：前后变化/过程/结果', '短视频', f'评论“方案”获取「{offer}」说明', '私信数'),
+        (f'{target}在选择{offer}前最容易忽略什么？', '避坑科普：降低客户决策风险', '图文', f'保存这条，决策前对照检查；需要可私信「{offer}」', '收藏数'),
+        (f'为什么你想{goal}，但内容没有带来咨询？', '问题诊断：指出错误动作和修正方式', '短视频', f'把你的情况发来，帮你看如何通过「{offer}」推进', '评论数'),
+        (f'{offer}到底能帮{target}解决什么？', '价值说明：用客户语言解释交付结果', '图文', cta, '咨询数'),
+        (f'{industry}负责人亲自说：我们如何服务{target}', '人设信任：真实、专业、有温度', '短视频', f'有「{pain}」类似问题可以直接留言', '互动数'),
+        (f'本周{target}问得最多的1个问题', 'FAQ：把咨询问题反向变成内容', '短视频/图文', f'还有关于「{offer}」的问题，评论区告诉我', '评论数'),
     ]
     if priority == '曝光不足':
-        common[0] = (f'别再忽略这个问题：{target}90%会踩坑', '强钩子：用高相关痛点提升打开率', '短视频', f'想避坑可私信「{offer}」', '曝光数')
+        common[0] = (f'别再忽略：{target}遇到「{pain}」时最容易踩的坑', '强钩子：用高相关痛点提升打开率', '短视频', cta, '曝光数')
     return common
 
 
@@ -277,11 +290,17 @@ def create_content_plan(conn, diagnosis_id):
         raise ValueError('诊断记录不存在')
     assessment = conn.execute('SELECT a.* FROM assessments a JOIN diagnoses d ON d.assessment_id=a.id WHERE d.id=?', (diagnosis_id,)).fetchone()
     platform = preferred_platform(conn, diagnosis_id)
+    industry = assessment['industry'] or '当前行业'
+    goal = assessment['main_goal'] or '获得更多有效咨询'
     target = assessment['target_customer'] or '目标客户'
     offer = assessment['offer'] or '一次免费诊断'
+    pain = assessment['customer_pain'] or assessment['biggest_problem'] or '当前核心痛点'
     base = date.today()
     items = []
-    for idx, (topic, angle, content_type, cta, metric) in enumerate(_plan_templates(diagnosis['priority_problem'], target, offer), start=1):
+    conn.execute('DELETE FROM weekly_reviews')
+    conn.execute('DELETE FROM feedback')
+    conn.execute('DELETE FROM content_plans')
+    for idx, (topic, angle, content_type, cta, metric) in enumerate(_plan_templates(diagnosis['priority_problem'], industry, goal, target, offer, pain), start=1):
         cur = conn.execute(
             '''INSERT INTO content_plans(diagnosis_id, planned_date, platform, topic, angle, content_type, cta, target_metric)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -402,17 +421,17 @@ def seed_demo_data(conn):
     if conn.execute('SELECT COUNT(*) c FROM assessments').fetchone()['c']:
         return
     assessment_id = create_assessment(conn, {
-        'company_name': '南京样板制造有限公司',
-        'industry': '工业设备',
+        'company_name': '示例本地服务机构',
+        'industry': '本地服务',
         'main_goal': '获得更多咨询',
         'current_channels': '视频号, 小红书',
         'posting_frequency': '偶尔发布',
         'biggest_problem': '不知道发什么',
-        'target_customer': '工厂采购负责人',
-        'offer': '免费选型建议',
-        'customer_pain': '不知道如何判断设备是否适合自己的产线',
-        'content_assets': '客户案例、产品演示视频',
-        'best_recent_content': '客户案例短视频',
+        'target_customer': '有明确需求的本地客户',
+        'offer': '一次免费咨询',
+        'customer_pain': '不知道如何判断服务是否适合自己',
+        'content_assets': '客户案例、服务过程照片',
+        'best_recent_content': '客户案例内容',
         'contact': '赵娜'
     })
     diagnosis = generate_diagnosis(conn, assessment_id)

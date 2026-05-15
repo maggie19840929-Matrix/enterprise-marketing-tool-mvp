@@ -38,7 +38,9 @@ def test_assessment_generates_stage_score_and_priority_problem():
     assert diagnosis['stage'] == '起步诊断期'
     assert diagnosis['priority_problem'] == '选题不稳定'
     assert diagnosis['score'] > 50
-    assert '连续测试 7 条客户痛点' in diagnosis['weekly_action']
+    assert '视频号, 小红书' in diagnosis['weekly_action']
+    assert '工厂采购负责人' in diagnosis['weekly_action']
+    assert '获得更多咨询' in diagnosis['weekly_action']
 
 
 def test_content_plan_creates_seven_actionable_items_from_diagnosis():

@@ -34,6 +34,18 @@ function renderDashboard(d){
   `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>`;
 }
 
+function freshDashboard(plans){
+  return {
+    total_plans: plans.length,
+    published_plans: 0,
+    feedback_rate: 0,
+    total_views: 0,
+    total_interactions: 0,
+    total_consultations: 0,
+    next_suggestion: '先执行：还没有发布反馈，优先完成第一条内容发布和数据回填。'
+  };
+}
+
 function renderDiagnosis(d){
   if(!d){ $('#latestDiagnosis').innerHTML='暂无诊断，先提交一次营销体检。'; return; }
   $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card">
@@ -88,10 +100,14 @@ window.prefillFeedback = prefillFeedback;
 
 $('#assessmentForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  await api('/api/assessments', {method:'POST', body: JSON.stringify(formData(e.target))});
+  const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(formData(e.target))});
   e.target.reset();
   toast('已生成诊断和7天发布计划');
-  loadAll();
+  renderDashboard(freshDashboard(result.plans));
+  renderDiagnosis(result.diagnosis);
+  renderPlans(result.plans);
+  renderFeedback([]);
+  renderReview(null);
 });
 
 $('#feedbackForm').addEventListener('submit', async (e)=>{
