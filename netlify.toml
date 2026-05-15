@@ -1,6 +1,14 @@
 [build]
-  publish = "demo"
+  publish = "static"
   command = ""
+
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api?path=:splat"
+  status = 200
 
 [[headers]]
   for = "/*"

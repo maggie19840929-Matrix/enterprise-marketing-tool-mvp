@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>企业营销增长工具 MVP</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">第一版 MVP · 营销增长闭环</p>
+      <h1>营销体检 → 自动诊断 → 7天内容计划 → 反馈回填 → 周复盘</h1>
+      <p class="sub">聚焦帮客户获得增长：先把“发什么、怎么发、发完怎么优化”跑成一个可复盘闭环。</p>
+    </div>
+    <button id="refreshBtn">刷新数据</button>
+  </header>
+
+  <main>
+    <section class="cards" id="metricCards"></section>
+
+    <section class="grid two">
+      <article class="panel">
+        <h2>客户营销体检</h2>
+        <p class="hint">第一版允许先不填企业名，降低客户试用阻力；但目标客户、产品/服务入口会影响诊断质量。</p>
+        <form id="assessmentForm">
+          <label>企业名称<input name="company_name" placeholder="可选：例如南京某设备公司" /></label>
+          <label>行业<input name="industry" required placeholder="例如：工业设备 / 本地服务 / 教育培训" /></label>
+          <label>主要营销目标<input name="main_goal" required placeholder="例如：获得更多咨询 / 到店 / 报名" /></label>
+          <label>目标客户<input name="target_customer" placeholder="例如：工厂采购负责人 / 附近3公里宝妈" /></label>
+          <label>产品/服务入口<input name="offer" placeholder="例如：免费选型建议 / 到店体验课 / 方案评估" /></label>
+          <label>客户核心痛点<textarea name="customer_pain" placeholder="客户为什么会需要你？现在最困扰他的是什么？"></textarea></label>
+          <label>当前平台<input name="current_channels" required placeholder="视频号, 小红书, 抖音..." /></label>
+          <div class="mini-grid">
+            <label>发布频率
+              <select name="posting_frequency" required>
+                <option>偶尔发布</option>
+                <option>每周1条</option>
+                <option>每周3条</option>
+                <option>每天稳定发布</option>
+              </select>
+            </label>
+            <label>最大问题
+              <select name="biggest_problem" required>
+                <option>不知道发什么</option>
+                <option>没流量</option>
+                <option>没咨询</option>
+                <option>发完没人复盘</option>
+              </select>
+            </label>
+          </div>
+          <label>现有内容资产<input name="content_assets" placeholder="例如：客户案例、产品照片、老板出镜、FAQ" /></label>
+          <div class="mini-grid">
+            <label>月预算<input name="monthly_budget" placeholder="可选：例如3000元以内" /></label>
+            <label>决策周期<input name="decision_cycle" placeholder="可选：例如1周/1个月" /></label>
+          </div>
+          <label>最近效果最好的内容<input name="best_recent_content" placeholder="可选：客户案例、产品演示、老板出镜..." /></label>
+          <label>联系人<input name="contact" placeholder="可选" /></label>
+          <button type="submit">生成诊断和7天发布计划</button>
+        </form>
+      </article>
+
+      <article class="panel highlight">
+        <h2>最新诊断报告</h2>
+        <div id="latestDiagnosis" class="empty">暂无诊断，先提交一次营销体检。</div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>7天内容发布计划</h2>
+        <span>只做营销增长闭环，不做CRM/ERP/客户管理主轴。</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID/日期</th><th>平台</th><th>内容主题</th><th>角度</th><th>形式</th><th>CTA</th><th>目标</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="plansBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <h2>营销反馈回填</h2>
+        <p class="hint">无回填 = 未闭环。每条内容发布后24-72小时回填一次。</p>
+        <form id="feedbackForm">
+          <label>发布计划ID<input name="content_plan_id" required type="number" placeholder="从发布计划表中选择 ID" /></label>
+          <label>发布链接<input name="publish_link" placeholder="可选：内容链接" /></label>
+          <div class="mini-grid">
+            <label>曝光/播放<input name="views" type="number" value="0" /></label>
+            <label>点赞<input name="likes" type="number" value="0" /></label>
+            <label>评论<input name="comments" type="number" value="0" /></label>
+            <label>收藏<input name="favorites" type="number" value="0" /></label>
+            <label>转发<input name="shares" type="number" value="0" /></label>
+            <label>私信/咨询<input name="consultations" type="number" value="0" /></label>
+          </div>
+          <label>备注<textarea name="notes" placeholder="例如：有客户问价格 / 评论区问资料 / 开头被吐槽"></textarea></label>
+          <button type="submit">保存反馈并更新看板</button>
+        </form>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <h2>周复盘</h2>
+          <button id="reviewBtn" class="secondary">生成周复盘</button>
+        </div>
+        <div id="reviewBox" class="empty">回填发布数据后，点击生成复盘。</div>
+        <h3>反馈记录</h3>
+        <div id="feedbackList" class="list"></div>
+      </article>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
