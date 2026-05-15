@@ -38,6 +38,15 @@ function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
 function esc(v){ return String(v ?? '').replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 function num(v){ return Number(v || 0); }
 function interactions(f){ return num(f.likes) + num(f.comments) + num(f.favorites) + num(f.shares); }
+function parsePlatformRecommendations(value){
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return null; }
+}
+function renderPlatformGroup(title, items){
+  if (!items?.length) return '';
+  return `<div><div class="small">${esc(title)}</div>${items.map((item)=>`<p><strong>${esc(item.platform)}</strong>：${esc(item.reason)}</p>`).join('')}</div>`;
+}
 
 function clientDashboard(){
   const total_plans = clientState.plans.length;
@@ -74,11 +83,20 @@ function renderDashboard(d){
 
 function renderDiagnosis(d){
   if(!d){ $('#latestDiagnosis').innerHTML='暂无诊断，先提交一次营销体检。'; return; }
+  const platformRecommendations = parsePlatformRecommendations(d.platform_recommendations);
+  const platformModule = platformRecommendations ? `<div class="warning">
+    <div class="small">平台发布建议</div>
+    <p>${esc(platformRecommendations.strategy || '')}</p>
+    ${renderPlatformGroup('优先平台', platformRecommendations.primary)}
+    ${renderPlatformGroup('辅助平台', platformRecommendations.support)}
+    ${renderPlatformGroup('暂不建议', platformRecommendations.avoid)}
+  </div>` : '';
   $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card">
     <div class="score"><span>营销闭环分</span><strong>${d.score}</strong><em>/100</em></div>
     <span class="badge">${esc(d.stage)}</span>
     <div><div class="small">优先问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
     <div><div class="small">诊断</div><p>${esc(d.insight)}</p></div>
+    ${platformModule}
     <div><div class="small">本周动作</div><p><strong>${esc(d.weekly_action)}</strong></p></div>
     <div class="warning"><div class="small">风险提醒</div><p>${esc(d.risk_warning)}</p></div>
     <div><div class="small">下一步</div><p>${esc(d.next_step)}</p></div>

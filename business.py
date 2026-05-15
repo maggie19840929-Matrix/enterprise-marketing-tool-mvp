@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import date, timedelta
 
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS diagnoses (
     weekly_action TEXT NOT NULL,
     next_step TEXT DEFAULT '',
     risk_warning TEXT DEFAULT '',
+    platform_recommendations TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (assessment_id) REFERENCES assessments(id)
 );
@@ -96,6 +98,7 @@ MIGRATIONS = {
         'score': 'INTEGER NOT NULL DEFAULT 0',
         'next_step': "TEXT DEFAULT ''",
         'risk_warning': "TEXT DEFAULT ''",
+        'platform_recommendations': "TEXT DEFAULT ''",
     },
     'content_plans': {
         'content_type': "TEXT DEFAULT '短视频/图文'",
@@ -209,6 +212,88 @@ def _field(assessment, key, fallback):
     return value or fallback
 
 
+def _split_platforms(channels):
+    items = []
+    for raw in (channels or '').replace('，', ',').replace('、', ',').replace('/', ',').split(','):
+        platform = raw.strip()
+        if platform and platform not in items:
+            items.append(platform)
+    return items
+
+
+def _has_any(text, words):
+    return any(word in (text or '') for word in words)
+
+
+def recommend_platforms_for_assessment(assessment):
+    """Lightweight v1 platform strategy: rules first, explainable, no black-box AI."""
+    industry = _field(assessment, 'industry', '')
+    goal = _field(assessment, 'main_goal', '')
+    target = _field(assessment, 'target_customer', '')
+    offer = _field(assessment, 'offer', '')
+    pain = _field(assessment, 'customer_pain', '')
+    assets = _field(assessment, 'content_assets', '')
+    current = _split_platforms(_field(assessment, 'current_channels', ''))
+    text = ' '.join([industry, goal, target, offer, pain, assets])
+
+    primary = []
+    support = []
+    avoid = []
+
+    def add(bucket, platform, reason):
+        if not any(item['platform'] == platform for item in bucket):
+            bucket.append({'platform': platform, 'reason': reason})
+
+    if _has_any(text, ['口腔', '牙', '门诊', '种植', '矫正', '正畸', '宝妈', '到店']):
+        add(primary, '小红书', '适合做本地宝妈种草、儿童矫正避坑、医生专业信任内容。')
+        add(primary, '美团/大众点评', '适合承接已有到店意图的用户，重点优化套餐、评价和门店转化。')
+        add(primary, '朋友圈/私域', '适合做老客转介绍、客户案例、活动提醒和信任维护。')
+        add(support, '抖音', '可用于医生出镜科普和案例讲解，但需要稳定短视频生产能力。')
+        add(support, '视频号', '适合微信生态内的熟人关系转化和本地信任沉淀。')
+        add(avoid, '公众号', '冷启动慢，不适合作为30天内快速获客主渠道。')
+        add(avoid, 'B站', '内容生产成本高，短期本地咨询转化弱。')
+    elif _has_any(text, ['本地', '到店', '门店', '附近', '同城', '美业', '产康', '体验课']):
+        add(primary, '小红书', '适合做同城种草、案例体验和痛点搜索承接。')
+        add(primary, '朋友圈/私域', '适合做熟人信任、老客复购和转介绍。')
+        add(primary, '抖音', '适合用短视频放大同城曝光，但要控制内容节奏和转化入口。')
+        add(support, '美团/大众点评', '适合有到店需求时承接搜索和评价转化。')
+        add(avoid, 'B站', '本地短期获客效率较低，不建议作为第一主阵地。')
+    elif _has_any(text, ['工业', '设备', '工厂', '采购', 'B2B', '企业', '方案', '软件', '服务商']):
+        add(primary, '视频号', '适合沉淀专业信任、销售转发和微信生态线索承接。')
+        add(primary, '公众号', '适合沉淀方案文章、案例和长期搜索资料。')
+        add(primary, '知乎', '适合承接专业问题搜索，建立方案型信任。')
+        add(support, '小红书', '可测试采购避坑、老板视角和案例拆解，但不宜只追求种草感。')
+        add(avoid, '美团/大众点评', 'B2B企业服务通常不是本地主动搜索到店场景。')
+    elif _has_any(text, ['教育', '培训', '课程', '报名', '留学', '考试']):
+        add(primary, '小红书', '适合用学习经验、避坑和案例内容承接主动搜索。')
+        add(primary, '视频号', '适合家长/熟人圈层转化和直播沉淀。')
+        add(primary, '朋友圈/私域', '适合跟进试听、答疑和报名转化。')
+        add(support, '抖音', '适合扩大曝光，但需要高频短视频和强钩子。')
+        add(avoid, 'B站', '适合长期知识资产，不适合短期报名转化主渠道。')
+    else:
+        for platform in current[:3]:
+            add(primary, platform, '这是客户当前已有平台，1.0先用它低成本测试内容反馈。')
+        if len(primary) < 3:
+            add(primary, '小红书', '适合测试用户痛点、案例和搜索型内容反馈。')
+        add(support, '视频号', '适合沉淀微信生态信任和私域承接。')
+        add(avoid, 'B站', '内容生产周期较长，除非已有稳定长内容能力，否则暂不作为第一优先。')
+
+    current_set = set(current)
+    strategy = '当前更适合先做“信任建立 + 有效咨询/到店转化”的组合，而不是只追求曝光。'
+    if current_set:
+        covered = [item['platform'] for item in primary if item['platform'] in current_set or any(part in current_set for part in item['platform'].split('/'))]
+        if covered:
+            strategy += f' 已填写平台中「{"、".join(covered)}」可以优先保留。'
+        else:
+            strategy += ' 已填写平台和系统优先平台不完全一致，建议先按推荐平台做一周小样本验证。'
+    return {'strategy': strategy, 'primary': primary[:3], 'support': support[:3], 'avoid': avoid[:3]}
+
+
+def platform_plan_sequence(recommendations, fallback_channels):
+    primary = [item['platform'] for item in (recommendations or {}).get('primary', []) if item.get('platform')]
+    return primary or _split_platforms(fallback_channels) or ['小红书']
+
+
 def generate_diagnosis(conn, assessment_id):
     assessment = conn.execute('SELECT * FROM assessments WHERE id=?', (assessment_id,)).fetchone()
     if not assessment:
@@ -246,10 +331,12 @@ def generate_diagnosis(conn, assessment_id):
         next_step = f'每条内容发布后24-72小时回填曝光、互动和咨询，判断是否推动「{goal}」。'
         risk = '无回填就无法优化，系统会把“未回填”视为未闭环。'
 
+    platform_recommendations = recommend_platforms_for_assessment(assessment)
+    platform_json = json.dumps(platform_recommendations, ensure_ascii=False)
     cur = conn.execute(
-        '''INSERT INTO diagnoses(assessment_id, score, stage, priority_problem, insight, weekly_action, next_step, risk_warning)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-        (assessment_id, score, stage, priority, insight, weekly_action, next_step, risk),
+        '''INSERT INTO diagnoses(assessment_id, score, stage, priority_problem, insight, weekly_action, next_step, risk_warning, platform_recommendations)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (assessment_id, score, stage, priority, insight, weekly_action, next_step, risk, platform_json),
     )
     conn.commit()
     return dict_row(conn.execute('SELECT * FROM diagnoses WHERE id=?', (cur.lastrowid,)).fetchone())
@@ -257,14 +344,20 @@ def generate_diagnosis(conn, assessment_id):
 
 def preferred_platforms(conn, diagnosis_id):
     row = conn.execute(
-        'SELECT a.current_channels FROM assessments a JOIN diagnoses d ON d.assessment_id=a.id WHERE d.id=?',
+        '''SELECT a.current_channels, d.platform_recommendations
+           FROM assessments a JOIN diagnoses d ON d.assessment_id=a.id WHERE d.id=?''',
         (diagnosis_id,),
     ).fetchone()
-    channels = row['current_channels'] if row else ''
-    for raw in channels.replace('，', ',').replace('、', ',').replace('/', ',').split(','):
-        platform = raw.strip()
-        if platform:
-            yield platform
+    if not row:
+        return
+    recommendations = {}
+    if row['platform_recommendations']:
+        try:
+            recommendations = json.loads(row['platform_recommendations'])
+        except json.JSONDecodeError:
+            recommendations = {}
+    for platform in platform_plan_sequence(recommendations, row['current_channels']):
+        yield platform
 
 
 def preferred_platform(conn, diagnosis_id):

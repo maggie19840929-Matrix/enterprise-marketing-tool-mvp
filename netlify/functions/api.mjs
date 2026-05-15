@@ -50,7 +50,71 @@ const scoreFor = (assessment) => {
 
 const platformsFor = (channels = '') => {
   const items = channels.split(/[,，、/\s]+/).map((item) => item.trim()).filter(Boolean);
-  return items.length ? items : ['小红书'];
+  return [...new Set(items)];
+};
+
+const hasAny = (text, words) => words.some((word) => text.includes(word));
+const addPlatform = (bucket, platform, reason) => {
+  if (!bucket.some((item) => item.platform === platform)) bucket.push({ platform, reason });
+};
+
+const recommendPlatforms = (assessment) => {
+  const text = [
+    assessment.industry,
+    assessment.main_goal,
+    assessment.target_customer,
+    assessment.offer,
+    assessment.customer_pain,
+    assessment.content_assets,
+  ].filter(Boolean).join(' ');
+  const current = platformsFor(assessment.current_channels);
+  const primary = [];
+  const support = [];
+  const avoid = [];
+
+  if (hasAny(text, ['口腔', '牙', '门诊', '种植', '矫正', '正畸', '宝妈', '到店'])) {
+    addPlatform(primary, '小红书', '适合做本地宝妈种草、儿童矫正避坑、医生专业信任内容。');
+    addPlatform(primary, '美团/大众点评', '适合承接已有到店意图的用户，重点优化套餐、评价和门店转化。');
+    addPlatform(primary, '朋友圈/私域', '适合做老客转介绍、客户案例、活动提醒和信任维护。');
+    addPlatform(support, '抖音', '可用于医生出镜科普和案例讲解，但需要稳定短视频生产能力。');
+    addPlatform(support, '视频号', '适合微信生态内的熟人关系转化和本地信任沉淀。');
+    addPlatform(avoid, '公众号', '冷启动慢，不适合作为30天内快速获客主渠道。');
+    addPlatform(avoid, 'B站', '内容生产成本高，短期本地咨询转化弱。');
+  } else if (hasAny(text, ['本地', '到店', '门店', '附近', '同城', '美业', '产康', '体验课'])) {
+    addPlatform(primary, '小红书', '适合做同城种草、案例体验和痛点搜索承接。');
+    addPlatform(primary, '朋友圈/私域', '适合做熟人信任、老客复购和转介绍。');
+    addPlatform(primary, '抖音', '适合用短视频放大同城曝光，但要控制内容节奏和转化入口。');
+    addPlatform(support, '美团/大众点评', '适合有到店需求时承接搜索和评价转化。');
+    addPlatform(avoid, 'B站', '本地短期获客效率较低，不建议作为第一主阵地。');
+  } else if (hasAny(text, ['工业', '设备', '工厂', '采购', 'B2B', '企业', '方案', '软件', '服务商'])) {
+    addPlatform(primary, '视频号', '适合沉淀专业信任、销售转发和微信生态线索承接。');
+    addPlatform(primary, '公众号', '适合沉淀方案文章、案例和长期搜索资料。');
+    addPlatform(primary, '知乎', '适合承接专业问题搜索，建立方案型信任。');
+    addPlatform(support, '小红书', '可测试采购避坑、老板视角和案例拆解，但不宜只追求种草感。');
+    addPlatform(avoid, '美团/大众点评', 'B2B企业服务通常不是本地主动搜索到店场景。');
+  } else if (hasAny(text, ['教育', '培训', '课程', '报名', '留学', '考试'])) {
+    addPlatform(primary, '小红书', '适合用学习经验、避坑和案例内容承接主动搜索。');
+    addPlatform(primary, '视频号', '适合家长/熟人圈层转化和直播沉淀。');
+    addPlatform(primary, '朋友圈/私域', '适合跟进试听、答疑和报名转化。');
+    addPlatform(support, '抖音', '适合扩大曝光，但需要高频短视频和强钩子。');
+    addPlatform(avoid, 'B站', '适合长期知识资产，不适合短期报名转化主渠道。');
+  } else {
+    current.slice(0, 3).forEach((platform) => addPlatform(primary, platform, '这是客户当前已有平台，1.0先用它低成本测试内容反馈。'));
+    if (primary.length < 3) addPlatform(primary, '小红书', '适合测试用户痛点、案例和搜索型内容反馈。');
+    addPlatform(support, '视频号', '适合沉淀微信生态信任和私域承接。');
+    addPlatform(avoid, 'B站', '内容生产周期较长，除非已有稳定长内容能力，否则暂不作为第一优先。');
+  }
+
+  const covered = primary.filter((item) => current.includes(item.platform) || item.platform.split('/').some((part) => current.includes(part))).map((item) => item.platform);
+  let strategy = '当前更适合先做“信任建立 + 有效咨询/到店转化”的组合，而不是只追求曝光。';
+  if (current.length && covered.length) strategy += ` 已填写平台中「${covered.join('、')}」可以优先保留。`;
+  else if (current.length) strategy += ' 已填写平台和系统优先平台不完全一致，建议先按推荐平台做一周小样本验证。';
+  return { strategy, primary: primary.slice(0, 3), support: support.slice(0, 3), avoid: avoid.slice(0, 3) };
+};
+
+const planPlatforms = (recommendations, fallbackChannels) => {
+  const primary = (recommendations?.primary || []).map((item) => item.platform).filter(Boolean);
+  return primary.length ? primary : (platformsFor(fallbackChannels).length ? platformsFor(fallbackChannels) : ['小红书']);
 };
 
 const planTemplates = (priority, industry, goal, target, offer, pain) => {
@@ -117,7 +181,7 @@ const generateDiagnosis = (assessmentId) => {
     insight: '',
     weekly_action: '',
     next_step: '',
-    risk_warning: '',
+    platform_recommendations: recommendPlatforms(assessment),
     created_at: nowIso(),
   };
 
@@ -156,7 +220,7 @@ const createContentPlan = (diagnosisId) => {
   const target = assessment?.target_customer || '目标客户';
   const offer = assessment?.offer || '一次免费诊断';
   const pain = assessment?.customer_pain || assessment?.biggest_problem || '当前核心痛点';
-  const platforms = platformsFor(assessment?.current_channels);
+  const platforms = planPlatforms(diagnosis.platform_recommendations, assessment?.current_channels);
   state.plans = [];
   state.feedback = [];
   state.reviews = [];

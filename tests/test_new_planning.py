@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 from business import (
@@ -104,7 +105,12 @@ def test_oral_clinic_plan_uses_current_form_fields_without_old_mock():
     assert '口腔检查' in combined
     assert '怕贵' in combined
     assert '医生专业度' in combined
-    assert [item['platform'] for item in items[:6]] == ['朋友圈', '小红书', '美团', '朋友圈', '小红书', '美团']
+    assert [item['platform'] for item in items[:6]] == ['小红书', '美团/大众点评', '朋友圈/私域', '小红书', '美团/大众点评', '朋友圈/私域']
+    recommendations = json.loads(diagnosis['platform_recommendations'])
+    assert recommendations['primary'][0]['platform'] == '小红书'
+    assert recommendations['primary'][1]['platform'] == '美团/大众点评'
+    assert recommendations['primary'][2]['platform'] == '朋友圈/私域'
+    assert any(item['platform'] == '公众号' for item in recommendations['avoid'])
     assert '视频号' not in [item['platform'] for item in items]
     assert '本地服务' not in combined
     assert '有明确需求的本地客户' not in combined
