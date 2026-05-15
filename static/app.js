@@ -1,26 +1,75 @@
 const $ = (s) => document.querySelector(s);
+const STORAGE_KEY = 'enterpriseMarketingMvpState.v2';
+
+let clientState = {
+  diagnosis: null,
+  plans: [],
+  feedback: [],
+  review: null,
+};
+
 const api = async (url, opts={}) => {
   const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if(!res.ok) throw new Error(data.error || '请求失败');
   return data;
 };
 const toast = (msg) => { const el=$('#toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2400); };
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
+const saveLocal = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
+const loadLocal = () => {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
+  catch { return null; }
+};
 
 async function loadAll(){
+  const local = loadLocal();
+  if (local?.plans?.length || local?.diagnosis) {
+    clientState = {...clientState, ...local};
+    renderAllFromClient();
+    return;
+  }
   const [dash, diagnoses, plans, feedback, reviews] = await Promise.all([
     api('/api/dashboard'), api('/api/diagnoses'), api('/api/plans'), api('/api/feedback'), api('/api/reviews')
   ]);
+  clientState = {
+    diagnosis: diagnoses[0] || null,
+    plans: plans || [],
+    feedback: feedback || [],
+    review: reviews[0] || null,
+  };
   renderDashboard(dash);
-  renderDiagnosis(diagnoses[0]);
-  renderPlans(plans);
-  renderFeedback(feedback);
-  renderReview(reviews[0]);
+  renderDiagnosis(clientState.diagnosis);
+  renderPlans(clientState.plans);
+  renderFeedback(clientState.feedback);
+  renderReview(clientState.review);
 }
 
 function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
 function esc(v){ return String(v ?? '').replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+function num(v){ return Number(v || 0); }
+function interactions(f){ return num(f.likes) + num(f.comments) + num(f.favorites) + num(f.shares); }
+
+function clientDashboard(){
+  const total_plans = clientState.plans.length;
+  const published_plans = clientState.plans.filter((plan) => plan.status === '已发布').length;
+  const total_views = clientState.feedback.reduce((sum, item) => sum + num(item.views), 0);
+  const total_interactions = clientState.feedback.reduce((sum, item) => sum + interactions(item), 0);
+  const total_consultations = clientState.feedback.reduce((sum, item) => sum + num(item.consultations), 0);
+  let next_suggestion = '先执行：还没有发布反馈，优先完成第一条内容发布和数据回填。';
+  if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题并保留CTA。';
+  else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化结尾引导和客户痛点表达。';
+  if (clientState.review?.next_actions) next_suggestion = clientState.review.next_actions;
+  return {total_plans, published_plans, feedback_rate: total_plans ? published_plans / total_plans : 0, total_views, total_interactions, total_consultations, next_suggestion};
+}
+
+function renderAllFromClient(){
+  renderDashboard(clientDashboard());
+  renderDiagnosis(clientState.diagnosis);
+  renderPlans(clientState.plans);
+  renderFeedback(clientState.feedback);
+  renderReview(clientState.review);
+}
 
 function renderDashboard(d){
   $('#metricCards').innerHTML = [
@@ -32,18 +81,6 @@ function renderDashboard(d){
     ['私信/咨询', d.total_consultations],
   ].map(([k,v])=>`<div class="card"><span>${k}</span><b>${v}</b></div>`).join('') +
   `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>`;
-}
-
-function freshDashboard(plans){
-  return {
-    total_plans: plans.length,
-    published_plans: 0,
-    feedback_rate: 0,
-    total_views: 0,
-    total_interactions: 0,
-    total_consultations: 0,
-    next_suggestion: '先执行：还没有发布反馈，优先完成第一条内容发布和数据回填。'
-  };
 }
 
 function renderDiagnosis(d){
@@ -75,7 +112,7 @@ function renderPlans(plans){
 
 function renderFeedback(items){
   $('#feedbackList').innerHTML = items.map(f=>`<div class="list-item">
-    <strong>计划 #${f.content_plan_id}</strong> · 曝光 ${f.views} · 互动 ${f.likes+f.comments+f.favorites+f.shares} · 咨询 ${f.consultations}
+    <strong>计划 #${f.content_plan_id}</strong> · 曝光 ${f.views} · 互动 ${interactions(f)} · 咨询 ${f.consultations}
     ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : ''}
     <div class="small">${esc(f.notes || '无备注')} · ${esc(f.created_at)}</div>
   </div>`).join('') || '<div class="empty">暂无反馈。发布后回填数据，系统才会给下一轮建议。</div>';
@@ -98,32 +135,90 @@ function prefillFeedback(id){
 }
 window.prefillFeedback = prefillFeedback;
 
+function createLocalReview(){
+  const rows = clientState.feedback.map((feedback) => ({
+    ...feedback,
+    topic: clientState.plans.find((plan) => plan.id === Number(feedback.content_plan_id))?.topic || '',
+  }));
+  const total_posts = rows.length;
+  const total_views = rows.reduce((sum, item) => sum + num(item.views), 0);
+  const total_interactions = rows.reduce((sum, item) => sum + interactions(item), 0);
+  const total_consultations = rows.reduce((sum, item) => sum + num(item.consultations), 0);
+  const winner = rows.slice().sort((a, b) =>
+    (num(b.consultations) - num(a.consultations)) ||
+    ((num(b.favorites) + num(b.comments)) - (num(a.favorites) + num(a.comments))) ||
+    (num(b.views) - num(a.views))
+  )[0];
+  const day = new Date();
+  const monday = new Date(day);
+  monday.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  let bottleneck = '暂无反馈数据';
+  let next_actions = '先完成至少1条内容发布和反馈回填，否则无法复盘。';
+  if (rows.length && total_consultations > 0) {
+    bottleneck = '需要扩大有效内容样本';
+    next_actions = `加码「${winner.topic}」同类角度，下周至少复制3条，并保留相同CTA。`;
+  } else if (rows.length && total_views < 1000) {
+    bottleneck = '曝光不足';
+    next_actions = '优先优化标题/封面/开头，先获得足够曝光样本。';
+  } else if (rows.length) {
+    bottleneck = '转化不足';
+    next_actions = '已有曝光但咨询不足，下周强化痛点表达、案例信任和明确咨询入口。';
+  }
+  return {
+    week_start: monday.toISOString().slice(0, 10),
+    week_end: sunday.toISOString().slice(0, 10),
+    total_posts, total_views, total_interactions, total_consultations,
+    winner_topic: winner?.topic || '', bottleneck, next_actions,
+    created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+  };
+}
+
 $('#assessmentForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(formData(e.target))});
+  const payload = formData(e.target);
+  const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
+  clientState = {
+    diagnosis: result.diagnosis,
+    plans: result.plans || [],
+    feedback: [],
+    review: null,
+  };
+  saveLocal();
   e.target.reset();
   toast('已生成诊断和7天发布计划');
-  renderDashboard(freshDashboard(result.plans));
-  renderDiagnosis(result.diagnosis);
-  renderPlans(result.plans);
-  renderFeedback([]);
-  renderReview(null);
+  renderAllFromClient();
 });
 
 $('#feedbackForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const data = formData(e.target);
   ['content_plan_id','views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=Number(data[k]||0));
-  await api('/api/feedback', {method:'POST', body: JSON.stringify(data)});
+  const plan = clientState.plans.find((item) => Number(item.id) === Number(data.content_plan_id));
+  if (!plan) { toast('发布计划ID不存在，请先生成计划'); return; }
+  const feedback = {
+    id: Date.now(),
+    ...data,
+    created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+  };
+  plan.status = '已发布';
+  if (feedback.publish_link) plan.publish_link = feedback.publish_link;
+  clientState.feedback = [feedback, ...clientState.feedback.filter((item) => Number(item.content_plan_id) !== Number(data.content_plan_id))];
+  clientState.review = null;
+  saveLocal();
+  renderAllFromClient();
   e.target.reset();
   toast('反馈已保存，闭环看板已更新');
-  loadAll();
+  api('/api/feedback', {method:'POST', body: JSON.stringify(data)}).catch(() => {});
 });
 
 $('#reviewBtn').addEventListener('click', async ()=>{
-  await api('/api/reviews', {method:'POST', body: JSON.stringify({})});
+  clientState.review = createLocalReview();
+  saveLocal();
+  renderAllFromClient();
   toast('周复盘已生成');
-  loadAll();
+  api('/api/reviews', {method:'POST', body: JSON.stringify({})}).catch(() => {});
 });
-$('#refreshBtn').addEventListener('click', loadAll);
+$('#refreshBtn').addEventListener('click', () => { localStorage.removeItem(STORAGE_KEY); loadAll().catch(err=>toast(err.message)); });
 loadAll().catch(err=>toast(err.message));

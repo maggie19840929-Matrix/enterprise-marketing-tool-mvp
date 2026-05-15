@@ -48,8 +48,10 @@ const scoreFor = (assessment) => {
   return Math.max(0, Math.min(100, score));
 };
 
-const platformFor = (channels = '') =>
-  channels.split(/[,，、/\s]+/).map((item) => item.trim()).find(Boolean) || '视频号';
+const platformsFor = (channels = '') => {
+  const items = channels.split(/[,，、/\s]+/).map((item) => item.trim()).filter(Boolean);
+  return items.length ? items : ['小红书'];
+};
 
 const planTemplates = (priority, industry, goal, target, offer, pain) => {
   const cta = `想要${goal}，可以私信了解「${offer}」`;
@@ -154,7 +156,7 @@ const createContentPlan = (diagnosisId) => {
   const target = assessment?.target_customer || '目标客户';
   const offer = assessment?.offer || '一次免费诊断';
   const pain = assessment?.customer_pain || assessment?.biggest_problem || '当前核心痛点';
-  const platform = platformFor(assessment?.current_channels);
+  const platforms = platformsFor(assessment?.current_channels);
   state.plans = [];
   state.feedback = [];
   state.reviews = [];
@@ -165,7 +167,7 @@ const createContentPlan = (diagnosisId) => {
     id: state.next.plan++,
     diagnosis_id: diagnosisId,
     planned_date: todayIso(index),
-    platform,
+    platform: platforms[index % platforms.length],
     topic,
     angle,
     content_type,
