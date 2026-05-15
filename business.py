@@ -255,7 +255,7 @@ def generate_diagnosis(conn, assessment_id):
     return dict_row(conn.execute('SELECT * FROM diagnoses WHERE id=?', (cur.lastrowid,)).fetchone())
 
 
-def preferred_platform(conn, diagnosis_id):
+def preferred_platforms(conn, diagnosis_id):
     row = conn.execute(
         'SELECT a.current_channels FROM assessments a JOIN diagnoses d ON d.assessment_id=a.id WHERE d.id=?',
         (diagnosis_id,),
@@ -264,8 +264,11 @@ def preferred_platform(conn, diagnosis_id):
     for raw in channels.replace('，', ',').replace('、', ',').replace('/', ',').split(','):
         platform = raw.strip()
         if platform:
-            return platform
-    return '视频号'
+            yield platform
+
+
+def preferred_platform(conn, diagnosis_id):
+    return next(preferred_platforms(conn, diagnosis_id), '小红书')
 
 
 def _plan_templates(priority, industry, goal, target, offer, pain):
@@ -289,7 +292,7 @@ def create_content_plan(conn, diagnosis_id):
     if not diagnosis:
         raise ValueError('诊断记录不存在')
     assessment = conn.execute('SELECT a.* FROM assessments a JOIN diagnoses d ON d.assessment_id=a.id WHERE d.id=?', (diagnosis_id,)).fetchone()
-    platform = preferred_platform(conn, diagnosis_id)
+    platforms = list(preferred_platforms(conn, diagnosis_id)) or ['小红书']
     industry = assessment['industry'] or '当前行业'
     goal = assessment['main_goal'] or '获得更多有效咨询'
     target = assessment['target_customer'] or '目标客户'
@@ -304,7 +307,7 @@ def create_content_plan(conn, diagnosis_id):
         cur = conn.execute(
             '''INSERT INTO content_plans(diagnosis_id, planned_date, platform, topic, angle, content_type, cta, target_metric)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-            (diagnosis_id, (base + timedelta(days=idx - 1)).isoformat(), platform, topic, angle, content_type, cta, metric),
+            (diagnosis_id, (base + timedelta(days=idx - 1)).isoformat(), platforms[(idx - 1) % len(platforms)], topic, angle, content_type, cta, metric),
         )
         items.append(dict_row(conn.execute('SELECT * FROM content_plans WHERE id=?', (cur.lastrowid,)).fetchone()))
     conn.commit()

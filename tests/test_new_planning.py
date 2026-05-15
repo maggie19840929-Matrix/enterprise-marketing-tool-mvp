@@ -81,12 +81,12 @@ def test_oral_clinic_plan_uses_current_form_fields_without_old_mock():
     assessment_id = create_assessment(conn, {
         'industry': '口腔门诊',
         'main_goal': '让更多家长预约儿童牙齿矫正咨询',
-        'current_channels': '小红书, 视频号',
+        'current_channels': '朋友圈、小红书、美团',
         'posting_frequency': '每周3条',
         'biggest_problem': '不知道发什么',
-        'target_customer': '宝妈',
-        'offer': '儿童牙齿矫正初筛',
-        'customer_pain': '担心孩子牙齿不齐但不知道是否需要矫正',
+        'target_customer': '25-45岁本地宝妈和家庭客户',
+        'offer': '儿童牙齿矫正、种植牙、口腔检查',
+        'customer_pain': '怕贵、怕没效果、不信任医生专业度',
     })
     diagnosis = generate_diagnosis(conn, assessment_id)
     items = create_content_plan(conn, diagnosis['id'])
@@ -99,9 +99,16 @@ def test_oral_clinic_plan_uses_current_form_fields_without_old_mock():
 
     assert '口腔门诊' in combined
     assert '宝妈' in combined
-    assert '儿童牙齿矫正初筛' in combined
-    assert '孩子牙齿不齐' in combined
-    assert items[0]['platform'] == '小红书'
+    assert '儿童牙齿矫正' in combined
+    assert '种植牙' in combined
+    assert '口腔检查' in combined
+    assert '怕贵' in combined
+    assert '医生专业度' in combined
+    assert [item['platform'] for item in items[:6]] == ['朋友圈', '小红书', '美团', '朋友圈', '小红书', '美团']
+    assert '视频号' not in [item['platform'] for item in items]
+    assert '本地服务' not in combined
+    assert '有明确需求的本地客户' not in combined
+    assert '一次免费咨询' not in combined
     assert '工厂采购负责人' not in combined
     assert '工业设备' not in combined
     assert '免费选型建议' not in combined
