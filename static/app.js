@@ -26,23 +26,12 @@ async function loadAll(){
   const local = loadLocal();
   if (local?.plans?.length || local?.diagnosis) {
     clientState = {...clientState, ...local};
-    renderAllFromClient();
-    return;
+  } else {
+    // Netlify Functions are serverless and may expose stale demo memory from another invocation.
+    // For the MVP demo, the browser's localStorage is the trusted session state.
+    clientState = { diagnosis: null, plans: [], feedback: [], review: null };
   }
-  const [dash, diagnoses, plans, feedback, reviews] = await Promise.all([
-    api('/api/dashboard'), api('/api/diagnoses'), api('/api/plans'), api('/api/feedback'), api('/api/reviews')
-  ]);
-  clientState = {
-    diagnosis: diagnoses[0] || null,
-    plans: plans || [],
-    feedback: feedback || [],
-    review: reviews[0] || null,
-  };
-  renderDashboard(dash);
-  renderDiagnosis(clientState.diagnosis);
-  renderPlans(clientState.plans);
-  renderFeedback(clientState.feedback);
-  renderReview(clientState.review);
+  renderAllFromClient();
 }
 
 function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
