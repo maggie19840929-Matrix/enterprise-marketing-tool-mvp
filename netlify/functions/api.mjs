@@ -283,7 +283,11 @@ const ensureState = () => {
 export default async (request) => {
   ensureState();
   const url = new URL(request.url);
-  const path = `/${(url.searchParams.get('path') || '').replace(/^\/+/, '')}`;
+  const route = (
+    url.searchParams.get('path') ||
+    url.pathname.replace(/^\/api\/?/, '').replace(/^\/\.netlify\/functions\/api\/?/, '')
+  );
+  const path = `/${route.replace(/^\/+/, '')}`;
   try {
     if (request.method === 'GET') {
       if (path === '/health') return json({ ok: true, runtime: 'netlify-function' });
