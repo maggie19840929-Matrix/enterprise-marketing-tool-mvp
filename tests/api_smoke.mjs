@@ -1,4 +1,4 @@
-import handler from '../netlify/functions/api.mjs';
+import handler, { shanghaiDateIso } from '../netlify/functions/api.mjs';
 
 const request = (method, path, body) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
   method,
@@ -42,7 +42,9 @@ assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', '
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
-assert(plans[0].planned_date === new Date().toLocaleDateString('sv-SE'), `planned_date should start today local date, got ${plans[0].planned_date}`);
+assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17', 'Shanghai business date should roll forward at UTC+8 midnight');
+assert(shanghaiDateIso(1, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-18', 'Shanghai offset should advance from business date');
+assert(plans[0].planned_date === shanghaiDateIso(), `planned_date should start today in Asia/Shanghai, got ${plans[0].planned_date}`);
 assert(!plans[0].topic.includes('本地生活服务商家、中小企业负责人'), 'topic should use short audience label, not field-stuffed target_customer');
 assert(plans.every((p) => p.publish_quality), 'each plan should include publish_quality');
 assert(plans.some((p) => p.publish_quality.includes('可直接进入草稿')), 'plans should mark draft-ready items');

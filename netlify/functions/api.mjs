@@ -8,15 +8,26 @@ const json = (payload, status = 200) =>
 
 const clean = (data, key, fallback = '') => String(data?.[key] ?? fallback).trim();
 const pad2 = (n) => String(n).padStart(2, '0');
-const localDateIso = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-const todayIso = (offset = 0) => {
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  return localDateIso(date);
+const utcDateIso = (date) => `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`;
+const shanghaiClock = (base = new Date(), offset = 0) => {
+  const date = new Date(base);
+  date.setUTCHours(date.getUTCHours() + 8);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date;
 };
+export const shanghaiDateIso = (offset = 0, base = new Date()) => utcDateIso(shanghaiClock(base, offset));
+const todayIso = shanghaiDateIso;
 const nowIso = () => {
-  const date = new Date();
-  return `${localDateIso(date)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+  const date = shanghaiClock();
+  return `${utcDateIso(date)} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`;
+};
+const shanghaiWeekRange = (base = new Date()) => {
+  const day = shanghaiClock(base);
+  const monday = new Date(day);
+  monday.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  return { week_start: utcDateIso(monday), week_end: utcDateIso(sunday) };
 };
 
 const blankState = () => ({
@@ -375,15 +386,11 @@ const createWeeklyReview = () => {
     bottleneck = '转化不足';
     next_actions = '已有曝光但咨询不足，下周强化痛点表达、案例信任和明确咨询入口。';
   }
-  const day = new Date();
-  const monday = new Date(day);
-  monday.setDate(day.getDate() - ((day.getDay() + 6) % 7));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+  const { week_start, week_end } = shanghaiWeekRange();
   const review = {
     id: state.next.review++,
-    week_start: localDateIso(monday),
-    week_end: localDateIso(sunday),
+    week_start,
+    week_end,
     total_posts,
     total_views,
     total_interactions,
