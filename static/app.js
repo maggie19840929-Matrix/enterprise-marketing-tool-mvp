@@ -21,6 +21,24 @@ const loadLocal = () => {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
   catch { return null; }
 };
+const toNonNegative = (value) => Math.max(0, Number(value || 0));
+const withBusy = async (button, busyText, task) => {
+  const originalText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = busyText;
+  }
+  try {
+    await task();
+  } catch (error) {
+    toast(error.message || '操作失败，请稍后再试');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+};
 
 async function loadAll(){
   const local = loadLocal();
@@ -87,13 +105,16 @@ function renderDiagnosis(d){
   const platformModule = platformRecommendations ? `<div class="warning">
     <div class="small">平台发布建议</div>
     <p>${esc(platformRecommendations.strategy || '')}</p>
-    ${renderPlatformGroup('优先平台', platformRecommendations.primary)}
+    ${renderPlatformGroup('本账号优先平台', platformRecommendations.primary)}
     ${renderPlatformGroup('辅助平台', platformRecommendations.support)}
+    ${renderPlatformGroup('目标客户可能适用平台（不是本账号发布平台）', platformRecommendations.client_platforms)}
     ${renderPlatformGroup('暂不建议', platformRecommendations.avoid)}
   </div>` : '';
   $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card">
-    <div class="score"><span>营销闭环分</span><strong>${d.score}</strong><em>/100</em></div>
+    <div class="score"><span>策略清晰度</span><strong>${d.strategy_score ?? d.score}</strong><em>/100</em></div>
+    <div class="score"><span>闭环成熟度</span><strong>${d.loop_score ?? 0}</strong><em>/100</em></div>
     <span class="badge">${esc(d.stage)}</span>
+    <div class="warning"><div class="small">评分说明</div><p>${esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。')}</p></div>
     <div><div class="small">优先问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
     <div><div class="small">诊断</div><p>${esc(d.insight)}</p></div>
     ${platformModule}
@@ -110,7 +131,7 @@ function renderPlans(plans){
     <td><strong>${esc(p.topic)}</strong></td>
     <td>${esc(p.angle)}</td>
     <td>${esc(p.content_type || '')}</td>
-    <td>${esc(p.cta || '')}</td>
+    <td>${esc(p.cta || '')}<div class="small">${esc(p.publish_quality || '')}${p.quality_note ? '：' + esc(p.quality_note) : ''}</div></td>
     <td>${esc(p.target_metric)}</td>
     <td><span class="status">${esc(p.status)}</span></td>
     <td><button class="secondary" onclick="prefillFeedback(${p.id})">填反馈</button></td>
@@ -184,48 +205,58 @@ function createLocalReview(){
 
 $('#assessmentForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const payload = formData(e.target);
-  const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
-  clientState = {
-    diagnosis: result.diagnosis,
-    plans: result.plans || [],
-    feedback: [],
-    review: null,
-  };
-  saveLocal();
-  e.target.reset();
-  toast('已生成诊断和7天发布计划');
-  renderAllFromClient();
+  await withBusy(e.submitter, '生成中...', async () => {
+    const payload = formData(e.target);
+    const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
+    clientState = {
+      diagnosis: result.diagnosis,
+      plans: result.plans || [],
+      feedback: [],
+      review: null,
+    };
+    saveLocal();
+    e.target.reset();
+    toast('已生成诊断和7天发布计划');
+    renderAllFromClient();
+  });
 });
 
 $('#feedbackForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const data = formData(e.target);
-  ['content_plan_id','views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=Number(data[k]||0));
-  const plan = clientState.plans.find((item) => Number(item.id) === Number(data.content_plan_id));
-  if (!plan) { toast('发布计划ID不存在，请先生成计划'); return; }
-  const feedback = {
-    id: Date.now(),
-    ...data,
-    created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
-  };
-  plan.status = '已发布';
-  if (feedback.publish_link) plan.publish_link = feedback.publish_link;
-  clientState.feedback = [feedback, ...clientState.feedback.filter((item) => Number(item.content_plan_id) !== Number(data.content_plan_id))];
-  clientState.review = null;
-  saveLocal();
-  renderAllFromClient();
-  e.target.reset();
-  toast('反馈已保存，闭环看板已更新');
-  api('/api/feedback', {method:'POST', body: JSON.stringify(data)}).catch(() => {});
+  await withBusy(e.submitter, '保存中...', async () => {
+    const data = formData(e.target);
+    ['content_plan_id','views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=toNonNegative(data[k]));
+    const plan = clientState.plans.find((item) => Number(item.id) === Number(data.content_plan_id));
+    if (!plan) throw new Error('发布计划ID不存在，请先生成计划');
+    const feedback = {
+      id: Date.now(),
+      ...data,
+      created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    };
+    plan.status = '已发布';
+    if (feedback.publish_link) plan.publish_link = feedback.publish_link;
+    clientState.feedback = [feedback, ...clientState.feedback.filter((item) => Number(item.content_plan_id) !== Number(data.content_plan_id))];
+    clientState.review = null;
+    saveLocal();
+    renderAllFromClient();
+    e.target.reset();
+    toast('反馈已保存，闭环看板已更新');
+    api('/api/feedback', {method:'POST', body: JSON.stringify(data)}).catch(() => {});
+  });
 });
 
 $('#reviewBtn').addEventListener('click', async ()=>{
-  clientState.review = createLocalReview();
-  saveLocal();
-  renderAllFromClient();
-  toast('周复盘已生成');
-  api('/api/reviews', {method:'POST', body: JSON.stringify({})}).catch(() => {});
+  await withBusy($('#reviewBtn'), '生成中...', async () => {
+    clientState.review = createLocalReview();
+    saveLocal();
+    renderAllFromClient();
+    toast('周复盘已生成');
+    api('/api/reviews', {method:'POST', body: JSON.stringify({})}).catch(() => {});
+  });
 });
-$('#refreshBtn').addEventListener('click', () => { localStorage.removeItem(STORAGE_KEY); loadAll().catch(err=>toast(err.message)); });
+$('#refreshBtn').addEventListener('click', () => {
+  localStorage.removeItem(STORAGE_KEY);
+  clientState = { diagnosis: null, plans: [], feedback: [], review: null };
+  loadAll().then(()=>toast('已清空本浏览器演示数据')).catch(err=>toast(err.message));
+});
 loadAll().catch(err=>toast(err.message));

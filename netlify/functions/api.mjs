@@ -7,12 +7,17 @@ const json = (payload, status = 200) =>
   });
 
 const clean = (data, key, fallback = '') => String(data?.[key] ?? fallback).trim();
+const pad2 = (n) => String(n).padStart(2, '0');
+const localDateIso = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 const todayIso = (offset = 0) => {
   const date = new Date();
   date.setDate(date.getDate() + offset);
-  return date.toISOString().slice(0, 10);
+  return localDateIso(date);
 };
-const nowIso = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+const nowIso = () => {
+  const date = new Date();
+  return `${localDateIso(date)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+};
 
 const blankState = () => ({
   next: { assessment: 1, diagnosis: 1, plan: 1, feedback: 1, review: 1 },
@@ -36,17 +41,29 @@ const priorityFor = (problem = '') => {
   return '营销动作缺少复盘';
 };
 
-const scoreFor = (assessment) => {
-  let score = 35;
+const strategyScoreFor = (assessment) => {
+  let score = 30;
   if (assessment.target_customer) score += 12;
   if (assessment.offer) score += 12;
-  if (assessment.best_recent_content) score += 10;
-  if (['每周', '每天', '稳定'].some((word) => assessment.posting_frequency.includes(word))) score += 12;
-  if (['视频号', '小红书', '抖音', '公众号'].some((channel) => assessment.current_channels.includes(channel))) score += 8;
-  if (assessment.customer_pain) score += 6;
-  if (assessment.content_assets) score += 5;
+  if (assessment.customer_pain) score += 12;
+  if (assessment.content_assets) score += 8;
+  if (assessment.best_recent_content) score += 8;
+  if (['视频号', '小红书', '抖音', '公众号', '朋友圈'].some((channel) => assessment.current_channels.includes(channel))) score += 8;
+  if (assessment.main_goal) score += 10;
   return Math.max(0, Math.min(100, score));
 };
+
+const loopScoreFor = (assessment) => {
+  // 新诊断不能因为信息填得完整就给高“增长闭环分”。
+  // 闭环成熟度必须由发布、反馈、复盘数据驱动；首次提交最多只给基础分。
+  let score = 8;
+  if (['每周', '每天', '稳定'].some((word) => assessment.posting_frequency.includes(word))) score += 4;
+  if (assessment.best_recent_content) score += 3;
+  if (assessment.content_assets) score += 3;
+  return Math.max(0, Math.min(25, score));
+};
+
+const scoreFor = strategyScoreFor;
 
 const platformsFor = (channels = '') => {
   const items = channels.split(/[,，、/\s]+/).map((item) => item.trim()).filter(Boolean);
@@ -54,25 +71,60 @@ const platformsFor = (channels = '') => {
 };
 
 const hasAny = (text, words) => words.some((word) => text.includes(word));
+const shortAudience = (target = '') => {
+  const text = target.replace(/[。；;]+$/g, '');
+  if (hasAny(text, ['小老板', '老板'])) return '小老板';
+  if (hasAny(text, ['中小企业', '企业负责人', '企业主'])) return '企业主';
+  if (hasAny(text, ['本地生活', '商家', '门店'])) return '服务型商家';
+  if (hasAny(text, ['采购', '工厂'])) return '采购负责人';
+  if (hasAny(text, ['宝妈'])) return '宝妈/家长';
+  if (hasAny(text, ['家长'])) return '家长';
+  return text.split(/[、,，/]/).map((x) => x.trim()).filter(Boolean)[0] || '目标客户';
+};
+const painLabel = (pain = '', problem = '') => {
+  const text = `${pain} ${problem}`;
+  if (hasAny(text, ['不知道该发什么', '不知道发什么', '选题'])) return '不知道该发什么';
+  if (hasAny(text, ['没咨询', '没有咨询', '不转化', '转化'])) return '发了内容但没咨询';
+  if (hasAny(text, ['复盘'])) return '发完内容不会复盘';
+  if (hasAny(text, ['AI', '文案'])) return 'AI文案没有转化';
+  if (hasAny(text, ['流量', '曝光', '播放'])) return '内容曝光不足';
+  return pain || problem || '当前核心痛点';
+};
+const softCta = (offer = '', pain = '') => {
+  if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，先留言/私信“复盘”，从一张内容反馈表开始。';
+  return `如果你也遇到「${pain || '类似问题'}」，可以留言你的情况，先判断问题卡在哪里。`;
+};
+const isMetaMarketingAccount = (assessment) => hasAny([assessment.industry, assessment.offer, assessment.main_goal].filter(Boolean).join(' '), ['企业内容增长', '小老板线上获客', 'AI营销复盘', '营销增长', '内容获客']);
 const addPlatform = (bucket, platform, reason) => {
   if (!bucket.some((item) => item.platform === platform)) bucket.push({ platform, reason });
 };
 
 const recommendPlatforms = (assessment) => {
-  const text = [
+  const accountText = [
     assessment.industry,
     assessment.main_goal,
-    assessment.target_customer,
     assessment.offer,
     assessment.customer_pain,
     assessment.content_assets,
   ].filter(Boolean).join(' ');
+  const targetText = assessment.target_customer || '';
   const current = platformsFor(assessment.current_channels);
   const primary = [];
   const support = [];
   const avoid = [];
+  const clientPlatforms = [];
 
-  if (hasAny(text, ['口腔', '牙', '门诊', '种植', '矫正', '正畸', '宝妈', '到店'])) {
+  const addClient = (platform, reason) => addPlatform(clientPlatforms, platform, reason);
+
+  if (isMetaMarketingAccount(assessment)) {
+    addPlatform(primary, '小红书', '适合验证小老板痛点、搜索型方法论、收藏型复盘内容。');
+    addPlatform(primary, '视频号', '适合用老板口播和案例复盘建立专业信任。');
+    addPlatform(primary, '朋友圈/私域', '适合承接熟人信任、案例展示和轻咨询转化。');
+    addPlatform(support, '抖音', '可后置测试短视频曝光，不作为第一轮主阵地。');
+    addPlatform(avoid, '美团/大众点评', '这是本地商家的承接平台，不是企业营销工具测试号自身的发布平台。');
+    addPlatform(avoid, 'B站', '长内容生产成本高，不适合作为30天闭环验证主阵地。');
+    if (hasAny(targetText, ['本地生活', '门店', '到店', '商家'])) addClient('美团/大众点评', '若客户本身是本地到店商家，可作为客户侧搜索承接平台。');
+  } else if (hasAny(accountText, ['口腔', '牙', '门诊', '种植', '矫正', '正畸', '到店'])) {
     addPlatform(primary, '小红书', '适合做本地宝妈种草、儿童矫正避坑、医生专业信任内容。');
     addPlatform(primary, '美团/大众点评', '适合承接已有到店意图的用户，重点优化套餐、评价和门店转化。');
     addPlatform(primary, '朋友圈/私域', '适合做老客转介绍、客户案例、活动提醒和信任维护。');
@@ -80,56 +132,79 @@ const recommendPlatforms = (assessment) => {
     addPlatform(support, '视频号', '适合微信生态内的熟人关系转化和本地信任沉淀。');
     addPlatform(avoid, '公众号', '冷启动慢，不适合作为30天内快速获客主渠道。');
     addPlatform(avoid, 'B站', '内容生产成本高，短期本地咨询转化弱。');
-  } else if (hasAny(text, ['本地', '到店', '门店', '附近', '同城', '美业', '产康', '体验课'])) {
+  } else if (hasAny(accountText, ['本地', '到店', '门店', '附近', '同城', '美业', '产康', '体验课'])) {
     addPlatform(primary, '小红书', '适合做同城种草、案例体验和痛点搜索承接。');
     addPlatform(primary, '朋友圈/私域', '适合做熟人信任、老客复购和转介绍。');
     addPlatform(primary, '抖音', '适合用短视频放大同城曝光，但要控制内容节奏和转化入口。');
     addPlatform(support, '美团/大众点评', '适合有到店需求时承接搜索和评价转化。');
     addPlatform(avoid, 'B站', '本地短期获客效率较低，不建议作为第一主阵地。');
-  } else if (hasAny(text, ['工业', '设备', '工厂', '采购', 'B2B', '企业', '方案', '软件', '服务商'])) {
+  } else if (hasAny(accountText, ['工业', '设备', '工厂', '采购', 'B2B', '企业', '方案', '软件', '服务商'])) {
     addPlatform(primary, '视频号', '适合沉淀专业信任、销售转发和微信生态线索承接。');
     addPlatform(primary, '公众号', '适合沉淀方案文章、案例和长期搜索资料。');
     addPlatform(primary, '知乎', '适合承接专业问题搜索，建立方案型信任。');
     addPlatform(support, '小红书', '可测试采购避坑、老板视角和案例拆解，但不宜只追求种草感。');
     addPlatform(avoid, '美团/大众点评', 'B2B企业服务通常不是本地主动搜索到店场景。');
-  } else if (hasAny(text, ['教育', '培训', '课程', '报名', '留学', '考试'])) {
+  } else if (hasAny(accountText, ['教育', '培训', '课程', '报名', '留学', '考试'])) {
     addPlatform(primary, '小红书', '适合用学习经验、避坑和案例内容承接主动搜索。');
     addPlatform(primary, '视频号', '适合家长/熟人圈层转化和直播沉淀。');
     addPlatform(primary, '朋友圈/私域', '适合跟进试听、答疑和报名转化。');
     addPlatform(support, '抖音', '适合扩大曝光，但需要高频短视频和强钩子。');
     addPlatform(avoid, 'B站', '适合长期知识资产，不适合短期报名转化主渠道。');
   } else {
-    current.slice(0, 3).forEach((platform) => addPlatform(primary, platform, '这是客户当前已有平台，1.0先用它低成本测试内容反馈。'));
+    current.slice(0, 3).forEach((platform) => addPlatform(primary, platform, '这是当前已有平台，1.0先用它低成本测试内容反馈。'));
     if (primary.length < 3) addPlatform(primary, '小红书', '适合测试用户痛点、案例和搜索型内容反馈。');
     addPlatform(support, '视频号', '适合沉淀微信生态信任和私域承接。');
     addPlatform(avoid, 'B站', '内容生产周期较长，除非已有稳定长内容能力，否则暂不作为第一优先。');
   }
 
   const covered = primary.filter((item) => current.includes(item.platform) || item.platform.split('/').some((part) => current.includes(part))).map((item) => item.platform);
-  let strategy = '当前更适合先做“信任建立 + 有效咨询/到店转化”的组合，而不是只追求曝光。';
+  let strategy = '先区分“本账号发布平台”和“目标客户可能适用平台”；当前更适合先做信任建立 + 有效咨询转化，不只追求曝光。';
   if (current.length && covered.length) strategy += ` 已填写平台中「${covered.join('、')}」可以优先保留。`;
   else if (current.length) strategy += ' 已填写平台和系统优先平台不完全一致，建议先按推荐平台做一周小样本验证。';
-  return { strategy, primary: primary.slice(0, 3), support: support.slice(0, 3), avoid: avoid.slice(0, 3) };
+  return { strategy, primary: primary.slice(0, 3), support: support.slice(0, 3), avoid: avoid.slice(0, 3), client_platforms: clientPlatforms.slice(0, 3) };
 };
 
 const planPlatforms = (recommendations, fallbackChannels) => {
-  const primary = (recommendations?.primary || []).map((item) => item.platform).filter(Boolean);
+  let parsed = recommendations;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+  }
+  const primary = (parsed?.primary || []).map((item) => item.platform).filter(Boolean);
   return primary.length ? primary : (platformsFor(fallbackChannels).length ? platformsFor(fallbackChannels) : ['小红书']);
 };
 
-const planTemplates = (priority, industry, goal, target, offer, pain) => {
-  const cta = `想要${goal}，可以私信了解「${offer}」`;
+const planTemplates = (priority, industry, goal, target, offer, pain, problem = '') => {
+  const audience = shortAudience(target);
+  const painShort = painLabel(pain, problem);
+  const cta = softCta(offer, painShort);
+  const isMeta = isMetaMarketingAccount({ industry, main_goal: goal, offer });
+  if (!isMeta) {
+    const directCta = `想要「${goal}」，可以私信/留言了解「${offer}」。`;
+    const items = [
+      [`${audience}最关心的3个${industry}问题`, `痛点共鸣：围绕「${painShort}」说清具体困扰`, '短视频/图文', directCta, '咨询数', '需要人工润色', '适合补充真实客户问题或本地案例后发布'],
+      [`一个真实场景：${audience}如何判断是否需要${offer}`, '案例信任：讲清前后变化、过程和判断标准', '短视频', `评论/私信“方案”，获取「${offer}」说明。`, '私信数', '需要人工润色', '需要替换成真实案例，避免空泛承诺'],
+      [`${audience}在选择${offer}前最容易忽略什么？`, '避坑科普：降低客户决策风险，建立专业信任', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏数', '可直接进入草稿', '结构完整，发布前补充门店/服务细节即可'],
+      [`为什么有「${painShort}」的人，迟迟没有行动？`, `阻力拆解：把「${painShort}」转成可理解、可咨询的问题`, '图文/短视频', directCta, '评论数', '需要人工润色', '适合测试痛点表达是否准确'],
+      [`${offer}到底能帮${audience}解决什么？`, '价值说明：用客户语言解释交付结果和适合人群', '图文', directCta, '咨询数', '可直接进入草稿', '主题清楚，适合承接咨询'],
+      [`${industry}负责人亲自说：我们如何服务${audience}`, '人设信任：展示专业判断、流程和真实态度', '短视频', `有「${painShort}」类似问题，可以直接留言你的情况。`, '互动数', '需要人工润色', '建议加入负责人出镜或真实服务过程'],
+      [`本周${audience}问得最多的1个问题`, 'FAQ：把咨询问题反向变成内容，沉淀下周选题', '短视频/图文', `还有关于「${offer}」的问题，评论区告诉我。`, '评论数', '仅为策略方向', '必须结合真实评论/私信后再发布'],
+    ];
+    if (priority === '曝光不足') {
+      items[0] = [`别再忽略：${audience}遇到「${painShort}」时最容易踩的坑`, '强钩子：用高相关痛点提升打开率', '短视频/图文', directCta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
+    }
+    return items;
+  }
   const items = [
-    [`${target}最关心的3个${industry}问题`, `痛点共鸣：围绕「${pain}」说清具体困扰`, '短视频/图文', cta, '咨询数'],
-    [`一个真实场景：${target}如何判断是否需要${offer}`, '案例信任：前后变化/过程/结果', '短视频', `评论“方案”获取「${offer}」说明`, '私信数'],
-    [`${target}在选择${offer}前最容易忽略什么？`, '避坑科普：降低客户决策风险', '图文', `保存这条，决策前对照检查；需要可私信「${offer}」`, '收藏数'],
-    [`为什么你想${goal}，但内容没有带来咨询？`, '问题诊断：指出错误动作和修正方式', '短视频', `把你的情况发来，帮你看如何通过「${offer}」推进`, '评论数'],
-    [`${offer}到底能帮${target}解决什么？`, '价值说明：用客户语言解释交付结果', '图文', cta, '咨询数'],
-    [`${industry}负责人亲自说：我们如何服务${target}`, '人设信任：真实、专业、有温度', '短视频', `有「${pain}」类似问题可以直接留言`, '互动数'],
-    [`本周${target}问得最多的1个问题`, 'FAQ：把咨询问题反向变成内容', '短视频/图文', `还有关于「${offer}」的问题，评论区告诉我`, '评论数'],
+    [`${audience}发了很多内容，为什么还是没人咨询？`, `痛点诊断：围绕「${painShort}」拆出内容与获客断点`, '图文', cta, '收藏/评论', '需要人工润色', '策略方向可用，发布前需补充真实案例或老板经验'],
+    [`AI写文案很快，为什么带不来客户？`, '误区拆解：区分内容产出和获客转化', '图文', cta, '收藏数', '需要人工润色', '适合作为方法论选题，避免写成AI工具教程'],
+    [`一条内容有没有获客价值，不是看点赞`, '复盘方法：用收藏、评论、私信判断需求信号', '图文', '发布后记录浏览、收藏、评论、私信四个数据，再决定下一条怎么改。', '收藏/私信', '可直接进入草稿', '主题清晰，可用于测试复盘能力'],
+    [`企业账号别只发产品，先发客户问题`, `选题转译：把「${painShort}」改写成客户看得懂的问题`, '图文/短视频', cta, '评论数', '需要人工润色', '需要补充具体行业例子'],
+    [`老板不会运营，怎么做每周内容复盘？`, '低成本流程：发布-回填-复盘-下条调整', '图文', '想要复盘表，可以留言“复盘”。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
+    [`为什么爆款不等于能成交？`, '指标校准：曝光、互动、咨询分层看', '短视频/图文', '不要只问能不能火，先问能不能带来客户信号。', '评论/收藏', '需要人工润色', '适合做认知内容'],
+    [`本周内容测试复盘：哪个问题带来了真实反馈？`, '复盘公开：把7天反馈转成下周选题依据', '图文', '如果你也想知道内容怎么复盘，评论区说说你现在最卡的点。', '评论/关注', '仅为策略方向', '必须等真实数据回填后再发布'],
   ];
   if (priority === '曝光不足') {
-    items[0] = [`别再忽略：${target}遇到「${pain}」时最容易踩的坑`, '强钩子：用高相关痛点提升打开率', '短视频', cta, '曝光数'];
+    items[0] = [`${audience}内容没人看，先检查标题有没有说中痛点`, `强钩子：把「${painShort}」放到标题和封面第一眼`, '图文', cta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
   }
   return items;
 };
@@ -175,7 +250,10 @@ const generateDiagnosis = (assessmentId) => {
   const diagnosis = {
     id: state.next.diagnosis++,
     assessment_id: assessmentId,
-    score: scoreFor(assessment),
+    score: strategyScoreFor(assessment),
+    strategy_score: strategyScoreFor(assessment),
+    loop_score: loopScoreFor(assessment),
+    score_note: '策略清晰度来自输入完整度；闭环成熟度必须发布并回填数据后才会上升。',
     stage: stageFor(assessment.posting_frequency),
     priority_problem: priority,
     insight: '',
@@ -220,6 +298,7 @@ const createContentPlan = (diagnosisId) => {
   const target = assessment?.target_customer || '目标客户';
   const offer = assessment?.offer || '一次免费诊断';
   const pain = assessment?.customer_pain || assessment?.biggest_problem || '当前核心痛点';
+  const problem = assessment?.biggest_problem || '';
   const platforms = planPlatforms(diagnosis.platform_recommendations, assessment?.current_channels);
   state.plans = [];
   state.feedback = [];
@@ -227,7 +306,7 @@ const createContentPlan = (diagnosisId) => {
   state.next.plan = 1;
   state.next.feedback = 1;
   state.next.review = 1;
-  const plans = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain).map(([topic, angle, content_type, cta, target_metric], index) => ({
+  const plans = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem).map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
     id: state.next.plan++,
     diagnosis_id: diagnosisId,
     planned_date: todayIso(index),
@@ -237,6 +316,8 @@ const createContentPlan = (diagnosisId) => {
     content_type,
     cta,
     target_metric,
+    publish_quality,
+    quality_note,
     owner: '客户负责人',
     status: '待发布',
     publish_link: '',
@@ -301,8 +382,8 @@ const createWeeklyReview = () => {
   sunday.setDate(monday.getDate() + 6);
   const review = {
     id: state.next.review++,
-    week_start: monday.toISOString().slice(0, 10),
-    week_end: sunday.toISOString().slice(0, 10),
+    week_start: localDateIso(monday),
+    week_end: localDateIso(sunday),
     total_posts,
     total_views,
     total_interactions,
