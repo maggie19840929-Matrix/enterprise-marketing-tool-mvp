@@ -69,19 +69,21 @@
     </section>
 
     <section class="grid two report-grid">
-      <article class="panel client-snapshot-panel">
-        <h2>当前客户数据</h2>
-        <p class="hint">这里显示本次体检真正进入诊断引擎的客户输入，防止“诊断有了、客户数据为空”。</p>
-        <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
-      </article>
+      <div class="report-side-stack">
+        <article class="panel client-snapshot-panel">
+          <h2>当前客户数据</h2>
+          <p class="hint">这里显示本次体检真正进入诊断引擎的客户输入，防止“诊断有了、客户数据为空”。</p>
+          <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
+        </article>
+
+        <article id="firstLinkGate" class="panel gate-panel"></article>
+      </div>
 
       <article class="panel highlight diagnosis-panel">
         <h2>最新诊断报告</h2>
         <div id="latestDiagnosis" class="empty">暂无诊断，先提交一次营销体检。</div>
       </article>
     </section>
-
-    <section id="firstLinkGate" class="panel gate-panel"></section>
 
     <section class="panel">
       <div class="panel-head">
