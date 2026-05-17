@@ -37,7 +37,7 @@ const data = await submitAssessment(payload);
 const { diagnosis, plans } = data;
 
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.2', `expected app_version 1.2, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.3', `expected app_version 1.3, got ${diagnosis.app_version}`);
 assert(diagnosis.loop_score < 30, `loop_score must stay low before feedback, got ${diagnosis.loop_score}`);
 assert(diagnosis.account_setup.account_name === '内容决策局', 'meta-marketing test account should get 内容决策局 cold-start setup');
 assert(diagnosis.account_setup.starting_platform.platform === '小红书', 'cold-start setup should expose starting platform');
@@ -54,6 +54,12 @@ assert(!plans[0].topic.includes('小老板'), 'first topic should avoid 小老�
 assert(plans.every((p) => p.publish_quality), 'each plan should include publish_quality');
 assert(plans.some((p) => p.publish_quality.includes('可直接进入草稿')), 'plans should mark draft-ready items');
 assert(plans.some((p) => p.publish_quality.includes('仅为策略方向')), 'plans should mark data-dependent items');
+
+const preferredName = await submitAssessment({
+  ...payload,
+  account_preference: '企业获客复盘号',
+});
+assert(preferredName.diagnosis.account_setup.account_name === '企业获客复盘号', 'account_preference should override default account name');
 
 const oral = await submitAssessment({
   company_name: '本地口腔门诊',
@@ -74,14 +80,21 @@ assert(oral.plans.slice(0, 6).map((p) => p.platform).join('|') === '小红书|�
 });
 assert(!oralText.includes('AI写文案'), 'oral output must not use meta-marketing template');
 
-const preferredName = await submitAssessment({
-  ...payload,
-  account_preference: '企业获客复盘号',
-});
-assert(preferredName.diagnosis.account_setup.account_name === '企业获客复盘号', 'account_preference should override default account name');
+const missingLinkFeedbackRes = await handler(request('POST', 'feedback', {
+  content_plan_id: oral.plans[0].id,
+  views: 1200,
+  likes: 36,
+  comments: 8,
+  favorites: 22,
+  shares: 5,
+  consultations: 4,
+  notes: '评论集中问价格和儿童矫正周期',
+}));
+assert(missingLinkFeedbackRes.status === 400, `missing publish_link should be rejected, got ${missingLinkFeedbackRes.status}`);
 
 const feedbackRes = await handler(request('POST', 'feedback', {
   content_plan_id: oral.plans[0].id,
+  publish_link: 'https://example.com/first-post',
   views: 1200,
   likes: 36,
   comments: 8,
@@ -92,6 +105,7 @@ const feedbackRes = await handler(request('POST', 'feedback', {
 }));
 if (feedbackRes.status !== 201) throw new Error(`feedback expected 201, got ${feedbackRes.status}: ${await feedbackRes.text()}`);
 const feedbackData = await feedbackRes.json();
+assert(feedbackData.feedback.publish_link === 'https://example.com/first-post', 'feedback must preserve first publish link');
 assert(feedbackData.dashboard.published_plans === 1, `published_plans should be 1, got ${feedbackData.dashboard.published_plans}`);
 assert(feedbackData.dashboard.feedback_rate === 1 / 7, `feedback_rate should be 1/7, got ${feedbackData.dashboard.feedback_rate}`);
 assert(feedbackData.dashboard.total_views === 1200, `total_views should be 1200, got ${feedbackData.dashboard.total_views}`);

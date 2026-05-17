@@ -3,17 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业营销增长工具 v1.2</title>
+  <title>企业营销增长工具 v1.3</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <p class="eyebrow">v1.2 · 账号冷启动配置 + 起步主平台决策</p>
+      <p class="eyebrow">v1.3 · 内容决策局测试样例入口</p>
       <h1>账号冷启动 → 营销体检 → 起步平台 → 7天内容计划 → 反馈复盘</h1>
       <p class="sub">聚焦帮客户获得增长：先把“发什么、怎么发、发完怎么优化”跑成一个可复盘闭环。</p>
     </div>
-    <button id="refreshBtn">刷新数据</button>
+    <div class="hero-actions">
+      <button id="sampleBtn" type="button">载入内容决策局样例</button>
+      <button id="refreshBtn" class="secondary" type="button">清空演示数据</button>
+    </div>
   </header>
 
   <main>
@@ -22,7 +25,7 @@
     <section class="grid two">
       <article class="panel">
         <h2>客户营销体检</h2>
-        <p class="hint">v1.2 增加账号冷启动配置：定位、简介、头像方向、起步主平台先确认，再发布内容。</p>
+        <p class="hint">v1.3 增加内容决策局测试样例入口；账号冷启动配置、起步主平台和反馈复盘仍是发布前门禁。</p>
         <form id="assessmentForm">
           <label>企业名称<input name="company_name" placeholder="可选：例如南京某设备公司" /></label>
           <label>行业<input name="industry" required placeholder="例如：工业设备 / 本地服务 / 教育培训" /></label>
@@ -83,10 +86,10 @@
     <section class="grid two">
       <article class="panel">
         <h2>营销反馈回填</h2>
-        <p class="hint">无回填 = 未闭环。每条内容发布后24-72小时回填一次。</p>
+        <p class="hint">无回填 = 未闭环。首条内容发布后必须返回发布链接；每条内容发布后24-72小时回填一次。</p>
         <form id="feedbackForm">
           <label>发布计划ID<input name="content_plan_id" required type="number" placeholder="从发布计划表中选择 ID" /></label>
-          <label>发布链接<input name="publish_link" placeholder="可选：内容链接" /></label>
+          <label>首次/本条发布链接<input name="publish_link" required type="url" placeholder="必填：粘贴已发布内容链接，例如 https://..." /></label>
           <div class="mini-grid">
             <label>曝光/播放<input name="views" type="number" value="0" /></label>
             <label>点赞<input name="likes" type="number" value="0" /></label>

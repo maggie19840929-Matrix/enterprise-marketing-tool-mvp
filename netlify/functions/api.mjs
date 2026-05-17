@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.2';
-const VERSION_LABEL = 'v1.2 · 账号冷启动配置 + 起步主平台决策';
+const APP_VERSION = '1.3';
+const VERSION_LABEL = 'v1.3 · 内容决策局测试样例入口 + 首发链接回填门禁';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -412,6 +412,8 @@ const createContentPlan = (diagnosisId) => {
 const recordFeedback = (planId, payload) => {
   const plan = state.plans.find((item) => item.id === planId);
   if (!plan) throw new Error('发布计划不存在');
+  const publishLink = clean(payload, 'publish_link');
+  if (!publishLink) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
   const feedback = {
     id: state.next.feedback++,
     content_plan_id: planId,
@@ -421,7 +423,7 @@ const recordFeedback = (planId, payload) => {
     favorites: Number(payload.favorites || 0),
     shares: Number(payload.shares || 0),
     consultations: Number(payload.consultations || 0),
-    publish_link: clean(payload, 'publish_link'),
+    publish_link: publishLink,
     notes: clean(payload, 'notes'),
     created_at: nowIso(),
   };
@@ -481,7 +483,7 @@ const dashboard = () => {
   const total_views = state.feedback.reduce((sum, item) => sum + item.views, 0);
   const total_interactions = state.feedback.reduce((sum, item) => sum + item.likes + item.comments + item.favorites + item.shares, 0);
   const total_consultations = state.feedback.reduce((sum, item) => sum + item.consultations, 0);
-  let next_suggestion = '先执行：还没有发布反馈，优先完成第一条内容发布和数据回填。';
+  let next_suggestion = '先执行：发布第一条内容，并把首次发布链接回填到系统，否则不算闭环。';
   if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题并保留CTA。';
   else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化结尾引导和客户痛点表达。';
   if (state.reviews[0]) next_suggestion = state.reviews[0].next_actions;

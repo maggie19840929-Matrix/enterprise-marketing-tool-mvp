@@ -1,7 +1,25 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.2';
-const VERSION_LABEL = 'v1.2 · 账号冷启动配置 + 起步主平台决策';
+const APP_VERSION = '1.3';
+const VERSION_LABEL = 'v1.3 · 内容决策局测试样例入口 + 首发链接回填门禁';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v3';
+const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
+const CONTENT_DECISION_SAMPLE = {
+  company_name: '内容决策局',
+  industry: '企业内容增长 / 线上获客 / AI营销复盘',
+  main_goal: '30天验证内容能否带来老板/企业主咨询',
+  current_channels: '小红书, 视频号, 朋友圈/私域',
+  posting_frequency: '每周3条',
+  biggest_problem: '发完没人复盘',
+  target_customer: '老板、企业主、商家、门店负责人',
+  offer: '一次免费内容复盘表 / 企业内容增长诊断',
+  customer_pain: '发了很多内容，但不知道哪条真的带来客户，也不知道下一条该怎么优化',
+  content_assets: '老板真实问题、客户案例、历史笔记截图、复盘表模板、AI选题流程',
+  monthly_budget: '先低成本验证，暂不投放',
+  decision_cycle: '7天小样本复盘，30天判断是否加码',
+  best_recent_content: '一条内容有没有获客价值，不是看点赞，而是看收藏、评论、私信和咨询',
+  account_preference: '内容决策局',
+  contact: '企业营销工具测试样例',
+};
 
 let clientState = {
   diagnosis: null,
@@ -42,16 +60,34 @@ const withBusy = async (button, busyText, task) => {
   }
 };
 
+async function loadContentDecisionSample({silent = false} = {}){
+  const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(CONTENT_DECISION_SAMPLE)});
+  clientState = {
+    diagnosis: result.diagnosis,
+    plans: result.plans || [],
+    feedback: [],
+    review: null,
+  };
+  localStorage.removeItem(DEMO_DISABLED_KEY);
+  saveLocal();
+  renderAllFromClient();
+  if (!silent) toast('已载入内容决策局样例数据');
+}
+
 async function loadAll(){
   const local = loadLocal();
   if (local?.plans?.length || local?.diagnosis) {
     clientState = {...clientState, ...local};
-  } else {
-    // Netlify Functions are serverless and may expose stale demo memory from another invocation.
-    // For the MVP demo, the browser's localStorage is the trusted session state.
-    clientState = { diagnosis: null, plans: [], feedback: [], review: null };
+    renderAllFromClient();
+    return;
   }
-  renderAllFromClient();
+  if (localStorage.getItem(DEMO_DISABLED_KEY) === '1') {
+    clientState = { diagnosis: null, plans: [], feedback: [], review: null };
+    renderAllFromClient();
+    return;
+  }
+  // 首次进入产品测试页时，默认载入“内容决策局”样例，避免测试者看到空看板误判为系统无数据。
+  await loadContentDecisionSample({silent: true});
 }
 
 function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
@@ -69,7 +105,7 @@ function localDateIso(date = new Date()){
 }
 function dynamicLoopScore(){
   const total = clientState.plans.length;
-  const published = clientState.plans.filter((p)=>p.status === '已发布').length;
+  const published = clientState.plans.filter((p)=>p.status === '已发布' && p.publish_link).length;
   const consultations = clientState.feedback.reduce((sum, f)=>sum + num(f.consultations), 0);
   const totalInteractions = clientState.feedback.reduce((sum, f)=>sum + interactions(f), 0);
   let score = clientState.diagnosis?.loop_score ?? 8;
@@ -96,7 +132,7 @@ function clientDashboard(){
   const total_views = clientState.feedback.reduce((sum, item) => sum + num(item.views), 0);
   const total_interactions = clientState.feedback.reduce((sum, item) => sum + interactions(item), 0);
   const total_consultations = clientState.feedback.reduce((sum, item) => sum + num(item.consultations), 0);
-  let next_suggestion = '先执行：还没有发布反馈，优先完成第一条内容发布和数据回填。';
+  let next_suggestion = '先执行：发布第一条内容，并把首次发布链接回填到系统，否则不算闭环。';
   if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题并保留CTA。';
   else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化结尾引导和客户痛点表达。';
   if (clientState.review?.next_actions) next_suggestion = clientState.review.next_actions;
@@ -175,7 +211,7 @@ function renderPlans(plans){
     <td>${esc(p.angle)}</td>
     <td>${esc(p.content_type || '')}</td>
     <td>${esc(p.cta || '')}<div class="small">${esc(p.publish_quality || '')}${p.quality_note ? '：' + esc(p.quality_note) : ''}</div></td>
-    <td>${esc(p.target_metric)}</td>
+    <td>${esc(p.target_metric)}${p.publish_link ? `<div class="small"><a href="${esc(p.publish_link)}" target="_blank">发布链接已回填</a></div>` : '<div class="small">发布后需回填链接</div>'}</td>
     <td><span class="status">${esc(p.status)}</span></td>
     <td><button class="secondary" onclick="prefillFeedback(${p.id})">填反馈</button></td>
   </tr>`).join('') || '<tr><td colspan="9">暂无计划</td></tr>';
@@ -184,7 +220,7 @@ function renderPlans(plans){
 function renderFeedback(items){
   $('#feedbackList').innerHTML = items.map(f=>`<div class="list-item">
     <strong>计划 #${f.content_plan_id}</strong> · 曝光 ${f.views} · 互动 ${interactions(f)} · 咨询 ${f.consultations}
-    ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : ''}
+    ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : '<div class="warning">缺少发布链接：本条不算完整闭环</div>'}
     <div class="small">${esc(f.notes || '无备注')} · ${esc(f.created_at)}</div>
   </div>`).join('') || '<div class="empty">暂无反馈。发布后回填数据，系统才会给下一轮建议。</div>';
 }
@@ -270,6 +306,8 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
   await withBusy(e.submitter, '保存中...', async () => {
     const data = formData(e.target);
     ['content_plan_id','views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=toNonNegative(data[k]));
+    data.publish_link = String(data.publish_link || '').trim();
+    if (!data.publish_link) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
     const plan = clientState.plans.find((item) => Number(item.id) === Number(data.content_plan_id));
     if (!plan) throw new Error('发布计划ID不存在，请先生成计划');
     const feedback = {
@@ -298,9 +336,15 @@ $('#reviewBtn').addEventListener('click', async ()=>{
     api('/api/reviews', {method:'POST', body: JSON.stringify({})}).catch(() => {});
   });
 });
+$('#sampleBtn').addEventListener('click', async () => {
+  await withBusy($('#sampleBtn'), '载入中...', async () => loadContentDecisionSample());
+});
+
 $('#refreshBtn').addEventListener('click', () => {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.setItem(DEMO_DISABLED_KEY, '1');
   clientState = { diagnosis: null, plans: [], feedback: [], review: null };
-  loadAll().then(()=>toast('已清空本浏览器演示数据')).catch(err=>toast(err.message));
+  renderAllFromClient();
+  toast('已清空本浏览器演示数据，可重新载入样例');
 });
 loadAll().catch(err=>toast(err.message));
