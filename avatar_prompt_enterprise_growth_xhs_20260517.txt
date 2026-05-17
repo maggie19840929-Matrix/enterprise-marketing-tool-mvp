@@ -1,0 +1,21 @@
+Create a square Xiaohongshu-style profile avatar for a Chinese account about enterprise content growth, small business online customer acquisition, and AI marketing review.
+
+Account positioning: helping small business owners understand what to post, how to get real customer inquiries, and how to use data review to improve content.
+
+Visual concept:
+- Minimal premium brand icon, no human face.
+- A friendly rounded mascot/icon combining: a small storefront silhouette, a content note/card, an upward growth line, and a small AI/data sparkle.
+- Should feel trustworthy, practical, warm, and business-oriented, not cold SaaS, not generic AI tutorial.
+- Xiaohongshu native aesthetic: clean, bright, warm, high-recognition at small mobile size.
+
+Style:
+- Main colors: Xiaohongshu-inspired warm red/coral, cream white, soft charcoal, tiny accent of fresh green for growth.
+- Rounded geometry, simple flat illustration, soft shadow, high contrast, centered composition.
+- Looks like a real Chinese social media avatar for a content growth consultant / marketing review account.
+
+Strict constraints:
+- 1:1 square avatar, 1024x1024.
+- No Chinese characters, no English letters, no numbers, no watermark, no logo text.
+- Do not include PTE, education, students, books, SunPace, Sunny, or language learning elements.
+- Do not make it a generic robot head; AI should only be hinted by subtle data sparkle or circuit dot.
+- Must remain readable as a small circular profile image.

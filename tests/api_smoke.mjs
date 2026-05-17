@@ -8,9 +8,9 @@ const request = (method, path, body) => new Request(`http://localhost/.netlify/f
 
 const payload = {
   company_name: '企业内容增长测试号',
-  industry: '企业内容增长 / 小老板线上获客 / AI营销复盘',
-  main_goal: '30天内验证一套小老板内容获客 + 数据回流 + AI复盘的最小闭环',
-  target_customer: '小老板、本地生活服务商家、中小企业负责人、不懂内容运营但需要线上获客的人、已经发内容但不知道怎么复盘的人。',
+  industry: '企业内容增长 / 企业获客 / AI营销复盘',
+  main_goal: '30天内验证一套企业内容获客 + 数据回流 + AI复盘的最小闭环',
+  target_customer: '老板、本地生活服务商家、中小企业负责人、不懂内容运营但需要线上获客的人、已经发内容但不知道怎么复盘的人。',
   offer: '账号定位建议、平台发布建议、7天内容计划、发布后数据记录、周复盘结论',
   customer_pain: '不知道该发什么；发了不知道有没有用；只看点赞不看咨询；没有每周复盘；AI生成内容很快但不一定带来客户。',
   current_channels: '小红书、视频号、朋友圈，后续视数据扩展到抖音。',
@@ -37,7 +37,11 @@ const data = await submitAssessment(payload);
 const { diagnosis, plans } = data;
 
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
+assert(diagnosis.app_version === '1.2', `expected app_version 1.2, got ${diagnosis.app_version}`);
 assert(diagnosis.loop_score < 30, `loop_score must stay low before feedback, got ${diagnosis.loop_score}`);
+assert(diagnosis.account_setup.account_name === '内容决策局', 'meta-marketing test account should get 内容决策局 cold-start setup');
+assert(diagnosis.account_setup.starting_platform.platform === '小红书', 'cold-start setup should expose starting platform');
+assert(diagnosis.account_setup.naming_warning.includes('避免高频使用'), 'cold-start setup should include naming warning');
 assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', 'new account should prioritize 小红书');
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
@@ -46,6 +50,7 @@ assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17'
 assert(shanghaiDateIso(1, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-18', 'Shanghai offset should advance from business date');
 assert(plans[0].planned_date === shanghaiDateIso(), `planned_date should start today in Asia/Shanghai, got ${plans[0].planned_date}`);
 assert(!plans[0].topic.includes('本地生活服务商家、中小企业负责人'), 'topic should use short audience label, not field-stuffed target_customer');
+assert(!plans[0].topic.includes('小老板'), 'first topic should avoid 小老板 wording');
 assert(plans.every((p) => p.publish_quality), 'each plan should include publish_quality');
 assert(plans.some((p) => p.publish_quality.includes('可直接进入草稿')), 'plans should mark draft-ready items');
 assert(plans.some((p) => p.publish_quality.includes('仅为策略方向')), 'plans should mark data-dependent items');
@@ -69,6 +74,12 @@ assert(oral.plans.slice(0, 6).map((p) => p.platform).join('|') === '小红书|�
 });
 assert(!oralText.includes('AI写文案'), 'oral output must not use meta-marketing template');
 
+const preferredName = await submitAssessment({
+  ...payload,
+  account_preference: '企业获客复盘号',
+});
+assert(preferredName.diagnosis.account_setup.account_name === '企业获客复盘号', 'account_preference should override default account name');
+
 const feedbackRes = await handler(request('POST', 'feedback', {
   content_plan_id: oral.plans[0].id,
   views: 1200,
@@ -86,6 +97,7 @@ assert(feedbackData.dashboard.feedback_rate === 1 / 7, `feedback_rate should be 
 assert(feedbackData.dashboard.total_views === 1200, `total_views should be 1200, got ${feedbackData.dashboard.total_views}`);
 assert(feedbackData.dashboard.total_interactions === 71, `total_interactions should be 71, got ${feedbackData.dashboard.total_interactions}`);
 assert(feedbackData.dashboard.total_consultations === 4, `total_consultations should be 4, got ${feedbackData.dashboard.total_consultations}`);
+assert(feedbackData.dashboard.loop_score > oral.diagnosis.loop_score, 'loop_score should rise after feedback');
 
 const reviewRes = await handler(request('POST', 'reviews', {}));
 if (reviewRes.status !== 201) throw new Error(`review expected 201, got ${reviewRes.status}: ${await reviewRes.text()}`);
@@ -94,7 +106,9 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
+  app_version: diagnosis.app_version,
   loop_score: diagnosis.loop_score,
+  account_setup: diagnosis.account_setup,
   own_platforms: diagnosis.platform_recommendations.primary.map((x) => x.platform),
   client_platforms: diagnosis.platform_recommendations.client_platforms.map((x) => x.platform),
   oral_platforms: oral.plans.slice(0, 3).map((p) => p.platform),

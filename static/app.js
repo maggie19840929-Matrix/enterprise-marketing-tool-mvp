@@ -1,5 +1,7 @@
 const $ = (s) => document.querySelector(s);
-const STORAGE_KEY = 'enterpriseMarketingMvpState.v2';
+const APP_VERSION = '1.2';
+const VERSION_LABEL = 'v1.2 · 账号冷启动配置 + 起步主平台决策';
+const STORAGE_KEY = 'enterpriseMarketingMvpState.v3';
 
 let clientState = {
   diagnosis: null,
@@ -56,6 +58,28 @@ function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
 function esc(v){ return String(v ?? '').replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 function num(v){ return Number(v || 0); }
 function interactions(f){ return num(f.likes) + num(f.comments) + num(f.favorites) + num(f.shares); }
+function localTimestamp(){
+  const d = new Date();
+  const parts = new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false}).formatToParts(d).reduce((acc, p)=>{acc[p.type]=p.value; return acc;}, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+function localDateIso(date = new Date()){
+  const parts = new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(date).reduce((acc, p)=>{acc[p.type]=p.value; return acc;}, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+function dynamicLoopScore(){
+  const total = clientState.plans.length;
+  const published = clientState.plans.filter((p)=>p.status === '已发布').length;
+  const consultations = clientState.feedback.reduce((sum, f)=>sum + num(f.consultations), 0);
+  const totalInteractions = clientState.feedback.reduce((sum, f)=>sum + interactions(f), 0);
+  let score = clientState.diagnosis?.loop_score ?? 8;
+  if (total) score = Math.max(score, 8 + Math.round((published / total) * 35));
+  if (clientState.feedback.length) score += 12;
+  if (totalInteractions > 0) score += 10;
+  if (consultations > 0) score += 20;
+  if (clientState.review) score += 15;
+  return Math.max(0, Math.min(100, score));
+}
 function parsePlatformRecommendations(value){
   if (!value) return null;
   if (typeof value === 'object') return value;
@@ -95,8 +119,24 @@ function renderDashboard(d){
     ['总曝光', d.total_views],
     ['总互动', d.total_interactions],
     ['私信/咨询', d.total_consultations],
+    ['动态闭环分', dynamicLoopScore()],
   ].map(([k,v])=>`<div class="card"><span>${k}</span><b>${v}</b></div>`).join('') +
   `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>`;
+}
+
+function renderAccountSetup(setup){
+  if (!setup) return '';
+  return `<div class="warning account-setup">
+    <div class="small">账号冷启动配置 · 发布前门禁</div>
+    <p><strong>账号名：</strong>${esc(setup.account_name || '')}</p>
+    <p><strong>定位：</strong>${esc(setup.positioning || '')}</p>
+    <p><strong>简介：</strong><br>${(setup.bio_lines || []).map(esc).join('<br>')}</p>
+    <p><strong>主页关键词：</strong>${esc((setup.homepage_keywords || []).join(' / '))}</p>
+    <p><strong>头像方向：</strong>${esc(setup.avatar_direction || '')}</p>
+    <p><strong>起步主平台：</strong>${esc(setup.starting_platform?.platform || '')}｜${esc(setup.starting_platform?.reason || '')}</p>
+    <p><strong>平台表达规则：</strong>${esc(setup.starting_platform?.rule || '')}</p>
+    <p><strong>称呼门禁：</strong>${esc(setup.naming_warning || '')}</p>
+  </div>`;
 }
 
 function renderDiagnosis(d){
@@ -111,12 +151,15 @@ function renderDiagnosis(d){
     ${renderPlatformGroup('暂不建议', platformRecommendations.avoid)}
   </div>` : '';
   $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card">
+    <div class="small">${esc(d.version_label || VERSION_LABEL)}</div>
     <div class="score"><span>策略清晰度</span><strong>${d.strategy_score ?? d.score}</strong><em>/100</em></div>
-    <div class="score"><span>闭环成熟度</span><strong>${d.loop_score ?? 0}</strong><em>/100</em></div>
+    <div class="score"><span>初始闭环分</span><strong>${d.loop_score ?? 0}</strong><em>/100</em></div>
+    <div class="score"><span>动态闭环分</span><strong>${dynamicLoopScore()}</strong><em>/100</em></div>
     <span class="badge">${esc(d.stage)}</span>
     <div class="warning"><div class="small">评分说明</div><p>${esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。')}</p></div>
     <div><div class="small">优先问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
     <div><div class="small">诊断</div><p>${esc(d.insight)}</p></div>
+    ${renderAccountSetup(d.account_setup)}
     ${platformModule}
     <div><div class="small">本周动作</div><p><strong>${esc(d.weekly_action)}</strong></p></div>
     <div class="warning"><div class="small">风险提醒</div><p>${esc(d.risk_warning)}</p></div>
@@ -178,8 +221,9 @@ function createLocalReview(){
     (num(b.views) - num(a.views))
   )[0];
   const day = new Date();
-  const monday = new Date(day);
-  monday.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+  const shDay = new Date(day.toLocaleString('en-US', {timeZone:'Asia/Shanghai'}));
+  const monday = new Date(shDay);
+  monday.setDate(shDay.getDate() - ((shDay.getDay() + 6) % 7));
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   let bottleneck = '暂无反馈数据';
@@ -195,11 +239,11 @@ function createLocalReview(){
     next_actions = '已有曝光但咨询不足，下周强化痛点表达、案例信任和明确咨询入口。';
   }
   return {
-    week_start: monday.toISOString().slice(0, 10),
-    week_end: sunday.toISOString().slice(0, 10),
+    week_start: localDateIso(monday),
+    week_end: localDateIso(sunday),
     total_posts, total_views, total_interactions, total_consultations,
     winner_topic: winner?.topic || '', bottleneck, next_actions,
-    created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    created_at: localTimestamp(),
   };
 }
 
@@ -231,7 +275,7 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
     const feedback = {
       id: Date.now(),
       ...data,
-      created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      created_at: localTimestamp(),
     };
     plan.status = '已发布';
     if (feedback.publish_link) plan.publish_link = feedback.publish_link;

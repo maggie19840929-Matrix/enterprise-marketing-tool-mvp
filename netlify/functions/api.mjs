@@ -1,5 +1,8 @@
 let state;
 
+const APP_VERSION = '1.2';
+const VERSION_LABEL = 'v1.2 · 账号冷启动配置 + 起步主平台决策';
+
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
     status,
@@ -84,7 +87,7 @@ const platformsFor = (channels = '') => {
 const hasAny = (text, words) => words.some((word) => text.includes(word));
 const shortAudience = (target = '') => {
   const text = target.replace(/[。；;]+$/g, '');
-  if (hasAny(text, ['小老板', '老板'])) return '小老板';
+  if (hasAny(text, ['小老板', '老板'])) return '老板/企业主';
   if (hasAny(text, ['中小企业', '企业负责人', '企业主'])) return '企业主';
   if (hasAny(text, ['本地生活', '商家', '门店'])) return '服务型商家';
   if (hasAny(text, ['采购', '工厂'])) return '采购负责人';
@@ -105,9 +108,72 @@ const softCta = (offer = '', pain = '') => {
   if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，先留言/私信“复盘”，从一张内容反馈表开始。';
   return `如果你也遇到「${pain || '类似问题'}」，可以留言你的情况，先判断问题卡在哪里。`;
 };
-const isMetaMarketingAccount = (assessment) => hasAny([assessment.industry, assessment.offer, assessment.main_goal].filter(Boolean).join(' '), ['企业内容增长', '小老板线上获客', 'AI营销复盘', '营销增长', '内容获客']);
+const isMetaMarketingAccount = (assessment) => hasAny([assessment.industry, assessment.offer, assessment.main_goal].filter(Boolean).join(' '), ['企业内容增长', '线上获客', 'AI营销复盘', '营销增长', '内容获客']);
 const addPlatform = (bucket, platform, reason) => {
   if (!bucket.some((item) => item.platform === platform)) bucket.push({ platform, reason });
+};
+
+
+const platformStyleRulesFor = (platform) => {
+  const rules = {
+    '小红书': '可适量使用 emoji、封面要有精致感，标题要像真实问题，不要像工具说明书。',
+    '视频号': '更适合负责人/老板口播、案例复盘和信任建立，表达要稳，不追求过度网感。',
+    '朋友圈/私域': '适合承接信任和轻咨询，少用营销腔，多用真实案例、过程和客户问题。',
+    '公众号': '适合深度方案、案例沉淀和长期搜索资料，少用 emoji，结构要清楚。',
+    '抖音': '适合短视频曝光测试，需要更强开头钩子和持续素材能力，不宜第一天就重投入。',
+    '知乎': '适合专业问题搜索和方案型信任，重逻辑与证据，不追求小红书式精致感。',
+  };
+  return rules[platform] || '按该平台用户语境调整表达，不把小红书规则机械套到所有平台。';
+};
+
+const accountSetupFor = (assessment, recommendations) => {
+  const isMeta = isMetaMarketingAccount(assessment);
+  const primary = recommendations?.primary?.[0]?.platform || '小红书';
+  const preference = assessment.account_preference || '';
+  const accountName = preference || (isMeta ? '内容决策局' : `${assessment.company_name || '品牌'}内容增长号`);
+  const positioning = isMeta
+    ? '企业内容增长 / 企业获客 / AI营销复盘'
+    : `${assessment.industry || '当前行业'}内容获客与客户信任建立`;
+  const bioLines = isMeta ? [
+    '📌 研究内容怎么真正带来客户',
+    '🤖 用AI做选题、复盘和增长实验',
+    '📈 不只追爆款，更看咨询和转化',
+  ] : [
+    `📌 专注${assessment.industry || '行业'}客户问题`,
+    `📈 分享案例、避坑和${assessment.offer || '服务方案'}`,
+    '💬 有需求先留言/私信具体情况',
+  ];
+  return {
+    module_version: APP_VERSION,
+    account_name: accountName,
+    positioning,
+    bio_lines: bioLines,
+    homepage_keywords: isMeta ? ['内容获客', 'AI复盘', '企业增长', '咨询转化'] : ['客户问题', '真实案例', '服务入口', '咨询转化'],
+    avatar_direction: isMeta
+      ? '小红书精致感图标：内容卡片 + 决策指针 + AI节点 + 增长箭头；头像不放文字。'
+      : '用品牌/服务核心符号做简洁头像，不堆文字，不做廉价营销海报。',
+    starting_platform: {
+      platform: primary,
+      reason: recommendations?.primary?.[0]?.reason || '先选择一个主平台跑7天小样本，避免多平台分散。',
+      rule: platformStyleRulesFor(primary),
+    },
+    naming_warning: '对外称呼优先用老板、企业主、商家、门店老板、企业负责人；避免高频使用“小老板”。',
+    scope_note: '账号基础设置是发布前门禁：定位、简介、主页关键词、头像方向和起步主平台先确认，再生成内容。',
+  };
+};
+
+const loopScoreFromFeedback = () => {
+  const totalPlans = state.plans.length;
+  const published = state.plans.filter((plan) => plan.status === '已发布').length;
+  const totalConsultations = state.feedback.reduce((sum, item) => sum + Number(item.consultations || 0), 0);
+  const totalInteractions = state.feedback.reduce((sum, item) => sum + Number(item.likes || 0) + Number(item.comments || 0) + Number(item.favorites || 0) + Number(item.shares || 0), 0);
+  let score = 8;
+  if (totalPlans) score += Math.round((published / totalPlans) * 35);
+  if (state.feedback.length) score += 12;
+  if (totalInteractions > 0) score += 10;
+  if (totalConsultations > 0) score += 20;
+  if (state.reviews.length) score += 15;
+  return Math.max(0, Math.min(100, score));
 };
 
 const recommendPlatforms = (assessment) => {
@@ -128,7 +194,7 @@ const recommendPlatforms = (assessment) => {
   const addClient = (platform, reason) => addPlatform(clientPlatforms, platform, reason);
 
   if (isMetaMarketingAccount(assessment)) {
-    addPlatform(primary, '小红书', '适合验证小老板痛点、搜索型方法论、收藏型复盘内容。');
+    addPlatform(primary, '小红书', '适合验证老板/企业主痛点、搜索型方法论、收藏型复盘内容。');
     addPlatform(primary, '视频号', '适合用老板口播和案例复盘建立专业信任。');
     addPlatform(primary, '朋友圈/私域', '适合承接熟人信任、案例展示和轻咨询转化。');
     addPlatform(support, '抖音', '可后置测试短视频曝光，不作为第一轮主阵地。');
@@ -206,11 +272,11 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
     return items;
   }
   const items = [
-    [`${audience}发了很多内容，为什么还是没人咨询？`, `痛点诊断：围绕「${painShort}」拆出内容与获客断点`, '图文', cta, '收藏/评论', '需要人工润色', '策略方向可用，发布前需补充真实案例或老板经验'],
+    [`发了很多内容，为什么还是没人咨询？`, `痛点诊断：围绕「${painShort}」拆出内容与获客断点`, '图文', cta, '收藏/评论', '需要人工润色', '策略方向可用，发布前需补充真实案例或老板经验'],
     [`AI写文案很快，为什么带不来客户？`, '误区拆解：区分内容产出和获客转化', '图文', cta, '收藏数', '需要人工润色', '适合作为方法论选题，避免写成AI工具教程'],
     [`一条内容有没有获客价值，不是看点赞`, '复盘方法：用收藏、评论、私信判断需求信号', '图文', '发布后记录浏览、收藏、评论、私信四个数据，再决定下一条怎么改。', '收藏/私信', '可直接进入草稿', '主题清晰，可用于测试复盘能力'],
     [`企业账号别只发产品，先发客户问题`, `选题转译：把「${painShort}」改写成客户看得懂的问题`, '图文/短视频', cta, '评论数', '需要人工润色', '需要补充具体行业例子'],
-    [`老板不会运营，怎么做每周内容复盘？`, '低成本流程：发布-回填-复盘-下条调整', '图文', '想要复盘表，可以留言“复盘”。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
+    [`老板没时间做运营，怎么做每周内容复盘？`, '低成本流程：发布-回填-复盘-下条调整', '图文', '想要复盘表，可以留言“复盘”。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
     [`为什么爆款不等于能成交？`, '指标校准：曝光、互动、咨询分层看', '短视频/图文', '不要只问能不能火，先问能不能带来客户信号。', '评论/收藏', '需要人工润色', '适合做认知内容'],
     [`本周内容测试复盘：哪个问题带来了真实反馈？`, '复盘公开：把7天反馈转成下周选题依据', '图文', '如果你也想知道内容怎么复盘，评论区说说你现在最卡的点。', '评论/关注', '仅为策略方向', '必须等真实数据回填后再发布'],
   ];
@@ -240,6 +306,7 @@ const createAssessment = (payload) => {
     monthly_budget: clean(payload, 'monthly_budget'),
     decision_cycle: clean(payload, 'decision_cycle'),
     best_recent_content: clean(payload, 'best_recent_content'),
+    account_preference: clean(payload, 'account_preference'),
     contact: clean(payload, 'contact'),
     created_at: nowIso(),
   };
@@ -258,8 +325,11 @@ const generateDiagnosis = (assessmentId) => {
   const pain = assessment.customer_pain || assessment.biggest_problem || '当前核心痛点';
   const channels = assessment.current_channels || '当前平台';
   const frequency = assessment.posting_frequency || '当前发布频率';
+  const platformRecommendations = recommendPlatforms(assessment);
   const diagnosis = {
     id: state.next.diagnosis++,
+    app_version: APP_VERSION,
+    version_label: VERSION_LABEL,
     assessment_id: assessmentId,
     score: strategyScoreFor(assessment),
     strategy_score: strategyScoreFor(assessment),
@@ -270,7 +340,8 @@ const generateDiagnosis = (assessmentId) => {
     insight: '',
     weekly_action: '',
     next_step: '',
-    platform_recommendations: recommendPlatforms(assessment),
+    platform_recommendations: platformRecommendations,
+    account_setup: accountSetupFor(assessment, platformRecommendations),
     created_at: nowIso(),
   };
 
@@ -421,6 +492,7 @@ const dashboard = () => {
     total_views,
     total_interactions,
     total_consultations,
+    loop_score: loopScoreFromFeedback(),
     next_suggestion,
   };
 };
@@ -459,7 +531,7 @@ export default async (request) => {
   const path = `/${route.replace(/^\/+/, '')}`;
   try {
     if (request.method === 'GET') {
-      if (path === '/health') return json({ ok: true, runtime: 'netlify-function' });
+      if (path === '/health') return json({ ok: true, runtime: 'netlify-function', version: APP_VERSION, version_label: VERSION_LABEL });
       if (path === '/dashboard') return json(dashboard());
       if (path === '/assessments') return json(state.assessments);
       if (path === '/diagnoses') return json(state.diagnoses);

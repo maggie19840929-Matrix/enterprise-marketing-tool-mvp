@@ -1,0 +1,31 @@
+Generate a refined creative Xiaohongshu profile avatar for a Chinese account named “内容决策局”.
+
+Core positioning:
+- Account theme: content strategy, marketing decision-making, AI-assisted content review, small business customer acquisition.
+- It should look more creative and stylish than a generic marketing consultant avatar.
+- The name implies a “decision bureau”: structured judgment, content command center, AI strategy lab, but still friendly and native to Xiaohongshu.
+
+Visual concept:
+- A centered premium icon/mascot: a cute but sophisticated “AI decision cube” or “content command badge”.
+- Combine these elements into one simple memorable symbol:
+  1) a rounded content card / note,
+  2) a subtle AI neural node / circuit sparkle,
+  3) a decision compass or checkmark cursor,
+  4) a tiny upward growth signal.
+- Make it feel like: “AI helps decide what content is worth posting”, not just “AI robot”.
+- No human face, no generic robot head, no office stock image.
+
+Style:
+- Xiaohongshu premium aesthetic: warm coral red + cream white + soft charcoal + small electric blue AI accent + tiny fresh green growth accent.
+- Clean 3D clay / soft gradient icon style, polished, rounded, high-end, bright, feminine-friendly but not childish.
+- Centered composition with strong silhouette, readable inside a circular avatar crop.
+- Small mobile size must still show: content card + AI sparkle + decision/check symbol.
+
+Strict constraints:
+- Square 1:1 avatar, 1024x1024.
+- No text at all. Do NOT write “内容决策局”, Chinese characters, English letters, numbers, watermark, logo text, fake UI text, or unreadable pseudo-text.
+- Do not include education, PTE, books, students, SunPace, Sunny, language learning.
+- Do not include overly complex dashboard details; keep it iconic.
+- Avoid cheap blue-purple SaaS style. Avoid corporate clipart. Avoid generic robot.
+
+Output should be a finished high-quality avatar suitable for immediate upload to Xiaohongshu.
