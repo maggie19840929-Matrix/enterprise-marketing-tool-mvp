@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.3';
-const VERSION_LABEL = 'v1.3 · 内容决策局测试样例入口 + 首发链接回填门禁';
+const APP_VERSION = '1.3.2';
+const VERSION_LABEL = 'v1.3.2 · 快速体检 + 首屏关键结论';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {

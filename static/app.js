@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.3';
-const VERSION_LABEL = 'v1.3 · 内容决策局测试样例入口 + 首发链接回填门禁';
+const APP_VERSION = '1.3.2';
+const VERSION_LABEL = 'v1.3.2 · 快速体检 + 首屏关键结论';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v3';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CONTENT_DECISION_SAMPLE = {
@@ -243,24 +243,36 @@ function renderDiagnosis(d){
     ${renderPlatformGroup('目标客户可能适用平台（不是本账号发布平台）', platformRecommendations.client_platforms)}
     ${renderPlatformGroup('暂不建议', platformRecommendations.avoid)}
   </div>` : '';
-  $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card">
+  const extraModules = `${renderAccountSetup(d.account_setup)}${platformModule}`;
+  $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card compact-diagnosis">
     <div class="small">${esc(d.version_label || VERSION_LABEL)}</div>
-    <div class="score"><span>策略清晰度</span><strong>${d.strategy_score ?? d.score}</strong><em>/100</em></div>
-    <div class="score"><span>初始闭环分</span><strong>${d.loop_score ?? 0}</strong><em>/100</em></div>
-    <div class="score"><span>动态闭环分</span><strong>${dynamicLoopScore()}</strong><em>/100</em></div>
-    <span class="badge">${esc(d.stage)}</span>
-    <div class="warning"><div class="small">评分说明</div><p>${esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。')}</p></div>
+    <div class="score-row">
+      <div class="score"><span>策略清晰度</span><strong>${d.strategy_score ?? d.score}</strong><em>/100</em></div>
+      <div class="score"><span>动态闭环分</span><strong>${dynamicLoopScore()}</strong><em>/100</em></div>
+      <span class="badge">${esc(d.stage)}</span>
+    </div>
     <div><div class="small">优先问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
-    <div><div class="small">诊断</div><p>${esc(d.insight)}</p></div>
-    ${renderAccountSetup(d.account_setup)}
-    ${platformModule}
-    <div><div class="small">本周动作</div><p><strong>${esc(d.weekly_action)}</strong></p></div>
-    <div class="warning"><div class="small">风险提醒</div><p>${esc(d.risk_warning)}</p></div>
-    <div><div class="small">下一步</div><p>${esc(d.next_step)}</p></div>
+    <div><div class="small">核心诊断</div><p>${esc(d.insight)}</p></div>
+    <div><div class="small">下一步</div><p><strong>${esc(d.next_step || d.weekly_action)}</strong></p></div>
+    <details class="diagnosis-more">
+      <summary>展开完整诊断依据、账号配置和平台建议</summary>
+      <div class="warning"><div class="small">评分说明</div><p>${esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。')}</p></div>
+      ${extraModules}
+      <div><div class="small">本周动作</div><p><strong>${esc(d.weekly_action)}</strong></p></div>
+      <div class="warning"><div class="small">风险提醒</div><p>${esc(d.risk_warning)}</p></div>
+    </details>
   </div>`;
 }
 
 function renderPlans(plans){
+  const summaryEl = $('#plansSummary');
+  if (summaryEl) {
+    summaryEl.innerHTML = plans.slice(0, 3).map(p=>`<div class="plan-card">
+      <div><span class="badge">#${p.id} · ${esc(p.platform)}</span><strong>${esc(p.topic)}</strong></div>
+      <p>${esc(p.angle)}</p>
+      <button class="secondary" onclick="prefillFeedback(${p.id})">发布后回填</button>
+    </div>`).join('') || '<div class="empty">暂无计划，先提交一次快速体检。</div>';
+  }
   $('#plansBody').innerHTML = plans.map(p=>`<tr>
     <td><span class="small">#${p.id}</span><br>${esc(p.planned_date)}</td>
     <td>${esc(p.platform)}</td>
@@ -344,6 +356,8 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   await withBusy(e.submitter, '生成中...', async () => {
     const payload = formData(e.target);
+    if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
+    delete payload.posting_frequency_detail;
     const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
     clientState = {
       assessment: result.assessment || payload,
