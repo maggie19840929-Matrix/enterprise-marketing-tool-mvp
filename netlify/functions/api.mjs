@@ -164,7 +164,7 @@ const accountSetupFor = (assessment, recommendations) => {
 
 const loopScoreFromFeedback = () => {
   const totalPlans = state.plans.length;
-  const published = state.plans.filter((plan) => plan.status === '已发布').length;
+  const published = state.plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
   const totalConsultations = state.feedback.reduce((sum, item) => sum + Number(item.consultations || 0), 0);
   const totalInteractions = state.feedback.reduce((sum, item) => sum + Number(item.likes || 0) + Number(item.comments || 0) + Number(item.favorites || 0) + Number(item.shares || 0), 0);
   let score = 8;
@@ -479,7 +479,7 @@ const createWeeklyReview = () => {
 
 const dashboard = () => {
   const total_plans = state.plans.length;
-  const published_plans = state.plans.filter((plan) => plan.status === '已发布').length;
+  const published_plans = state.plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
   const total_views = state.feedback.reduce((sum, item) => sum + item.views, 0);
   const total_interactions = state.feedback.reduce((sum, item) => sum + item.likes + item.comments + item.favorites + item.shares, 0);
   const total_consultations = state.feedback.reduce((sum, item) => sum + item.consultations, 0);
@@ -545,9 +545,10 @@ export default async (request) => {
     const payload = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     if (request.method === 'POST' && path === '/assessments') {
       const assessment_id = createAssessment(payload);
+      const assessment = state.assessments.find((item) => item.id === assessment_id);
       const diagnosis = generateDiagnosis(assessment_id);
       const plans = createContentPlan(diagnosis.id);
-      return json({ assessment_id, diagnosis, plans }, 201);
+      return json({ assessment_id, assessment, diagnosis, plans }, 201);
     }
     if (request.method === 'POST' && path === '/feedback') {
       const plan_id = Number(payload.content_plan_id);

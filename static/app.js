@@ -22,6 +22,7 @@ const CONTENT_DECISION_SAMPLE = {
 };
 
 let clientState = {
+  assessment: null,
   diagnosis: null,
   plans: [],
   feedback: [],
@@ -63,6 +64,7 @@ const withBusy = async (button, busyText, task) => {
 async function loadContentDecisionSample({silent = false} = {}){
   const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(CONTENT_DECISION_SAMPLE)});
   clientState = {
+    assessment: result.assessment || CONTENT_DECISION_SAMPLE,
     diagnosis: result.diagnosis,
     plans: result.plans || [],
     feedback: [],
@@ -82,7 +84,7 @@ async function loadAll(){
     return;
   }
   if (localStorage.getItem(DEMO_DISABLED_KEY) === '1') {
-    clientState = { diagnosis: null, plans: [], feedback: [], review: null };
+    clientState = { assessment: null, diagnosis: null, plans: [], feedback: [], review: null };
     renderAllFromClient();
     return;
   }
@@ -128,7 +130,7 @@ function renderPlatformGroup(title, items){
 
 function clientDashboard(){
   const total_plans = clientState.plans.length;
-  const published_plans = clientState.plans.filter((plan) => plan.status === '已发布').length;
+  const published_plans = clientState.plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
   const total_views = clientState.feedback.reduce((sum, item) => sum + num(item.views), 0);
   const total_interactions = clientState.feedback.reduce((sum, item) => sum + interactions(item), 0);
   const total_consultations = clientState.feedback.reduce((sum, item) => sum + num(item.consultations), 0);
@@ -141,6 +143,8 @@ function clientDashboard(){
 
 function renderAllFromClient(){
   renderDashboard(clientDashboard());
+  renderCustomerSnapshot(clientState.assessment);
+  renderFirstLinkGate();
   renderDiagnosis(clientState.diagnosis);
   renderPlans(clientState.plans);
   renderFeedback(clientState.feedback);
@@ -158,6 +162,62 @@ function renderDashboard(d){
     ['动态闭环分', dynamicLoopScore()],
   ].map(([k,v])=>`<div class="card"><span>${k}</span><b>${v}</b></div>`).join('') +
   `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>`;
+}
+
+
+function fieldRow(label, value){
+  return `<div class="kv"><span>${esc(label)}</span><strong>${esc(value || '未填写')}</strong></div>`;
+}
+
+function renderCustomerSnapshot(a){
+  const el = $('#clientSnapshot');
+  if (!el) return;
+  if (!a) {
+    el.innerHTML = '<div class="empty">暂无客户数据，提交体检后这里会显示本次诊断依据。</div>';
+    return;
+  }
+  el.innerHTML = `<div class="snapshot-card">
+    <div class="snapshot-title">
+      <strong>${esc(a.company_name || '未命名客户')}</strong>
+      <span>${esc(a.created_at || '本地暂存')}</span>
+    </div>
+    <div class="kv-grid">
+      ${fieldRow('行业', a.industry)}
+      ${fieldRow('主要目标', a.main_goal)}
+      ${fieldRow('目标客户', a.target_customer)}
+      ${fieldRow('产品/服务入口', a.offer)}
+      ${fieldRow('当前平台', a.current_channels)}
+      ${fieldRow('发布频率', a.posting_frequency)}
+      ${fieldRow('最大问题', a.biggest_problem)}
+      ${fieldRow('内容资产', a.content_assets)}
+      ${fieldRow('月预算', a.monthly_budget)}
+      ${fieldRow('决策周期', a.decision_cycle)}
+      ${fieldRow('联系人', a.contact)}
+    </div>
+    <div class="pain-box"><span>客户核心痛点</span><p>${esc(a.customer_pain || '未填写')}</p></div>
+  </div>`;
+}
+
+function renderFirstLinkGate(){
+  const el = $('#firstLinkGate');
+  if (!el) return;
+  if (!clientState.plans.length) {
+    el.innerHTML = `<div class="panel-head"><h2>首发链接回填门禁</h2><span>生成7天计划后出现</span></div><div class="empty">暂无发布计划。先完成客户营销体检。</div>`;
+    return;
+  }
+  const firstOpen = clientState.plans.find((p)=>p.status !== '已发布' || !p.publish_link);
+  if (!firstOpen) {
+    el.innerHTML = `<div class="panel-head"><h2>首发链接回填门禁</h2><span class="ok-text">已闭环</span></div><div class="success-box">所有已计划内容均已回填发布链接，可以进入周复盘。</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="panel-head">
+    <div><h2>首发链接回填门禁</h2><p class="hint">首条内容不只是“发布”，必须把链接回填。没有链接 = 没有证据 = 不算闭环。</p></div>
+    <button class="secondary" type="button" onclick="prefillFeedback(${Number(firstOpen.id)})">回填计划 #${Number(firstOpen.id)} 链接</button>
+  </div>
+  <div class="gate-content">
+    <div><span class="badge danger">待回填链接</span><strong>#${Number(firstOpen.id)}｜${esc(firstOpen.platform)}｜${esc(firstOpen.topic)}</strong></div>
+    <p>发布后到下方「首发链接回填 / 营销反馈回填」粘贴链接，并填写曝光、互动、咨询数据。</p>
+  </div>`;
 }
 
 function renderAccountSetup(setup){
@@ -289,6 +349,7 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
     const payload = formData(e.target);
     const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
     clientState = {
+      assessment: result.assessment || payload,
       diagnosis: result.diagnosis,
       plans: result.plans || [],
       feedback: [],
@@ -343,7 +404,7 @@ $('#sampleBtn').addEventListener('click', async () => {
 $('#refreshBtn').addEventListener('click', () => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.setItem(DEMO_DISABLED_KEY, '1');
-  clientState = { diagnosis: null, plans: [], feedback: [], review: null };
+  clientState = { assessment: null, diagnosis: null, plans: [], feedback: [], review: null };
   renderAllFromClient();
   toast('已清空本浏览器演示数据，可重新载入样例');
 });

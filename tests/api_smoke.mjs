@@ -34,8 +34,10 @@ const submitAssessment = async (body) => {
 };
 
 const data = await submitAssessment(payload);
-const { diagnosis, plans } = data;
+const { assessment, diagnosis, plans } = data;
 
+assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
+assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
 assert(diagnosis.app_version === '1.3', `expected app_version 1.3, got ${diagnosis.app_version}`);
 assert(diagnosis.loop_score < 30, `loop_score must stay low before feedback, got ${diagnosis.loop_score}`);
@@ -91,6 +93,9 @@ const missingLinkFeedbackRes = await handler(request('POST', 'feedback', {
   notes: '评论集中问价格和儿童矫正周期',
 }));
 assert(missingLinkFeedbackRes.status === 400, `missing publish_link should be rejected, got ${missingLinkFeedbackRes.status}`);
+const dashboardAfterMissingLink = await (await handler(request('GET', 'dashboard'))).json();
+assert(dashboardAfterMissingLink.published_plans === 0, `missing publish_link must not count as published, got ${dashboardAfterMissingLink.published_plans}`);
+assert(dashboardAfterMissingLink.feedback_rate === 0, `missing publish_link must not change feedback_rate, got ${dashboardAfterMissingLink.feedback_rate}`);
 
 const feedbackRes = await handler(request('POST', 'feedback', {
   content_plan_id: oral.plans[0].id,

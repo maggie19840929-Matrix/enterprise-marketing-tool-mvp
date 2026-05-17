@@ -22,11 +22,15 @@
   <main>
     <section class="cards" id="metricCards"></section>
 
-    <section class="grid two">
-      <article class="panel">
-        <h2>客户营销体检</h2>
-        <p class="hint">v1.3 增加内容决策局测试样例入口；账号冷启动配置、起步主平台和反馈复盘仍是发布前门禁。</p>
-        <form id="assessmentForm">
+    <section class="panel intake-panel">
+      <div class="panel-head">
+        <div>
+          <h2>客户营销体检</h2>
+          <p class="hint">先收集客户的行业、目标客户、平台现状和最大营销问题；提交后再生成诊断、账号配置和7天计划。</p>
+        </div>
+        <span>输入区 ≠ 诊断结果区，避免把“填表”和“报告”混在一起。</span>
+      </div>
+      <form id="assessmentForm" class="assessment-form">
           <label>企业名称<input name="company_name" placeholder="可选：例如南京某设备公司" /></label>
           <label>行业<input name="industry" required placeholder="例如：工业设备 / 本地服务 / 教育培训" /></label>
           <label>主要营销目标<input name="main_goal" required placeholder="例如：获得更多咨询 / 到店 / 报名" /></label>
@@ -60,15 +64,24 @@
           <label>最近效果最好的内容<input name="best_recent_content" placeholder="可选：客户案例、产品演示、老板出镜..." /></label>
           <label>账号定位/昵称倾向<input name="account_preference" placeholder="可选：例如内容决策局 / 企业获客复盘号" /></label>
           <label>联系人<input name="contact" placeholder="可选" /></label>
-          <button type="submit">生成诊断和7天发布计划</button>
-        </form>
+        <button type="submit">生成诊断和7天发布计划</button>
+      </form>
+    </section>
+
+    <section class="grid two report-grid">
+      <article class="panel client-snapshot-panel">
+        <h2>当前客户数据</h2>
+        <p class="hint">这里显示本次体检真正进入诊断引擎的客户输入，防止“诊断有了、客户数据为空”。</p>
+        <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
       </article>
 
-      <article class="panel highlight">
+      <article class="panel highlight diagnosis-panel">
         <h2>最新诊断报告</h2>
         <div id="latestDiagnosis" class="empty">暂无诊断，先提交一次营销体检。</div>
       </article>
     </section>
+
+    <section id="firstLinkGate" class="panel gate-panel"></section>
 
     <section class="panel">
       <div class="panel-head">
@@ -85,7 +98,7 @@
 
     <section class="grid two">
       <article class="panel">
-        <h2>营销反馈回填</h2>
+        <h2>首发链接回填 / 营销反馈回填</h2>
         <p class="hint">无回填 = 未闭环。首条内容发布后必须返回发布链接；每条内容发布后24-72小时回填一次。</p>
         <form id="feedbackForm">
           <label>发布计划ID<input name="content_plan_id" required type="number" placeholder="从发布计划表中选择 ID" /></label>
