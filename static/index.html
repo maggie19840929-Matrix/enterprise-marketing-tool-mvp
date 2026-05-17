@@ -69,15 +69,11 @@
     </section>
 
     <section class="grid two report-grid">
-      <div class="report-side-stack">
-        <article class="panel client-snapshot-panel">
-          <h2>当前客户数据</h2>
-          <p class="hint">这里显示本次体检真正进入诊断引擎的客户输入，防止“诊断有了、客户数据为空”。</p>
-          <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
-        </article>
-
-        <article id="firstLinkGate" class="panel gate-panel"></article>
-      </div>
+      <article class="panel client-snapshot-panel">
+        <h2>当前客户数据</h2>
+        <p class="hint">这里显示本次体检真正进入诊断引擎的客户输入，防止“诊断有了、客户数据为空”。</p>
+        <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
+      </article>
 
       <article class="panel highlight diagnosis-panel">
         <h2>最新诊断报告</h2>
@@ -90,6 +86,7 @@
         <h2>7天内容发布计划</h2>
         <span>只做营销增长闭环，不做CRM/ERP/客户管理主轴。</span>
       </div>
+      <div id="firstLinkGate" class="gate-strip"></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID/日期</th><th>平台</th><th>内容主题</th><th>角度</th><th>形式</th><th>CTA</th><th>目标</th><th>状态</th><th>操作</th></tr></thead>

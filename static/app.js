@@ -202,21 +202,18 @@ function renderFirstLinkGate(){
   const el = $('#firstLinkGate');
   if (!el) return;
   if (!clientState.plans.length) {
-    el.innerHTML = `<div class="panel-head"><h2>首发链接回填门禁</h2><span>生成7天计划后出现</span></div><div class="empty">暂无发布计划。先完成客户营销体检。</div>`;
+    el.innerHTML = '';
     return;
   }
   const firstOpen = clientState.plans.find((p)=>p.status !== '已发布' || !p.publish_link);
   if (!firstOpen) {
-    el.innerHTML = `<div class="panel-head"><h2>首发链接回填门禁</h2><span class="ok-text">已闭环</span></div><div class="success-box">所有已计划内容均已回填发布链接，可以进入周复盘。</div>`;
+    el.innerHTML = `<div class="success-box compact">链接已回填：计划表已具备发布证据，可以进入周复盘。</div>`;
     return;
   }
-  el.innerHTML = `<div class="panel-head">
-    <div><h2>首发链接回填门禁</h2><p class="hint">首条内容不只是“发布”，必须把链接回填。没有链接 = 没有证据 = 不算闭环。</p></div>
-    <button class="secondary" type="button" onclick="prefillFeedback(${Number(firstOpen.id)})">回填计划 #${Number(firstOpen.id)} 链接</button>
-  </div>
-  <div class="gate-content">
-    <div><span class="badge danger">待回填链接</span><strong>#${Number(firstOpen.id)}｜${esc(firstOpen.platform)}｜${esc(firstOpen.topic)}</strong></div>
-    <p>发布后到下方「首发链接回填 / 营销反馈回填」粘贴链接，并填写曝光、互动、咨询数据。</p>
+  el.innerHTML = `<div class="gate-content compact">
+    <div><span class="badge danger">首条待回填</span><strong>#${Number(firstOpen.id)}｜${esc(firstOpen.platform)}｜${esc(firstOpen.topic)}</strong></div>
+    <p>这是计划表的闭环提示，不单独作为模块；发布后在下方反馈表粘贴链接。</p>
+    <button class="secondary" type="button" onclick="prefillFeedback(${Number(firstOpen.id)})">去回填计划 #${Number(firstOpen.id)}</button>
   </div>`;
 }
 
