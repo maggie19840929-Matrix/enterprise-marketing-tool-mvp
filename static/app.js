@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.3.2';
-const VERSION_LABEL = 'v1.3.2 · 快速体检 + 首屏关键结论';
+const APP_VERSION = '1.4.1';
+const VERSION_LABEL = 'v1.4.1 · 移除评论引导';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v3';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CONTENT_DECISION_SAMPLE = {
@@ -16,7 +16,7 @@ const CONTENT_DECISION_SAMPLE = {
   content_assets: '老板真实问题、客户案例、历史笔记截图、复盘表模板、AI选题流程',
   monthly_budget: '先低成本验证，暂不投放',
   decision_cycle: '7天小样本复盘，30天判断是否加码',
-  best_recent_content: '一条内容有没有获客价值，不是看点赞，而是看收藏、评论、私信和咨询',
+  best_recent_content: '一条内容有没有获客价值，不是看点赞，而是看收藏、私信和咨询',
   account_preference: '内容决策局',
   contact: '企业营销工具测试样例',
 };
@@ -96,6 +96,19 @@ function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
 function esc(v){ return String(v ?? '').replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 function num(v){ return Number(v || 0); }
 function interactions(f){ return num(f.likes) + num(f.comments) + num(f.favorites) + num(f.shares); }
+const FEEDBACK_STAGE_ORDER = {'T+24': 1, 'T+72': 2, 'T+7': 3};
+function stageRank(stage){ return FEEDBACK_STAGE_ORDER[stage] || 0; }
+function latestFeedbackRows(){
+  const byPlan = new Map();
+  clientState.feedback.forEach((item) => {
+    const key = Number(item.content_plan_id);
+    const existing = byPlan.get(key);
+    if (!existing || stageRank(item.feedback_stage) > stageRank(existing.feedback_stage) || (stageRank(item.feedback_stage) === stageRank(existing.feedback_stage) && String(item.created_at || '') > String(existing.created_at || ''))) {
+      byPlan.set(key, item);
+    }
+  });
+  return [...byPlan.values()];
+}
 function localTimestamp(){
   const d = new Date();
   const parts = new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false}).formatToParts(d).reduce((acc, p)=>{acc[p.type]=p.value; return acc;}, {});
@@ -108,11 +121,12 @@ function localDateIso(date = new Date()){
 function dynamicLoopScore(){
   const total = clientState.plans.length;
   const published = clientState.plans.filter((p)=>p.status === '已发布' && p.publish_link).length;
-  const consultations = clientState.feedback.reduce((sum, f)=>sum + num(f.consultations), 0);
-  const totalInteractions = clientState.feedback.reduce((sum, f)=>sum + interactions(f), 0);
+  const rows = latestFeedbackRows();
+  const consultations = rows.reduce((sum, f)=>sum + num(f.consultations), 0);
+  const totalInteractions = rows.reduce((sum, f)=>sum + interactions(f), 0);
   let score = clientState.diagnosis?.loop_score ?? 8;
   if (total) score = Math.max(score, 8 + Math.round((published / total) * 35));
-  if (clientState.feedback.length) score += 12;
+  if (rows.length) score += 12;
   if (totalInteractions > 0) score += 10;
   if (consultations > 0) score += 20;
   if (clientState.review) score += 15;
@@ -131,12 +145,13 @@ function renderPlatformGroup(title, items){
 function clientDashboard(){
   const total_plans = clientState.plans.length;
   const published_plans = clientState.plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
-  const total_views = clientState.feedback.reduce((sum, item) => sum + num(item.views), 0);
-  const total_interactions = clientState.feedback.reduce((sum, item) => sum + interactions(item), 0);
-  const total_consultations = clientState.feedback.reduce((sum, item) => sum + num(item.consultations), 0);
+  const rows = latestFeedbackRows();
+  const total_views = rows.reduce((sum, item) => sum + num(item.views), 0);
+  const total_interactions = rows.reduce((sum, item) => sum + interactions(item), 0);
+  const total_consultations = rows.reduce((sum, item) => sum + num(item.consultations), 0);
   let next_suggestion = '先执行：发布第一条内容，并把首次发布链接回填到系统，否则不算闭环。';
-  if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题并保留CTA。';
-  else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化结尾引导和客户痛点表达。';
+  if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题，并保留合规私信/主页咨询入口。';
+  else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化客户痛点表达，并用私信/主页咨询承接。';
   if (clientState.review?.next_actions) next_suggestion = clientState.review.next_actions;
   return {total_plans, published_plans, feedback_rate: total_plans ? published_plans / total_plans : 0, total_views, total_interactions, total_consultations, next_suggestion};
 }
@@ -288,7 +303,7 @@ function renderPlans(plans){
 
 function renderFeedback(items){
   $('#feedbackList').innerHTML = items.map(f=>`<div class="list-item">
-    <strong>计划 #${f.content_plan_id}</strong> · 曝光 ${f.views} · 互动 ${interactions(f)} · 咨询 ${f.consultations}
+    <strong>计划 #${f.content_plan_id}</strong> · <span class="badge">${esc(f.feedback_stage || '未标注')}</span> · 曝光 ${f.views} · 互动 ${interactions(f)} · 咨询 ${f.consultations}
     ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : '<div class="warning">缺少发布链接：本条不算完整闭环</div>'}
     <div class="small">${esc(f.notes || '无备注')} · ${esc(f.created_at)}</div>
   </div>`).join('') || '<div class="empty">暂无反馈。发布后回填数据，系统才会给下一轮建议。</div>';
@@ -312,7 +327,7 @@ function prefillFeedback(id){
 window.prefillFeedback = prefillFeedback;
 
 function createLocalReview(){
-  const rows = clientState.feedback.map((feedback) => ({
+  const rows = latestFeedbackRows().map((feedback) => ({
     ...feedback,
     topic: clientState.plans.find((plan) => plan.id === Number(feedback.content_plan_id))?.topic || '',
   }));
@@ -335,7 +350,7 @@ function createLocalReview(){
   let next_actions = '先完成至少1条内容发布和反馈回填，否则无法复盘。';
   if (rows.length && total_consultations > 0) {
     bottleneck = '需要扩大有效内容样本';
-    next_actions = `加码「${winner.topic}」同类角度，下周至少复制3条，并保留相同CTA。`;
+    next_actions = `加码「${winner.topic}」同类角度，下周至少复制3条，并保留合规私信/主页咨询入口。`;
   } else if (rows.length && total_views < 1000) {
     bottleneck = '曝光不足';
     next_actions = '优先优化标题/封面/开头，先获得足够曝光样本。';
@@ -385,11 +400,12 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
     const feedback = {
       id: Date.now(),
       ...data,
+      feedback_stage: data.feedback_stage || 'T+24',
       created_at: localTimestamp(),
     };
     plan.status = '已发布';
     if (feedback.publish_link) plan.publish_link = feedback.publish_link;
-    clientState.feedback = [feedback, ...clientState.feedback.filter((item) => Number(item.content_plan_id) !== Number(data.content_plan_id))];
+    clientState.feedback = [feedback, ...clientState.feedback.filter((item) => !(Number(item.content_plan_id) === Number(data.content_plan_id) && String(item.feedback_stage || 'T+24') === String(feedback.feedback_stage)))];
     clientState.review = null;
     saveLocal();
     renderAllFromClient();

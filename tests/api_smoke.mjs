@@ -16,7 +16,7 @@ const payload = {
   current_channels: '小红书、视频号、朋友圈，后续视数据扩展到抖音。',
   posting_frequency: '每周3条',
   biggest_problem: '不知道发什么',
-  content_assets: '企业真实服务案例、老板经验、客户常见问题、行业痛点、内容发布后的数据、评论/私信/咨询记录、竞品爆款内容。',
+  content_assets: '企业真实服务案例、老板经验、客户常见问题、行业痛点、内容发布后的数据、私信/咨询记录、竞品爆款内容。',
   monthly_budget: '低预算，优先靠老板认知内容、案例内容和AI辅助复盘，不做大额投流。',
   decision_cycle: '7天看内容反馈，14天看栏目方向，30天判断是否形成可复用增长闭环。',
   best_recent_content: '方法论类内容、老板真实误区拆解、AI营销复盘案例、企业账号为什么发了没咨询。',
@@ -25,6 +25,13 @@ const payload = {
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
+};
+
+const assertNoUnsafeCommentCta = (label, value) => {
+  const text = JSON.stringify(value);
+  ['评论区', '留言', '评论/私信', '评论区告诉我'].forEach((word) => {
+    assert(!text.includes(word), `${label} must not include unsafe comment CTA: ${word}`);
+  });
 };
 
 const submitAssessment = async (body) => {
@@ -39,7 +46,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.3.2', `expected app_version 1.3.2, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.4.1', `expected app_version 1.4.1, got ${diagnosis.app_version}`);
 assert(diagnosis.loop_score < 30, `loop_score must stay low before feedback, got ${diagnosis.loop_score}`);
 assert(diagnosis.account_setup.account_name === '内容决策局', 'meta-marketing test account should get 内容决策局 cold-start setup');
 assert(diagnosis.account_setup.starting_platform.platform === '小红书', 'cold-start setup should expose starting platform');
@@ -48,6 +55,7 @@ assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', '
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
+assertNoUnsafeCommentCta('content decision diagnosis/plans', { diagnosis, plans });
 assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17', 'Shanghai business date should roll forward at UTC+8 midnight');
 assert(shanghaiDateIso(1, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-18', 'Shanghai offset should advance from business date');
 assert(plans[0].planned_date === shanghaiDateIso(), `planned_date should start today in Asia/Shanghai, got ${plans[0].planned_date}`);
@@ -75,6 +83,7 @@ const oral = await submitAssessment({
   biggest_problem: '不知道发什么',
 });
 const oralText = JSON.stringify(oral);
+assertNoUnsafeCommentCta('customer diagnosis/plans', oral);
 assert(oral.plans.length === 7, `oral sample expected 7 plans, got ${oral.plans.length}`);
 assert(oral.plans.slice(0, 6).map((p) => p.platform).join('|') === '小红书|美团/大众点评|朋友圈/私域|小红书|美团/大众点评|朋友圈/私域', 'oral plans should rotate recommended platforms');
 ['口腔门诊', '宝妈', '儿童牙齿矫正', '种植牙', '口腔检查', '怕贵', '医生专业度'].forEach((word) => {
@@ -100,6 +109,7 @@ assert(dashboardAfterMissingLink.feedback_rate === 0, `missing publish_link must
 const feedbackRes = await handler(request('POST', 'feedback', {
   content_plan_id: oral.plans[0].id,
   publish_link: 'https://example.com/first-post',
+  feedback_stage: 'T+24',
   views: 1200,
   likes: 36,
   comments: 8,
@@ -111,12 +121,36 @@ const feedbackRes = await handler(request('POST', 'feedback', {
 if (feedbackRes.status !== 201) throw new Error(`feedback expected 201, got ${feedbackRes.status}: ${await feedbackRes.text()}`);
 const feedbackData = await feedbackRes.json();
 assert(feedbackData.feedback.publish_link === 'https://example.com/first-post', 'feedback must preserve first publish link');
+assert(feedbackData.feedback.feedback_stage === 'T+24', 'feedback must preserve T+24 stage');
 assert(feedbackData.dashboard.published_plans === 1, `published_plans should be 1, got ${feedbackData.dashboard.published_plans}`);
 assert(feedbackData.dashboard.feedback_rate === 1 / 7, `feedback_rate should be 1/7, got ${feedbackData.dashboard.feedback_rate}`);
 assert(feedbackData.dashboard.total_views === 1200, `total_views should be 1200, got ${feedbackData.dashboard.total_views}`);
 assert(feedbackData.dashboard.total_interactions === 71, `total_interactions should be 71, got ${feedbackData.dashboard.total_interactions}`);
 assert(feedbackData.dashboard.total_consultations === 4, `total_consultations should be 4, got ${feedbackData.dashboard.total_consultations}`);
 assert(feedbackData.dashboard.loop_score > oral.diagnosis.loop_score, 'loop_score should rise after feedback');
+
+const feedback72Res = await handler(request('POST', 'feedback', {
+  content_plan_id: oral.plans[0].id,
+  publish_link: 'https://example.com/first-post',
+  feedback_stage: 'T+72',
+  views: 1800,
+  likes: 52,
+  comments: 14,
+  favorites: 31,
+  shares: 8,
+  consultations: 7,
+  notes: '72小时后咨询增加，收藏继续增长',
+}));
+if (feedback72Res.status !== 201) throw new Error(`feedback T+72 expected 201, got ${feedback72Res.status}: ${await feedback72Res.text()}`);
+const feedback72Data = await feedback72Res.json();
+assert(feedback72Data.feedback.feedback_stage === 'T+72', 'feedback must preserve T+72 stage');
+assert(feedback72Data.dashboard.published_plans === 1, `published_plans should remain 1, got ${feedback72Data.dashboard.published_plans}`);
+assert(feedback72Data.dashboard.feedback_rate === 1 / 7, `feedback_rate should still count one closed-loop content, got ${feedback72Data.dashboard.feedback_rate}`);
+assert(feedback72Data.dashboard.total_views === 1800, `dashboard should use latest stage, got ${feedback72Data.dashboard.total_views}`);
+assert(feedback72Data.dashboard.total_interactions === 105, `dashboard should use latest stage interactions, got ${feedback72Data.dashboard.total_interactions}`);
+assert(feedback72Data.dashboard.total_consultations === 7, `dashboard should use latest consultations, got ${feedback72Data.dashboard.total_consultations}`);
+const allFeedback = await (await handler(request('GET', 'feedback'))).json();
+assert(allFeedback.some((x) => x.feedback_stage === 'T+24') && allFeedback.some((x) => x.feedback_stage === 'T+72'), 'GET /feedback should keep multiple timepoint rows for one plan');
 
 const reviewRes = await handler(request('POST', 'reviews', {}));
 if (reviewRes.status !== 201) throw new Error(`review expected 201, got ${reviewRes.status}: ${await reviewRes.text()}`);
@@ -126,6 +160,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
   app_version: diagnosis.app_version,
+  unsafe_comment_cta_count: JSON.stringify({ diagnosis, plans, oral }).match(/评论区|留言|评论\/私信|评论区告诉我/g)?.length || 0,
   loop_score: diagnosis.loop_score,
   account_setup: diagnosis.account_setup,
   own_platforms: diagnosis.platform_recommendations.primary.map((x) => x.platform),

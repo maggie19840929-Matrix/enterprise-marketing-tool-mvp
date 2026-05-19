@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业营销增长工具 v1.3.2</title>
+  <title>企业营销增长工具 v1.4.1</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <p class="eyebrow">v1.3.2 · 快速体检 + 首屏关键结论</p>
+      <p class="eyebrow">v1.4.1 · 移除评论引导</p>
       <h1>账号冷启动 → 营销体检 → 起步平台 → 7天内容计划 → 反馈复盘</h1>
       <p class="sub">聚焦帮客户获得增长：先把“发什么、怎么发、发完怎么优化”跑成一个可复盘闭环。</p>
     </div>
@@ -94,7 +94,7 @@
         <summary>展开完整7天计划表</summary>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>ID/日期</th><th>平台</th><th>内容主题</th><th>角度</th><th>形式</th><th>CTA</th><th>目标</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID/日期</th><th>平台</th><th>内容主题</th><th>角度</th><th>形式</th><th>合规承接</th><th>目标</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="plansBody"></tbody>
           </table>
         </div>
@@ -104,10 +104,17 @@
     <section class="grid two">
       <article class="panel">
         <h2>首发链接回填 / 营销反馈回填</h2>
-        <p class="hint">无回填 = 未闭环。首条内容发布后必须返回发布链接；每条内容发布后24-72小时回填一次。</p>
+        <p class="hint">无回填 = 未闭环。首条内容发布后必须返回发布链接；每条内容按 T+24 / T+72 / T+7 分阶段回填，避免只看一次数据误判。</p>
         <form id="feedbackForm">
           <label>发布计划ID<input name="content_plan_id" required type="number" placeholder="从发布计划表中选择 ID" /></label>
           <label>首次/本条发布链接<input name="publish_link" required type="url" placeholder="必填：粘贴已发布内容链接，例如 https://..." /></label>
+          <label>反馈时间点
+            <select name="feedback_stage" required>
+              <option value="T+24">T+24｜发布后24小时</option>
+              <option value="T+72">T+72｜发布后72小时</option>
+              <option value="T+7">T+7｜发布后7天</option>
+            </select>
+          </label>
           <div class="mini-grid">
             <label>曝光/播放<input name="views" type="number" value="0" /></label>
             <label>点赞<input name="likes" type="number" value="0" /></label>
@@ -116,7 +123,7 @@
             <label>转发<input name="shares" type="number" value="0" /></label>
             <label>私信/咨询<input name="consultations" type="number" value="0" /></label>
           </div>
-          <label>备注<textarea name="notes" placeholder="例如：有客户问价格 / 评论区问资料 / 开头被吐槽"></textarea></label>
+          <label>备注<textarea name="notes" placeholder="例如：有客户问价格 / 私信问资料 / 开头被吐槽"></textarea></label>
           <button type="submit">保存反馈并更新看板</button>
         </form>
       </article>
