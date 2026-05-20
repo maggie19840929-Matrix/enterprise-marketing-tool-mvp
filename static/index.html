@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业营销增长工具 v1.4.1</title>
+  <title>企业营销增长工具 v1.4.0</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <p class="eyebrow">v1.4.1 · 移除评论引导</p>
+      <p class="eyebrow">v1.4.0 · 对标账号主题参考 + 多阶段反馈回填</p>
       <h1>账号冷启动 → 营销体检 → 起步平台 → 7天内容计划 → 反馈复盘</h1>
       <p class="sub">聚焦帮客户获得增长：先把“发什么、怎么发、发完怎么优化”跑成一个可复盘闭环。</p>
     </div>
@@ -65,6 +65,23 @@
               <label>账号定位/昵称倾向<input name="account_preference" placeholder="例如内容决策局 / 企业获客复盘号" /></label>
               <label>联系人<input name="contact" placeholder="可选" /></label>
               <label class="wide-field">客户核心痛点<textarea name="customer_pain" placeholder="客户为什么会需要你？现在最困扰他的是什么？"></textarea></label>
+              <div class="wide-field warning">
+                <div class="small">对标账号主题参考</div>
+                <p>对标账号不是用来抄袭，而是用来判断市场已经验证过哪些痛点和表达方式。</p>
+              </div>
+              <label>对标平台
+                <select name="benchmark_platform">
+                  <option>小红书</option>
+                  <option>抖音</option>
+                  <option>视频号</option>
+                  <option>其他</option>
+                </select>
+              </label>
+              <label>对标账号链接 1<input name="benchmark_account_1" placeholder="可选：粘贴账号主页链接" /></label>
+              <label>对标账号链接 2<input name="benchmark_account_2" placeholder="可选" /></label>
+              <label>对标账号链接 3<input name="benchmark_account_3" placeholder="可选" /></label>
+              <label class="wide-field">对标账号备注<textarea name="benchmark_notes" placeholder="例如：本地门诊账号、宝妈评论多、医生科普型内容表现好"></textarea></label>
+              <label class="wide-field">代表爆款内容 / 标题 / 链接 / 数据摘要<textarea name="benchmark_sample_content" placeholder="例如：标题、链接、点赞收藏评论概况；只做主题参考，不照抄原文"></textarea></label>
             </div>
           </details>
           <button type="submit">立即生成关键结论</button>

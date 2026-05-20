@@ -20,6 +20,12 @@ const payload = {
   monthly_budget: '低预算，优先靠老板认知内容、案例内容和AI辅助复盘，不做大额投流。',
   decision_cycle: '7天看内容反馈，14天看栏目方向，30天判断是否形成可复用增长闭环。',
   best_recent_content: '方法论类内容、老板真实误区拆解、AI营销复盘案例、企业账号为什么发了没咨询。',
+  benchmark: {
+    platform: '小红书',
+    accounts: ['https://example.com/content-growth-benchmark'],
+    notes: '对标账号多用真实问题、避坑清单、复盘表方法论，收藏和私信反馈较高。',
+    sample_content: '代表内容：发了很多内容为什么还是没人咨询？数据摘要：收藏高于点赞，私信集中问复盘表。',
+  },
   contact: 'Cookie / 企业营销工具测试',
 };
 
@@ -46,7 +52,10 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.4.1', `expected app_version 1.4.1, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.4.0', `expected app_version 1.4.0, got ${diagnosis.app_version}`);
+assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
+assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
+assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
 assert(diagnosis.loop_score < 30, `loop_score must stay low before feedback, got ${diagnosis.loop_score}`);
 assert(diagnosis.account_setup.account_name === '内容决策局', 'meta-marketing test account should get 内容决策局 cold-start setup');
 assert(diagnosis.account_setup.starting_platform.platform === '小红书', 'cold-start setup should expose starting platform');
@@ -81,6 +90,12 @@ const oral = await submitAssessment({
   current_channels: '朋友圈、小红书、美团',
   posting_frequency: '每周3条',
   biggest_problem: '不知道发什么',
+  benchmark: {
+    platform: '小红书',
+    accounts: ['https://example.com/oral-benchmark'],
+    notes: '同城口腔账号里，宝妈收藏儿童矫正时机、医生专业度、价格透明类内容。',
+    sample_content: '爆款标题：孩子几岁做牙齿矫正更合适？数据摘要：收藏高，私信问矫正周期。',
+  },
 });
 const oralText = JSON.stringify(oral);
 assertNoUnsafeCommentCta('customer diagnosis/plans', oral);
@@ -90,6 +105,8 @@ assert(oral.plans.slice(0, 6).map((p) => p.platform).join('|') === '小红书|�
   assert(oralText.includes(word), `oral output should include ${word}`);
 });
 assert(!oralText.includes('AI写文案'), 'oral output must not use meta-marketing template');
+assert(oralText.includes('对标账号主题参考'), 'oral diagnosis should include benchmark reference module');
+assert(oralText.includes('儿童矫正时机判断'), 'oral plans should use benchmark-calibrated theme without copying title');
 
 const missingLinkFeedbackRes = await handler(request('POST', 'feedback', {
   content_plan_id: oral.plans[0].id,

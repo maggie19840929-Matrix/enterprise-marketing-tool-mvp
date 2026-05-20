@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.4.1';
-const VERSION_LABEL = 'v1.4.1 · 移除评论引导';
+const APP_VERSION = '1.4.0';
+const VERSION_LABEL = 'v1.4.0 · 对标账号主题参考 + 多阶段反馈回填';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -116,6 +116,64 @@ const painLabel = (pain = '', problem = '') => {
   if (hasAny(text, ['AI', '文案'])) return 'AI文案没有转化';
   if (hasAny(text, ['流量', '曝光', '播放'])) return '内容曝光不足';
   return pain || problem || '当前核心痛点';
+};
+const normalizeBenchmark = (payload = {}) => {
+  const source = payload.benchmark && typeof payload.benchmark === 'object' ? payload.benchmark : payload;
+  const accounts = [
+    ...(Array.isArray(source.accounts) ? source.accounts : []),
+    clean(source, 'benchmark_account_1'),
+    clean(source, 'benchmark_account_2'),
+    clean(source, 'benchmark_account_3'),
+  ].map((item) => String(item || '').trim()).filter(Boolean);
+  return {
+    platform: clean(source, 'platform') || clean(source, 'benchmark_platform'),
+    accounts: [...new Set(accounts)].slice(0, 3),
+    notes: clean(source, 'notes') || clean(source, 'benchmark_notes'),
+    sample_content: clean(source, 'sample_content') || clean(source, 'benchmark_sample_content'),
+  };
+};
+const hasBenchmark = (benchmark = {}) => Boolean((benchmark.accounts || []).length || benchmark.notes || benchmark.sample_content);
+const benchmarkTextFor = (benchmark = {}) => [benchmark.platform, ...(benchmark.accounts || []), benchmark.notes, benchmark.sample_content].filter(Boolean).join(' ');
+const benchmarkThemeFor = (benchmark = {}, fallback = '客户真实痛点') => {
+  const text = String(benchmark.sample_content || benchmark.notes || '').replace(/https?:\/\/\S+/g, ' ').replace(/[“”"']/g, '').trim();
+  if (hasAny(text, ['矫正', '正畸', '牙齿'])) return '儿童矫正时机判断';
+  if (hasAny(text, ['价格', '贵', '费用'])) return '价格和效果顾虑';
+  if (hasAny(text, ['医生', '专业', '信任'])) return '医生专业信任';
+  if (hasAny(text, ['复盘', '内容', '咨询'])) return '内容复盘和咨询转化';
+  const parts = text.split(/[。！？!?；;\n\r]/).map((item) => item.trim()).filter((item) => item.length >= 4);
+  return (parts[0] || fallback).slice(0, 34);
+};
+const benchmarkReferenceFor = (assessment) => {
+  const benchmark = assessment.benchmark || {};
+  if (!hasBenchmark(benchmark)) return null;
+  const audience = shortAudience(assessment.target_customer || '');
+  const theme = benchmarkThemeFor(benchmark, assessment.biggest_problem || assessment.customer_pain || '客户真实痛点');
+  const platform = benchmark.platform || '对标平台';
+  const source = [platform, ...(benchmark.accounts || [])].filter(Boolean).join('｜');
+  return {
+    title: '对标账号主题参考',
+    source_summary: source || '客户手动填写的对标账号与代表内容',
+    recent_topics: [
+      `${audience}对「${theme}」类问题有明确兴趣`,
+      `把对标内容中的高频疑问转译成${assessment.industry || '当前行业'}客户场景`,
+      `围绕${assessment.offer || '服务入口'}补充案例、避坑和决策标准`,
+    ],
+    title_structures: [
+      '痛点直问：为什么明明有需求，却迟迟不行动？',
+      '避坑清单：选择前先看这3个判断标准',
+      '场景复盘：一个真实问题如何被专业服务解决',
+    ],
+    transferable_directions: [
+      `保留${platform}已验证的痛点表达，但换成${audience}语言`,
+      `把标题结构迁移到${assessment.industry || '当前行业'}案例、流程和FAQ`,
+      '用收藏、私信、咨询数据判断哪些主题值得进入下一轮',
+    ],
+    avoid: [
+      '不照抄对标账号标题、封面、脚本或案例原文',
+      '不搬运未经授权的图片、视频和客户故事',
+      '不把对标账号的人设直接套到本客户账号',
+    ],
+  };
 };
 const softCta = (offer = '', pain = '') => {
   if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，先私信“复盘”，从一张内容反馈表开始。';
@@ -264,9 +322,10 @@ const planPlatforms = (recommendations, fallbackChannels) => {
   return primary.length ? primary : (platformsFor(fallbackChannels).length ? platformsFor(fallbackChannels) : ['小红书']);
 };
 
-const planTemplates = (priority, industry, goal, target, offer, pain, problem = '') => {
+const planTemplates = (priority, industry, goal, target, offer, pain, problem = '', benchmarkReference = null) => {
   const audience = shortAudience(target);
   const painShort = painLabel(pain, problem);
+  const benchmarkTheme = benchmarkReference?.recent_topics?.[0]?.replace(`${audience}对「`, '').replace('」类问题有明确兴趣', '');
   const cta = softCta(offer, painShort);
   const isMeta = isMetaMarketingAccount({ industry, main_goal: goal, offer });
   if (!isMeta) {
@@ -283,6 +342,10 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
     if (priority === '曝光不足') {
       items[0] = [`别再忽略：${audience}遇到「${painShort}」时最容易踩的坑`, '强钩子：用高相关痛点提升打开率', '短视频/图文', directCta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
     }
+    if (benchmarkTheme) {
+      items[0] = [`${audience}为什么会关注「${benchmarkTheme}」？`, '对标校准：提炼已验证痛点，转译为本客户场景，不照抄原文', '图文/短视频', directCta, '收藏数', '需要人工润色', '来自对标账号主题结构，发布前需替换成本客户案例'];
+      items[1] = [`从对标爆款看：选择${offer}前先确认3件事`, '标题结构迁移：把高互动问题改写成服务决策清单', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏/私信', '需要人工润色', '只借鉴结构，不复制标题和素材'];
+    }
     return items;
   }
   const items = [
@@ -296,6 +359,10 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
   ];
   if (priority === '曝光不足') {
     items[0] = [`${audience}内容没人看，先检查标题有没有说中痛点`, `强钩子：把「${painShort}」放到标题和封面第一眼`, '图文', cta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
+  }
+  if (benchmarkTheme) {
+    items[0] = [`为什么「${benchmarkTheme}」这类问题更容易被收藏？`, '对标校准：拆出已验证痛点，再转译成企业内容获客场景', '图文', cta, '收藏数', '需要人工润色', '只迁移主题和结构，不照抄原文'];
+    items[1] = [`从对标账号看，企业主最吃哪种标题结构？`, '结构拆解：痛点直问、避坑清单、案例复盘三类标题', '图文', cta, '收藏/私信', '可直接进入草稿', '适合做第一轮选题校准'];
   }
   return items;
 };
@@ -321,6 +388,7 @@ const createAssessment = (payload) => {
     decision_cycle: clean(payload, 'decision_cycle'),
     best_recent_content: clean(payload, 'best_recent_content'),
     account_preference: clean(payload, 'account_preference'),
+    benchmark: normalizeBenchmark(payload),
     contact: clean(payload, 'contact'),
     created_at: nowIso(),
   };
@@ -340,6 +408,7 @@ const generateDiagnosis = (assessmentId) => {
   const channels = assessment.current_channels || '当前平台';
   const frequency = assessment.posting_frequency || '当前发布频率';
   const platformRecommendations = recommendPlatforms(assessment);
+  const benchmarkReference = benchmarkReferenceFor(assessment);
   const diagnosis = {
     id: state.next.diagnosis++,
     app_version: APP_VERSION,
@@ -355,6 +424,7 @@ const generateDiagnosis = (assessmentId) => {
     weekly_action: '',
     next_step: '',
     platform_recommendations: platformRecommendations,
+    benchmark_reference: benchmarkReference,
     account_setup: accountSetupFor(assessment, platformRecommendations),
     created_at: nowIso(),
   };
@@ -377,7 +447,7 @@ const generateDiagnosis = (assessmentId) => {
   } else {
     diagnosis.insight = `当前「${industry}」营销动作还没有把「${channels}」发布、用户反馈和「${goal}」连成复盘闭环。`;
     diagnosis.weekly_action = `本周按「${frequency}」固定发布计划和反馈字段，围绕「${target}」完成一次发布-回填-复盘闭环。`;
-    diagnosis.next_step = `每条内容发布后24-72小时回填曝光、互动和咨询，判断是否推动「${goal}」。`;
+    diagnosis.next_step = `每条内容按 T+24 / T+72 / T+7 分阶段回填曝光、互动和咨询，判断是否推动「${goal}」。`;
     diagnosis.risk_warning = '无回填就无法优化，系统会把“未回填”视为未闭环。';
   }
 
@@ -402,7 +472,7 @@ const createContentPlan = (diagnosisId) => {
   state.next.plan = 1;
   state.next.feedback = 1;
   state.next.review = 1;
-  const plans = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem).map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
+  const plans = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference).map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
     id: state.next.plan++,
     diagnosis_id: diagnosisId,
     planned_date: todayIso(index),

@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.4.1';
-const VERSION_LABEL = 'v1.4.1 · 移除评论引导';
+const APP_VERSION = '1.4.0';
+const VERSION_LABEL = 'v1.4.0 · 对标账号主题参考 + 多阶段反馈回填';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v3';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CONTENT_DECISION_SAMPLE = {
@@ -18,6 +18,12 @@ const CONTENT_DECISION_SAMPLE = {
   decision_cycle: '7天小样本复盘，30天判断是否加码',
   best_recent_content: '一条内容有没有获客价值，不是看点赞，而是看收藏、私信和咨询',
   account_preference: '内容决策局',
+  benchmark: {
+    platform: '小红书',
+    accounts: ['https://example.com/benchmark-account'],
+    notes: '参考企业增长类账号：标题多用真实问题、避坑、复盘方法，收藏和私信反馈较高。',
+    sample_content: '代表内容：发了很多内容为什么还是没人咨询？数据摘要：收藏高于点赞，私信集中问复盘表。',
+  },
   contact: '企业营销工具测试样例',
 };
 
@@ -141,6 +147,34 @@ function renderPlatformGroup(title, items){
   if (!items?.length) return '';
   return `<div><div class="small">${esc(title)}</div>${items.map((item)=>`<p><strong>${esc(item.platform)}</strong>：${esc(item.reason)}</p>`).join('')}</div>`;
 }
+function normalizeBenchmark(payload){
+  if (payload.benchmark && typeof payload.benchmark === 'object') return payload.benchmark;
+  const accounts = [payload.benchmark_account_1, payload.benchmark_account_2, payload.benchmark_account_3]
+    .map((item)=>String(item || '').trim())
+    .filter(Boolean);
+  return {
+    platform: String(payload.benchmark_platform || '').trim(),
+    accounts,
+    notes: String(payload.benchmark_notes || '').trim(),
+    sample_content: String(payload.benchmark_sample_content || '').trim(),
+  };
+}
+function hasBenchmark(benchmark){
+  return Boolean(benchmark && ((benchmark.accounts || []).length || benchmark.notes || benchmark.sample_content));
+}
+function renderBenchmarkReference(ref){
+  if (!ref) return '';
+  const list = (title, items) => items?.length ? `<div><div class="small">${esc(title)}</div><p>${items.map(esc).join('；')}</p></div>` : '';
+  return `<div class="warning benchmark-reference">
+    <div class="small">对标账号主题参考</div>
+    <p>对标账号不是用来抄袭，而是用来判断市场已经验证过哪些痛点和表达方式。</p>
+    ${ref.source_summary ? `<p><strong>参考来源：</strong>${esc(ref.source_summary)}</p>` : ''}
+    ${list('近期可参考主题', ref.recent_topics)}
+    ${list('高互动标题结构', ref.title_structures)}
+    ${list('可迁移选题方向', ref.transferable_directions)}
+    ${list('不建议直接模仿点', ref.avoid)}
+  </div>`;
+}
 
 function clientDashboard(){
   const total_plans = clientState.plans.length;
@@ -208,8 +242,10 @@ function renderCustomerSnapshot(a){
       ${fieldRow('月预算', a.monthly_budget)}
       ${fieldRow('决策周期', a.decision_cycle)}
       ${fieldRow('联系人', a.contact)}
+      ${fieldRow('对标账号参考', hasBenchmark(a.benchmark) ? `${a.benchmark.platform || '未标注平台'}｜${(a.benchmark.accounts || []).length} 个账号` : '未填写')}
     </div>
     <div class="pain-box"><span>客户核心痛点</span><p>${esc(a.customer_pain || '未填写')}</p></div>
+    ${hasBenchmark(a.benchmark) ? `<div class="pain-box"><span>对标账号备注</span><p>${esc([a.benchmark.notes, a.benchmark.sample_content].filter(Boolean).join('｜'))}</p></div>` : ''}
   </div>`;
 }
 
@@ -258,6 +294,7 @@ function renderDiagnosis(d){
     ${renderPlatformGroup('目标客户可能适用平台（不是本账号发布平台）', platformRecommendations.client_platforms)}
     ${renderPlatformGroup('暂不建议', platformRecommendations.avoid)}
   </div>` : '';
+  const benchmarkModule = renderBenchmarkReference(d.benchmark_reference);
   const extraModules = `${renderAccountSetup(d.account_setup)}${platformModule}`;
   $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card compact-diagnosis">
     <div class="small">${esc(d.version_label || VERSION_LABEL)}</div>
@@ -269,6 +306,7 @@ function renderDiagnosis(d){
     <div><div class="small">优先问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
     <div><div class="small">核心诊断</div><p>${esc(d.insight)}</p></div>
     <div><div class="small">下一步</div><p><strong>${esc(d.next_step || d.weekly_action)}</strong></p></div>
+    ${benchmarkModule}
     <details class="diagnosis-more">
       <summary>展开完整诊断依据、账号配置和平台建议</summary>
       <div class="warning"><div class="small">评分说明</div><p>${esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。')}</p></div>
@@ -373,6 +411,8 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
     const payload = formData(e.target);
     if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
     delete payload.posting_frequency_detail;
+    payload.benchmark = normalizeBenchmark(payload);
+    ['benchmark_platform','benchmark_account_1','benchmark_account_2','benchmark_account_3','benchmark_notes','benchmark_sample_content'].forEach((key)=>delete payload[key]);
     const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
     clientState = {
       assessment: result.assessment || payload,
