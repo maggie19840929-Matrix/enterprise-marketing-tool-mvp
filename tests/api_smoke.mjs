@@ -35,7 +35,7 @@ const assert = (condition, message) => {
 
 const assertNoUnsafeCommentCta = (label, value) => {
   const text = JSON.stringify(value);
-  ['评论区', '留言', '评论/私信', '评论区告诉我'].forEach((word) => {
+  ['评论区告诉我', '留言关键词', '留言“复盘”', '评论/私信“方案”', '可以留言你的情况'].forEach((word) => {
     assert(!text.includes(word), `${label} must not include unsafe comment CTA: ${word}`);
   });
 };
@@ -52,7 +52,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.4.0', `expected app_version 1.4.0, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.4.1', `expected app_version 1.4.1, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -177,7 +177,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
   app_version: diagnosis.app_version,
-  unsafe_comment_cta_count: JSON.stringify({ diagnosis, plans, oral }).match(/评论区|留言|评论\/私信|评论区告诉我/g)?.length || 0,
+  unsafe_comment_cta_count: JSON.stringify({ diagnosis, plans, oral }).match(/评论区告诉我|留言关键词|留言“复盘”|评论\/私信“方案”|可以留言你的情况/g)?.length || 0,
   loop_score: diagnosis.loop_score,
   account_setup: diagnosis.account_setup,
   own_platforms: diagnosis.platform_recommendations.primary.map((x) => x.platform),

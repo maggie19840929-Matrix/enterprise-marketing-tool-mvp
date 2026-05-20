@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.4.0';
-const VERSION_LABEL = 'v1.4.0 · 对标账号主题参考 + 多阶段反馈回填';
+const APP_VERSION = '1.4.1';
+const VERSION_LABEL = 'v1.4.1 · 极简录入 + 对标账号独立模块';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -119,8 +119,10 @@ const painLabel = (pain = '', problem = '') => {
 };
 const normalizeBenchmark = (payload = {}) => {
   const source = payload.benchmark && typeof payload.benchmark === 'object' ? payload.benchmark : payload;
+  const accountText = clean(source, 'benchmark_accounts').split(/[\n\r,，、]+/);
   const accounts = [
     ...(Array.isArray(source.accounts) ? source.accounts : []),
+    ...accountText,
     clean(source, 'benchmark_account_1'),
     clean(source, 'benchmark_account_2'),
     clean(source, 'benchmark_account_3'),

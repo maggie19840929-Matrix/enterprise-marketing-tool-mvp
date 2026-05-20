@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.4.0';
-const VERSION_LABEL = 'v1.4.0 · 对标账号主题参考 + 多阶段反馈回填';
+const APP_VERSION = '1.4.1';
+const VERSION_LABEL = 'v1.4.1 · 极简录入 + 对标账号独立模块';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v3';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CONTENT_DECISION_SAMPLE = {
@@ -149,7 +149,8 @@ function renderPlatformGroup(title, items){
 }
 function normalizeBenchmark(payload){
   if (payload.benchmark && typeof payload.benchmark === 'object') return payload.benchmark;
-  const accounts = [payload.benchmark_account_1, payload.benchmark_account_2, payload.benchmark_account_3]
+  const accountText = String(payload.benchmark_accounts || '').split(/[\n\r,，、]+/);
+  const accounts = [...accountText, payload.benchmark_account_1, payload.benchmark_account_2, payload.benchmark_account_3]
     .map((item)=>String(item || '').trim())
     .filter(Boolean);
   return {
@@ -167,9 +168,9 @@ function renderBenchmarkReference(ref){
   const list = (title, items) => items?.length ? `<div><div class="small">${esc(title)}</div><p>${items.map(esc).join('；')}</p></div>` : '';
   return `<div class="warning benchmark-reference">
     <div class="small">对标账号主题参考</div>
-    <p>对标账号不是用来抄袭，而是用来判断市场已经验证过哪些痛点和表达方式。</p>
+    <p>对标账号不是用来抄袭，而是用来判断市场已经验证过的痛点、标题结构和用户需求。</p>
     ${ref.source_summary ? `<p><strong>参考来源：</strong>${esc(ref.source_summary)}</p>` : ''}
-    ${list('近期可参考主题', ref.recent_topics)}
+    ${list('对标账号市场信号', ref.recent_topics)}
     ${list('高互动标题结构', ref.title_structures)}
     ${list('可迁移选题方向', ref.transferable_directions)}
     ${list('不建议直接模仿点', ref.avoid)}
@@ -191,6 +192,7 @@ function clientDashboard(){
 }
 
 function renderAllFromClient(){
+  renderWorkflowVisibility();
   renderDashboard(clientDashboard());
   renderCustomerSnapshot(clientState.assessment);
   renderFirstLinkGate();
@@ -201,6 +203,10 @@ function renderAllFromClient(){
 }
 
 function renderDashboard(d){
+  if (!clientState.diagnosis) {
+    $('#metricCards').innerHTML = `<div class="card advice status-card"><span>当前状态</span><b>先填写业务信息和一个对标账号，生成7天内容增长建议。</b></div>`;
+    return;
+  }
   $('#metricCards').innerHTML = [
     ['计划数', d.total_plans],
     ['已发布', d.published_plans],
@@ -211,6 +217,16 @@ function renderDashboard(d){
     ['动态闭环分', dynamicLoopScore()],
   ].map(([k,v])=>`<div class="card"><span>${k}</span><b>${v}</b></div>`).join('') +
   `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>`;
+}
+
+function renderWorkflowVisibility(){
+  const hasPlans = clientState.plans.length > 0;
+  const hint = $('#feedbackHint');
+  const workflow = $('#feedbackWorkflow');
+  const planSection = $('#planSection');
+  if (planSection) planSection.hidden = !hasPlans;
+  if (hint) hint.hidden = hasPlans;
+  if (workflow) workflow.hidden = !hasPlans;
 }
 
 
@@ -303,7 +319,7 @@ function renderDiagnosis(d){
       <div class="score"><span>动态闭环分</span><strong>${dynamicLoopScore()}</strong><em>/100</em></div>
       <span class="badge">${esc(d.stage)}</span>
     </div>
-    <div><div class="small">优先问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
+    <div><div class="small">当前最大问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
     <div><div class="small">核心诊断</div><p>${esc(d.insight)}</p></div>
     <div><div class="small">下一步</div><p><strong>${esc(d.next_step || d.weekly_action)}</strong></p></div>
     ${benchmarkModule}
@@ -412,7 +428,7 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
     if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
     delete payload.posting_frequency_detail;
     payload.benchmark = normalizeBenchmark(payload);
-    ['benchmark_platform','benchmark_account_1','benchmark_account_2','benchmark_account_3','benchmark_notes','benchmark_sample_content'].forEach((key)=>delete payload[key]);
+    ['benchmark_platform','benchmark_accounts','benchmark_account_1','benchmark_account_2','benchmark_account_3','benchmark_notes','benchmark_sample_content'].forEach((key)=>delete payload[key]);
     const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
     clientState = {
       assessment: result.assessment || payload,
