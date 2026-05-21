@@ -3,21 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业营销增长工作台 v1.5.1</title>
+  <title>企业营销增长工作台 v1.5.2</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <p class="eyebrow">v1.5.1 · 客户展示体验与审美修复版</p>
-      <h1>企业营销增长工作台：老板只看三件事，今天做什么、结果怎么样、下一轮怎么赢。</h1>
-      <p class="sub">把客户信息、内容计划、发布数据和周期复盘放进一个清爽的增长驾驶舱。先判断方向，再执行内容，最后用真实反馈决定下一步。</p>
+      <p class="eyebrow">v1.5.2 · 回填体验增强版</p>
+      <h1>企业营销增长驾驶舱</h1>
+      <p class="sub">先诊断方向，再看内容结果。</p>
     </div>
-    <div class="hero-actions">
-      <button id="sampleBtn" type="button">载入内容决策局样例</button>
-      <button class="secondary" type="button" onclick="downloadDataBackup()">导出数据备份</button>
-      <label class="secondary import-btn">导入备份<input id="importFile" type="file" accept="application/json" hidden onchange="importDataBackup(this.files[0]); this.value=''" /></label>
+    <div class="hero-actions clean-actions">
+      <button type="button" onclick="document.querySelector('#diagnosisWorkflow')?.scrollIntoView({behavior:'smooth'})">开始诊断</button>
+      <button id="sampleBtn" class="secondary" type="button">载入内容决策局样例</button>
       <button id="refreshBtn" class="secondary danger-action" type="button">清空本浏览器数据</button>
+      <details class="more-actions">
+        <summary>更多</summary>
+        <div class="more-actions-menu">
+          <button class="secondary" type="button" onclick="downloadDataBackup()">导出备份</button>
+          <label class="secondary import-btn">导入备份<input id="importFile" type="file" accept="application/json" hidden onchange="importDataBackup(this.files[0]); this.value=''" /></label>
+        </div>
+      </details>
     </div>
   </header>
 
@@ -128,7 +134,7 @@
       <p class="hint">生成内容计划后，可在这里回填发布链接和 T+24 / T+72 / T+7 数据。</p>
     </section>
 
-    <section class="grid two" id="feedbackWorkflow" hidden>
+    <section class="grid two feedback-focus" id="feedbackWorkflow" hidden>
       <article class="panel">
         <h2>首发链接回填 / 营销反馈回填</h2>
         <p class="hint">无回填 = 未闭环。首条内容发布后必须返回发布链接；每条内容按 T+24 / T+72 / T+7 分阶段回填。数据会优先保存到本浏览器，换电脑/清缓存前请导出备份。</p>

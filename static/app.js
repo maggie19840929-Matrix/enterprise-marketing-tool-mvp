@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.5.1';
-const VERSION_LABEL = 'v1.5.1 · 客户展示体验与审美修复版';
+const APP_VERSION = '1.5.2';
+const VERSION_LABEL = 'v1.5.2 · 回填体验增强版';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
@@ -310,21 +310,24 @@ function renderLifecycleWorkbench(){
     : clientState.project_stage === '待启动'
       ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">查看7天计划</button>`
       : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">回填/复盘</button>`;
+  if (!clientState.diagnosis) {
+    el.innerHTML = `<div class="workbench-head compact-workbench">
+      <div class="workbench-title"><p class="eyebrow">Growth Cockpit</p><h2>先做一次增长诊断</h2><p class="hint">填写 5 个关键信息，生成第一版内容方向。</p></div>
+      <div class="workbench-actions single-action">${primary}</div>
+    </div>`;
+    return;
+  }
   const cycleText = cycleLabel(clientState.current_cycle_id);
-  el.innerHTML = `<div class="workbench-head">
-    <div class="workbench-title"><p class="eyebrow">Growth Cockpit · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2><p class="hint">${esc(meta.desc)}</p></div>
-    <div class="stage-pill"><span>当前节奏</span><strong>${esc(cycleText)}</strong></div>
+  el.innerHTML = `<div class="workbench-head compact-workbench">
+    <div class="workbench-title"><p class="eyebrow">Growth Cockpit · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2><p class="hint">${esc(todayAction)}</p></div>
+    <div class="stage-pill"><span>当前</span><strong>${esc(cycleText)}</strong></div>
   </div>
-  <div class="lifecycle-steps" aria-label="项目推进阶段">
-    ${['未诊断','待启动','运营中','复盘期'].map((stage)=>`<div class="life-step ${stage===clientState.project_stage?'active':''}"><span>${esc(stage)}</span><strong>${esc(stageMeta(stage).focus)}</strong></div>`).join('')}
+  <div class="operator-grid slim-grid">
+    <div class="operator-card metric-primary"><span>本轮成果</span><strong>${d.published_plans}/${d.total_plans}</strong><p>曝光 ${compactNumber(d.total_views)} · 咨询 ${compactNumber(d.total_consultations)}</p></div>
+    <div class="operator-card"><span>值得复制</span><strong>${winner ? `${esc(winner.plan?.topic || '已回填内容')}｜咨询 ${num(winner.feedback.consultations)}` : '发布后这里显示胜出内容'}</strong></div>
+    <div class="operator-card"><span>风险</span><strong>${unfilled ? `${unfilled} 条内容缺反馈` : (clientState.feedback.length ? '暂无关键缺口' : '还没有真实反馈')}</strong></div>
   </div>
-  <div class="operator-grid">
-    <div class="operator-card metric-primary"><span>本轮成果</span><strong>${d.published_plans}/${d.total_plans}</strong><p>已发布内容 · 曝光 ${compactNumber(d.total_views)} · 咨询 ${compactNumber(d.total_consultations)}</p></div>
-    <div class="operator-card"><span>今天先做</span><strong>${esc(todayAction)}</strong></div>
-    <div class="operator-card"><span>值得复制</span><strong>${winner ? `${esc(winner.plan?.topic || '已回填内容')}｜咨询 ${num(winner.feedback.consultations)}` : '暂无有效反馈，先完成发布回填'}</strong></div>
-    <div class="operator-card"><span>风险提醒</span><strong>${unfilled ? `${unfilled} 条已发布内容缺反馈` : (clientState.feedback.length ? '暂无关键缺口，准备周期复盘' : '还没有真实发布反馈')}</strong></div>
-  </div>
-  <div class="workbench-actions">${primary}<button class="secondary" type="button" onclick="showDiagnosisWorkflow()">新项目 / 重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一轮</button></div>`;
+  <div class="workbench-actions">${primary}<details class="inline-more"><summary>更多操作</summary><button class="secondary" type="button" onclick="showDiagnosisWorkflow()">重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一轮</button></details></div>`;
 }
 function showDiagnosisWorkflow(){
   const el = $('#diagnosisWorkflow');
@@ -359,9 +362,10 @@ function renderAllFromClient(){
 
 function renderDashboard(d){
   if (!clientState.diagnosis) {
-    $('#metricCards').innerHTML = `<div class="card advice status-card"><span>当前状态</span><b>先填写业务信息和一个对标账号，生成7天内容增长建议。</b></div>`;
+    $('#metricCards').innerHTML = `<div class="card advice status-card"><span>当前状态</span><b>先填写业务信息和一个对标账号，生成第一版内容判断。</b></div>`;
     return;
   }
+  const hasRealFeedback = clientState.feedback.length > 0;
   $('#metricCards').innerHTML = [
     ['计划数', d.total_plans],
     ['已发布', d.published_plans],
@@ -372,7 +376,7 @@ function renderDashboard(d){
     ['动态闭环分', dynamicLoopScore()],
   ].map(([k,v])=>`<div class="card"><span>${k}</span><b>${v}</b></div>`).join('') +
   `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>` +
-  `<div class="card advice data-status"><span>数据状态</span><b>${clientState.feedback.length ? `本浏览器已保存 ${clientState.feedback.length} 条反馈｜${esc(clientState.saved_at || '未标记时间')}` : '暂无反馈记录：保存后会显示在这里'}</b></div>`;
+  `<div class="card advice data-status"><span>数据状态</span><b>${hasRealFeedback ? `已保存 ${clientState.feedback.length} 条真实反馈｜${esc(clientState.saved_at || '未标记时间')}` : '暂无真实反馈：诊断后发布、回填才会出现'}</b></div>`;
 }
 
 function renderWorkflowVisibility(){
@@ -496,7 +500,7 @@ function renderPlans(plans){
   const summaryEl = $('#plansSummary');
   if (summaryEl) {
     summaryEl.innerHTML = plans.slice(0, 3).map(p=>`<div class="plan-card">
-      <div><span class="badge">#${p.id} · ${esc(p.platform)}</span><strong>${esc(p.topic)}</strong></div>
+      <div><span class="badge">#${p.id} · ${esc(p.platform)} · ${p.publish_link ? '已回填' : esc(p.status || '待发布')}</span><strong>${esc(p.topic)}</strong></div>
       <p>${esc(p.angle)}</p>
       <button class="secondary" type="button" onclick="prefillFeedback(${Number(p.id)})">发布后回填</button>
     </div>`).join('') || '<div class="empty">暂无计划，先提交一次快速体检。</div>';
@@ -580,8 +584,15 @@ function prefillFeedback(id){
   planInput.value = Number.isFinite(planId) ? String(planId) : String(id || '');
   planInput.dispatchEvent(new Event('input', {bubbles:true}));
   planInput.dispatchEvent(new Event('change', {bubbles:true}));
+  workflow?.classList.remove('is-highlighted');
+  void workflow?.offsetWidth;
+  workflow?.classList.add('is-highlighted');
   (workflow || form).scrollIntoView({behavior:'smooth', block:'start'});
-  window.setTimeout(()=>linkInput?.focus(), 260);
+  window.setTimeout(()=>{
+    linkInput?.focus();
+    toast(`已定位到计划 #${planInput.value}，请粘贴发布链接并保存反馈。`);
+  }, 260);
+  window.setTimeout(()=>workflow?.classList.remove('is-highlighted'), 1900);
 }
 window.prefillFeedback = prefillFeedback;
 
@@ -657,6 +668,7 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   await withBusy(e.submitter, '保存中...', async () => {
     const data = formData(e.target);
+    if (!String(data.content_plan_id || '').trim()) throw new Error('请先选择或填写发布计划ID，再保存反馈。');
     ['content_plan_id','views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=toNonNegative(data[k]));
     data.publish_link = String(data.publish_link || '').trim();
     if (!data.publish_link) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
@@ -679,7 +691,7 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
     saveLocal();
     renderAllFromClient();
     e.target.reset();
-    toast('反馈已保存到本浏览器，闭环看板已更新');
+    toast('反馈已保存，看板已更新。');
     api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
       .catch(() => toast('本地已保存；云端临时接口同步失败，不影响本浏览器查看'));
   });
