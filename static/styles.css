@@ -6,3 +6,26 @@
 /* UX compression v1.3.2: quick intake + above-fold decision */
 .cockpit{grid-template-columns:minmax(360px,.9fr) minmax(420px,1.1fr);align-items:start;margin-top:14px}.top-decision{position:sticky;top:16px}.compact-head{align-items:flex-start}.compact-form{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.compact-form label,.advanced-grid label{font-size:13px}.compact-form input,.compact-form select,.compact-form textarea{padding:10px 12px}.compact-form button,.advanced-fields{grid-column:1/-1}.advanced-fields,.diagnosis-more,.table-details,.collapsible-panel{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.55);padding:12px 14px}.advanced-fields summary,.diagnosis-more summary,.table-details summary,.collapsible-panel summary{cursor:pointer;font-weight:800;color:var(--accent2)}.advanced-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.wide-field{grid-column:1/-1}.score-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:stretch}.score-row .score{margin:0}.compact-diagnosis{gap:10px}.compact-diagnosis p{margin:6px 0 0;line-height:1.55}.compact-plan-panel{margin-top:16px}.plan-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.plan-card{background:white;border:1px solid var(--line);border-radius:16px;padding:14px;display:grid;gap:8px}.plan-card strong{display:block;margin-top:8px;line-height:1.35}.plan-card p{margin:0;color:var(--muted);line-height:1.45}.table-details{margin-top:12px}.table-details .table-wrap{margin-top:12px}.collapsible-panel{margin:14px 0;padding:14px 18px}.collapsible-panel[open]{background:linear-gradient(135deg,#fffaf0,#fff6e7)}.client-snapshot-panel .kv-grid{grid-template-columns:repeat(3,minmax(0,1fr))}@media (max-width:1100px){.cockpit{grid-template-columns:1fr}.top-decision{position:static}.plan-summary{grid-template-columns:1fr}.score-row{grid-template-columns:1fr}.advanced-grid,.compact-form{grid-template-columns:1fr}.client-snapshot-panel .kv-grid{grid-template-columns:1fr}}
 .form-section-title{font-weight:900;color:var(--ink);padding:4px 0}.benchmark-block{border:1px solid var(--line);border-radius:18px;background:#fffdf7;padding:16px;display:grid;gap:8px}.benchmark-block h3{margin:0;font-size:18px}.status-card{grid-column:1/-1;padding:14px 18px}.status-card b{font-size:16px;margin-top:4px}.feedback-hint{margin-top:16px}
+
+.import-btn{display:inline-flex;align-items:center;cursor:pointer}.danger-action{color:var(--danger);border-color:#f0c5b7}.data-status b{font-size:15px!important}.list-item{scroll-margin-top:24px}
+
+
+/* v1.5.0 project lifecycle workbench */
+.workbench-panel{margin:0 0 18px;background:linear-gradient(135deg,#fffaf0,#eef8f4);overflow:hidden}
+.workbench-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}
+.workbench-head h2{font-size:clamp(24px,3vw,38px);margin:2px 0 8px}
+.stage-pill{min-width:150px;background:white;border:1px solid var(--line);border-radius:18px;padding:14px 16px;text-align:right}
+.stage-pill span,.operator-card span,.life-step span{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+.stage-pill strong{font-size:20px;color:var(--accent2)}
+.lifecycle-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 16px}
+.life-step{border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.7);padding:12px 14px;position:relative;overflow:hidden}
+.life-step.active{border-color:rgba(30,111,92,.45);background:#eef8f4;box-shadow:inset 4px 0 0 var(--accent2)}
+.life-step strong{font-size:15px;line-height:1.35}
+.operator-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.operator-card{background:white;border:1px solid var(--line);border-radius:18px;padding:14px;min-height:92px}
+.operator-card strong{display:block;font-size:16px;line-height:1.45}
+.workbench-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.workbench-actions button{border:0;background:var(--ink);color:white;border-radius:14px;padding:12px 16px;font-weight:800;cursor:pointer}
+.workbench-actions .secondary{background:white;color:var(--ink);border:1px solid var(--line)}
+@media (max-width:1100px){.operator-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.lifecycle-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.workbench-head{display:grid}.stage-pill{text-align:left}}
+@media (max-width:720px){.operator-grid,.lifecycle-steps{grid-template-columns:1fr}.hero{align-items:flex-start}.hero-actions{justify-content:flex-start}}

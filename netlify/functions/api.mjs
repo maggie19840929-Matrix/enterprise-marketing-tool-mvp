@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.4.1';
-const VERSION_LABEL = 'v1.4.1 · 极简录入 + 对标账号独立模块';
+const APP_VERSION = '1.5.0';
+const VERSION_LABEL = 'v1.5.0 · 项目生命周期工作台';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -40,6 +40,7 @@ const blankState = () => ({
   plans: [],
   feedback: [],
   reviews: [],
+  current_diagnosis_id: null,
 });
 
 const stageFor = (frequency = '') => {
@@ -87,10 +88,15 @@ const platformsFor = (channels = '') => {
 const hasAny = (text, words) => words.some((word) => text.includes(word));
 const FEEDBACK_STAGE_ORDER = {'T+24': 1, 'T+72': 2, 'T+7': 3};
 const stageRank = (stage) => FEEDBACK_STAGE_ORDER[stage] || 0;
-const latestFeedbackRows = () => {
+const currentPlans = () => state.current_diagnosis_id
+  ? state.plans.filter((plan) => plan.diagnosis_id === state.current_diagnosis_id)
+  : state.plans;
+const latestFeedbackRows = (planIds = null) => {
+  const allowed = planIds ? new Set(planIds.map(Number)) : null;
   const byPlan = new Map();
   state.feedback.forEach((item) => {
     const key = Number(item.content_plan_id);
+    if (allowed && !allowed.has(key)) return;
     const existing = byPlan.get(key);
     if (!existing || stageRank(item.feedback_stage) > stageRank(existing.feedback_stage) || (stageRank(item.feedback_stage) === stageRank(existing.feedback_stage) && String(item.created_at || '') > String(existing.created_at || ''))) {
       byPlan.set(key, item);
@@ -236,9 +242,11 @@ const accountSetupFor = (assessment, recommendations) => {
 };
 
 const loopScoreFromFeedback = () => {
-  const totalPlans = state.plans.length;
-  const published = state.plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
-  const rows = latestFeedbackRows();
+  const plans = currentPlans();
+  const planIds = plans.map((plan) => plan.id);
+  const totalPlans = plans.length;
+  const published = plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
+  const rows = latestFeedbackRows(planIds);
   const totalConsultations = rows.reduce((sum, item) => sum + Number(item.consultations || 0), 0);
   const totalInteractions = rows.reduce((sum, item) => sum + Number(item.likes || 0) + Number(item.comments || 0) + Number(item.favorites || 0) + Number(item.shares || 0), 0);
   let score = 8;
@@ -454,6 +462,7 @@ const generateDiagnosis = (assessmentId) => {
   }
 
   state.diagnoses.unshift(diagnosis);
+  state.current_diagnosis_id = diagnosis.id;
   return diagnosis;
 };
 
@@ -468,12 +477,8 @@ const createContentPlan = (diagnosisId) => {
   const pain = assessment?.customer_pain || assessment?.biggest_problem || '当前核心痛点';
   const problem = assessment?.biggest_problem || '';
   const platforms = planPlatforms(diagnosis.platform_recommendations, assessment?.current_channels);
-  state.plans = [];
-  state.feedback = [];
-  state.reviews = [];
-  state.next.plan = 1;
-  state.next.feedback = 1;
-  state.next.review = 1;
+  // 不再在生成新诊断时清空反馈/复盘。serverless 内存不是可信数据库，
+  // 但至少避免新诊断把同一实例中的历史反馈直接抹掉。
   const plans = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference).map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
     id: state.next.plan++,
     diagnosis_id: diagnosisId,
@@ -491,7 +496,7 @@ const createContentPlan = (diagnosisId) => {
     publish_link: '',
     created_at: nowIso(),
   }));
-  state.plans.push(...plans);
+  state.plans = [...plans, ...state.plans.filter((plan) => plan.diagnosis_id !== diagnosisId)];
   return plans;
 };
 
@@ -521,9 +526,11 @@ const recordFeedback = (planId, payload) => {
 };
 
 const createWeeklyReview = () => {
-  const rows = latestFeedbackRows().map((feedback) => ({
+  const plans = currentPlans();
+  const planIds = plans.map((plan) => plan.id);
+  const rows = latestFeedbackRows(planIds).map((feedback) => ({
     ...feedback,
-    topic: state.plans.find((plan) => plan.id === feedback.content_plan_id)?.topic || '',
+    topic: plans.find((plan) => plan.id === feedback.content_plan_id)?.topic || '',
   }));
   const total_posts = rows.length;
   const total_views = rows.reduce((sum, item) => sum + item.views, 0);
@@ -565,9 +572,11 @@ const createWeeklyReview = () => {
 };
 
 const dashboard = () => {
-  const total_plans = state.plans.length;
-  const published_plans = state.plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
-  const rows = latestFeedbackRows();
+  const plans = currentPlans();
+  const planIds = plans.map((plan) => plan.id);
+  const total_plans = plans.length;
+  const published_plans = plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
+  const rows = latestFeedbackRows(planIds);
   const total_views = rows.reduce((sum, item) => sum + item.views, 0);
   const total_interactions = rows.reduce((sum, item) => sum + item.likes + item.comments + item.favorites + item.shares, 0);
   const total_consultations = rows.reduce((sum, item) => sum + item.consultations, 0);

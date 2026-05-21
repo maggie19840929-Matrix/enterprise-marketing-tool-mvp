@@ -1,7 +1,8 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.4.1';
-const VERSION_LABEL = 'v1.4.1 · 极简录入 + 对标账号独立模块';
-const STORAGE_KEY = 'enterpriseMarketingMvpState.v3';
+const APP_VERSION = '1.5.0';
+const VERSION_LABEL = 'v1.5.0 · 项目生命周期工作台';
+const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
+const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CONTENT_DECISION_SAMPLE = {
   company_name: '内容决策局',
@@ -28,6 +29,9 @@ const CONTENT_DECISION_SAMPLE = {
 };
 
 let clientState = {
+  project: null,
+  project_stage: '未诊断',
+  current_cycle_id: 'cycle-1',
   assessment: null,
   diagnosis: null,
   plans: [],
@@ -43,10 +47,57 @@ const api = async (url, opts={}) => {
 };
 const toast = (msg) => { const el=$('#toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2400); };
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
-const saveLocal = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
+const stateWeight = (state = {}) =>
+  (Array.isArray(state.feedback) ? state.feedback.length * 100 : 0) +
+  (Array.isArray(state.plans) ? state.plans.length * 10 : 0) +
+  (state.diagnosis ? 5 : 0) +
+  (state.assessment ? 3 : 0) +
+  (state.review ? 2 : 0);
+const makeProject = (assessment = {}, existing = null) => existing || {
+  id: assessment.project_id || `project-${Date.now()}`,
+  name: assessment.company_name || assessment.account_preference || assessment.industry || '未命名项目',
+  created_at: localTimestamp(),
+};
+const normalizeState = (state = {}) => {
+  const assessment = state.assessment || null;
+  const project = state.project || (assessment ? makeProject(assessment) : null);
+  const current_cycle_id = state.current_cycle_id || 'cycle-1';
+  const withMeta = (items) => (Array.isArray(items) ? items : []).map((item) => ({
+    project_id: item.project_id || project?.id || 'default-project',
+    cycle_id: item.cycle_id || current_cycle_id,
+    ...item,
+  }));
+  return {
+    project,
+    project_stage: state.project_stage || inferProjectStage({plans: state.plans, feedback: state.feedback, review: state.review, diagnosis: state.diagnosis}),
+    current_cycle_id,
+    assessment,
+    diagnosis: state.diagnosis || null,
+    plans: withMeta(state.plans),
+    feedback: withMeta(state.feedback),
+    review: state.review || null,
+    saved_at: state.saved_at || localTimestamp(),
+  };
+};
+const saveLocal = () => {
+  clientState.saved_at = localTimestamp();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
+};
 const loadLocal = () => {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
-  catch { return null; }
+  const candidates = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+      if (parsed && typeof parsed === 'object') candidates.push({key, state: normalizeState(parsed)});
+    } catch {}
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => stateWeight(b.state) - stateWeight(a.state));
+  const best = candidates[0];
+  if (best.key !== STORAGE_KEY) localStorage.setItem(STORAGE_KEY, JSON.stringify(best.state));
+  return best.state;
 };
 const toNonNegative = (value) => Math.max(0, Number(value || 0));
 const withBusy = async (button, busyText, task) => {
@@ -69,13 +120,18 @@ const withBusy = async (button, busyText, task) => {
 
 async function loadContentDecisionSample({silent = false} = {}){
   const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(CONTENT_DECISION_SAMPLE)});
-  clientState = {
-    assessment: result.assessment || CONTENT_DECISION_SAMPLE,
+  const assessment = result.assessment || CONTENT_DECISION_SAMPLE;
+  const project = makeProject(assessment, {id:'project-content-decision-demo', name: assessment.company_name || '内容决策局', created_at: localTimestamp()});
+  clientState = normalizeState({
+    project,
+    project_stage: '待启动',
+    current_cycle_id: 'cycle-1',
+    assessment,
     diagnosis: result.diagnosis,
     plans: result.plans || [],
     feedback: [],
     review: null,
-  };
+  });
   localStorage.removeItem(DEMO_DISABLED_KEY);
   saveLocal();
   renderAllFromClient();
@@ -90,7 +146,7 @@ async function loadAll(){
     return;
   }
   if (localStorage.getItem(DEMO_DISABLED_KEY) === '1') {
-    clientState = { assessment: null, diagnosis: null, plans: [], feedback: [], review: null };
+    clientState = { project: null, project_stage: '未诊断', current_cycle_id: 'cycle-1', assessment: null, diagnosis: null, plans: [], feedback: [], review: null };
     renderAllFromClient();
     return;
   }
@@ -191,7 +247,97 @@ function clientDashboard(){
   return {total_plans, published_plans, feedback_rate: total_plans ? published_plans / total_plans : 0, total_views, total_interactions, total_consultations, next_suggestion};
 }
 
+
+function inferProjectStage(state = clientState){
+  if (!state.diagnosis) return '未诊断';
+  const plans = Array.isArray(state.plans) ? state.plans : [];
+  const feedback = Array.isArray(state.feedback) ? state.feedback : [];
+  if (state.review) return '复盘期';
+  if (feedback.length || plans.some((p)=>p.status === '已发布' || p.publish_link)) return '运营中';
+  if (plans.length) return '待启动';
+  return '已诊断';
+}
+function syncProjectStage(){
+  clientState.project_stage = inferProjectStage(clientState);
+  if (!clientState.current_cycle_id) clientState.current_cycle_id = 'cycle-1';
+  if (!clientState.project && clientState.assessment) clientState.project = makeProject(clientState.assessment);
+}
+function stageMeta(stage){
+  return {
+    '未诊断': {label:'未诊断', focus:'增长诊断', desc:'新项目先收集业务、目标客户和对标账号，生成第一轮内容增长判断。'},
+    '已诊断': {label:'已诊断', focus:'生成计划', desc:'已经形成诊断判断，下一步要把策略变成可执行的7天内容计划。'},
+    '待启动': {label:'待启动', focus:'启动运营', desc:'已有内容计划，但还缺发布链接和首批反馈；重点是把第一条内容发出去并回填。'},
+    '运营中': {label:'运营中', focus:'看成果/补回填', desc:'项目已进入正式营销周期，老板优先看成果、风险和今天动作。'},
+    '复盘期': {label:'复盘期', focus:'周期复盘', desc:'一个周期已有反馈，应判断复制什么、砍掉什么、下一轮怎么调整。'},
+  }[stage] || {label:stage, focus:'继续推进', desc:'按项目生命周期继续推进。'};
+}
+function bestContent(){
+  const rows = latestFeedbackRows();
+  if (!rows.length) return null;
+  const winner = rows.slice().sort((a,b)=>(num(b.consultations)-num(a.consultations)) || (interactions(b)-interactions(a)) || (num(b.views)-num(a.views)))[0];
+  const plan = clientState.plans.find((p)=>Number(p.id)===Number(winner.content_plan_id));
+  return {feedback:winner, plan};
+}
+function missingFeedbackCount(){
+  return clientState.plans.filter((p)=>p.status === '已发布' || p.publish_link).filter((p)=>!clientState.feedback.some((f)=>Number(f.content_plan_id)===Number(p.id))).length;
+}
+function renderLifecycleWorkbench(){
+  syncProjectStage();
+  const el = $('#lifecycleWorkbench');
+  if (!el) return;
+  const d = clientDashboard();
+  const meta = stageMeta(clientState.project_stage);
+  const projectName = clientState.project?.name || clientState.assessment?.company_name || clientState.assessment?.industry || '暂无项目';
+  const winner = bestContent();
+  const unfilled = missingFeedbackCount();
+  const todayAction = clientState.project_stage === '未诊断'
+    ? '创建项目并完成增长诊断'
+    : clientState.project_stage === '待启动'
+      ? '发布第1条内容，并回填发布链接'
+      : clientState.project_stage === '复盘期'
+        ? '确认下一周期要复制/停止/重诊断的方向'
+        : (unfilled ? `补回填 ${unfilled} 条已发布内容数据` : d.next_suggestion);
+  const primary = clientState.project_stage === '未诊断'
+    ? `<button type="button" onclick="showDiagnosisWorkflow()">开始增长诊断</button>`
+    : clientState.project_stage === '待启动'
+      ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">查看7天计划</button>`
+      : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">回填/复盘</button>`;
+  el.innerHTML = `<div class="workbench-head">
+    <div><p class="eyebrow">项目工作台 · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2><p class="hint">${esc(meta.desc)}</p></div>
+    <div class="stage-pill"><span>当前周期</span><strong>${esc(clientState.current_cycle_id || 'cycle-1')}</strong></div>
+  </div>
+  <div class="lifecycle-steps">
+    ${['未诊断','待启动','运营中','复盘期'].map((stage)=>`<div class="life-step ${stage===clientState.project_stage?'active':''}"><span>${esc(stage)}</span><strong>${esc(stageMeta(stage).focus)}</strong></div>`).join('')}
+  </div>
+  <div class="operator-grid">
+    <div class="operator-card"><span>本周期成果</span><strong>发布 ${d.published_plans}/${d.total_plans}｜曝光 ${d.total_views}｜互动 ${d.total_interactions}｜咨询 ${d.total_consultations}</strong></div>
+    <div class="operator-card"><span>今日动作</span><strong>${esc(todayAction)}</strong></div>
+    <div class="operator-card"><span>最佳内容</span><strong>${winner ? `#${esc(winner.plan?.id || winner.feedback.content_plan_id)} ${esc(winner.plan?.topic || '已回填内容')}｜咨询 ${num(winner.feedback.consultations)}` : '暂无有效反馈，先完成发布回填'}</strong></div>
+    <div class="operator-card"><span>当前风险</span><strong>${unfilled ? `${unfilled} 条已发布内容缺反馈` : (clientState.feedback.length ? '暂无关键缺口，准备周期复盘' : '还没有真实发布反馈')}</strong></div>
+  </div>
+  <div class="workbench-actions">${primary}<button class="secondary" type="button" onclick="showDiagnosisWorkflow()">新项目/重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一周期</button></div>`;
+}
+function showDiagnosisWorkflow(){
+  const el = $('#diagnosisWorkflow');
+  if (el) el.hidden = false;
+  el?.scrollIntoView({behavior:'smooth'});
+}
+function startNextCycle(){
+  const current = String(clientState.current_cycle_id || 'cycle-1');
+  const n = Number(current.match(/cycle-(\d+)/)?.[1] || 1) + 1;
+  clientState.current_cycle_id = `cycle-${n}`;
+  clientState.project_stage = clientState.diagnosis ? '待启动' : '未诊断';
+  clientState.review = null;
+  saveLocal();
+  renderAllFromClient();
+  toast('已进入下一周期，请基于复盘调整内容计划');
+}
+window.showDiagnosisWorkflow = showDiagnosisWorkflow;
+window.startNextCycle = startNextCycle;
+
 function renderAllFromClient(){
+  syncProjectStage();
+  renderLifecycleWorkbench();
   renderWorkflowVisibility();
   renderDashboard(clientDashboard());
   renderCustomerSnapshot(clientState.assessment);
@@ -216,7 +362,8 @@ function renderDashboard(d){
     ['私信/咨询', d.total_consultations],
     ['动态闭环分', dynamicLoopScore()],
   ].map(([k,v])=>`<div class="card"><span>${k}</span><b>${v}</b></div>`).join('') +
-  `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>`;
+  `<div class="card advice"><span>下一轮建议</span><b>${esc(d.next_suggestion)}</b></div>` +
+  `<div class="card advice data-status"><span>数据状态</span><b>${clientState.feedback.length ? `本浏览器已保存 ${clientState.feedback.length} 条反馈｜${esc(clientState.saved_at || '未标记时间')}` : '暂无反馈记录：保存后会显示在这里'}</b></div>`;
 }
 
 function renderWorkflowVisibility(){
@@ -227,7 +374,10 @@ function renderWorkflowVisibility(){
   if (planSection) planSection.hidden = !hasPlans;
   if (hint) hint.hidden = hasPlans;
   if (workflow) workflow.hidden = !hasPlans;
+  const diagnosisWorkflow = $('#diagnosisWorkflow');
+  if (diagnosisWorkflow) diagnosisWorkflow.hidden = ['运营中','复盘期'].includes(clientState.project_stage);
 }
+
 
 
 function fieldRow(label, value){
@@ -356,12 +506,48 @@ function renderPlans(plans){
 }
 
 function renderFeedback(items){
-  $('#feedbackList').innerHTML = items.map(f=>`<div class="list-item">
+  const sorted = (items || []).slice().sort((a,b)=>String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  $('#feedbackList').innerHTML = sorted.map(f=>`<div class="list-item">
     <strong>计划 #${f.content_plan_id}</strong> · <span class="badge">${esc(f.feedback_stage || '未标注')}</span> · 曝光 ${f.views} · 互动 ${interactions(f)} · 咨询 ${f.consultations}
     ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : '<div class="warning">缺少发布链接：本条不算完整闭环</div>'}
     <div class="small">${esc(f.notes || '无备注')} · ${esc(f.created_at)}</div>
   </div>`).join('') || '<div class="empty">暂无反馈。发布后回填数据，系统才会给下一轮建议。</div>';
 }
+
+function downloadDataBackup(){
+  saveLocal();
+  const blob = new Blob([JSON.stringify(clientState, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `enterprise-marketing-feedback-${localDateIso()}-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast('已导出本浏览器数据备份');
+}
+
+function importDataBackup(file){
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const imported = normalizeState(JSON.parse(reader.result));
+      if (!imported.diagnosis && !imported.plans.length && !imported.feedback.length) throw new Error('备份文件里没有可用诊断/计划/反馈数据');
+      clientState = imported;
+      saveLocal();
+      renderAllFromClient();
+      toast(`已导入：${clientState.feedback.length} 条反馈`);
+    } catch (error) {
+      toast(error.message || '导入失败，请检查备份文件');
+    }
+  };
+  reader.readAsText(file);
+}
+
+window.downloadDataBackup = downloadDataBackup;
+window.importDataBackup = importDataBackup;
 
 function renderReview(r){
   if(!r){ $('#reviewBox').innerHTML='回填发布数据后，点击生成复盘。'; return; }
@@ -430,13 +616,17 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
     payload.benchmark = normalizeBenchmark(payload);
     ['benchmark_platform','benchmark_accounts','benchmark_account_1','benchmark_account_2','benchmark_account_3','benchmark_notes','benchmark_sample_content'].forEach((key)=>delete payload[key]);
     const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
-    clientState = {
-      assessment: result.assessment || payload,
+    const assessment = result.assessment || payload;
+    clientState = normalizeState({
+      project: makeProject(assessment),
+      project_stage: '待启动',
+      current_cycle_id: 'cycle-1',
+      assessment,
       diagnosis: result.diagnosis,
       plans: result.plans || [],
       feedback: [],
       review: null,
-    };
+    });
     saveLocal();
     e.target.reset();
     toast('已生成诊断和7天发布计划');
@@ -455,19 +645,24 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
     if (!plan) throw new Error('发布计划ID不存在，请先生成计划');
     const feedback = {
       id: Date.now(),
+      project_id: clientState.project?.id || 'default-project',
+      cycle_id: clientState.current_cycle_id || 'cycle-1',
       ...data,
       feedback_stage: data.feedback_stage || 'T+24',
       created_at: localTimestamp(),
     };
     plan.status = '已发布';
+    plan.project_id = plan.project_id || clientState.project?.id || 'default-project';
+    plan.cycle_id = plan.cycle_id || clientState.current_cycle_id || 'cycle-1';
     if (feedback.publish_link) plan.publish_link = feedback.publish_link;
     clientState.feedback = [feedback, ...clientState.feedback.filter((item) => !(Number(item.content_plan_id) === Number(data.content_plan_id) && String(item.feedback_stage || 'T+24') === String(feedback.feedback_stage)))];
     clientState.review = null;
     saveLocal();
     renderAllFromClient();
     e.target.reset();
-    toast('反馈已保存，闭环看板已更新');
-    api('/api/feedback', {method:'POST', body: JSON.stringify(data)}).catch(() => {});
+    toast('反馈已保存到本浏览器，闭环看板已更新');
+    api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
+      .catch(() => toast('本地已保存；云端临时接口同步失败，不影响本浏览器查看'));
   });
 });
 
@@ -476,8 +671,9 @@ $('#reviewBtn').addEventListener('click', async ()=>{
     clientState.review = createLocalReview();
     saveLocal();
     renderAllFromClient();
-    toast('周复盘已生成');
-    api('/api/reviews', {method:'POST', body: JSON.stringify({})}).catch(() => {});
+    toast('周复盘已生成并保存到本浏览器');
+    api('/api/reviews', {method:'POST', body: JSON.stringify({})})
+      .catch(() => toast('本地复盘已保存；云端临时接口同步失败'));
   });
 });
 $('#sampleBtn').addEventListener('click', async () => {
@@ -487,7 +683,7 @@ $('#sampleBtn').addEventListener('click', async () => {
 $('#refreshBtn').addEventListener('click', () => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.setItem(DEMO_DISABLED_KEY, '1');
-  clientState = { assessment: null, diagnosis: null, plans: [], feedback: [], review: null };
+  clientState = { project: null, project_stage: '未诊断', current_cycle_id: 'cycle-1', assessment: null, diagnosis: null, plans: [], feedback: [], review: null };
   renderAllFromClient();
   toast('已清空本浏览器演示数据，可重新载入样例');
 });
