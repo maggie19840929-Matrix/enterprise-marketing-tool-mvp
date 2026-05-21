@@ -1,4 +1,5 @@
 import handler, { shanghaiDateIso } from '../netlify/functions/api.mjs';
+import { readFileSync } from 'node:fs';
 
 const request = (method, path, body) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
   method,
@@ -52,7 +53,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.5.0', `expected app_version 1.5.0, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.5.1', `expected app_version 1.5.1, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -65,6 +66,11 @@ assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includ
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
 assertNoUnsafeCommentCta('content decision diagnosis/plans', { diagnosis, plans });
+const appJs = readFileSync(new URL('../static/app.js', import.meta.url), 'utf8');
+assert(appJs.includes('function prefillFeedback(id)'), 'app should expose prefillFeedback for plan feedback buttons');
+assert(appJs.includes("[name=content_plan_id]"), 'prefillFeedback should target the content_plan_id field');
+assert(appJs.includes("[name=publish_link]") && appJs.includes('linkInput?.focus()'), 'prefillFeedback should focus the publish link field');
+assert(appJs.includes('scrollIntoView'), 'prefillFeedback should scroll to the feedback form area');
 assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17', 'Shanghai business date should roll forward at UTC+8 midnight');
 assert(shanghaiDateIso(1, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-18', 'Shanghai offset should advance from business date');
 assert(plans[0].planned_date === shanghaiDateIso(), `planned_date should start today in Asia/Shanghai, got ${plans[0].planned_date}`);

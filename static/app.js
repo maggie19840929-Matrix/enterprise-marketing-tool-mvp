@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.5.0';
-const VERSION_LABEL = 'v1.5.0 · 项目生命周期工作台';
+const APP_VERSION = '1.5.1';
+const VERSION_LABEL = 'v1.5.1 · 客户展示体验与审美修复版';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
@@ -157,6 +157,14 @@ async function loadAll(){
 function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
 function esc(v){ return String(v ?? '').replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 function num(v){ return Number(v || 0); }
+function cycleLabel(value = 'cycle-1'){
+  const n = Number(String(value || '').match(/cycle-(\d+)/)?.[1] || 1);
+  return `第${n}轮增长周期`;
+}
+function compactNumber(value){
+  const n = Number(value || 0);
+  return n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}万` : String(n);
+}
 function interactions(f){ return num(f.likes) + num(f.comments) + num(f.favorites) + num(f.shares); }
 const FEEDBACK_STAGE_ORDER = {'T+24': 1, 'T+72': 2, 'T+7': 3};
 function stageRank(stage){ return FEEDBACK_STAGE_ORDER[stage] || 0; }
@@ -302,20 +310,21 @@ function renderLifecycleWorkbench(){
     : clientState.project_stage === '待启动'
       ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">查看7天计划</button>`
       : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">回填/复盘</button>`;
+  const cycleText = cycleLabel(clientState.current_cycle_id);
   el.innerHTML = `<div class="workbench-head">
-    <div><p class="eyebrow">项目工作台 · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2><p class="hint">${esc(meta.desc)}</p></div>
-    <div class="stage-pill"><span>当前周期</span><strong>${esc(clientState.current_cycle_id || 'cycle-1')}</strong></div>
+    <div class="workbench-title"><p class="eyebrow">Growth Cockpit · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2><p class="hint">${esc(meta.desc)}</p></div>
+    <div class="stage-pill"><span>当前节奏</span><strong>${esc(cycleText)}</strong></div>
   </div>
-  <div class="lifecycle-steps">
+  <div class="lifecycle-steps" aria-label="项目推进阶段">
     ${['未诊断','待启动','运营中','复盘期'].map((stage)=>`<div class="life-step ${stage===clientState.project_stage?'active':''}"><span>${esc(stage)}</span><strong>${esc(stageMeta(stage).focus)}</strong></div>`).join('')}
   </div>
   <div class="operator-grid">
-    <div class="operator-card"><span>本周期成果</span><strong>发布 ${d.published_plans}/${d.total_plans}｜曝光 ${d.total_views}｜互动 ${d.total_interactions}｜咨询 ${d.total_consultations}</strong></div>
-    <div class="operator-card"><span>今日动作</span><strong>${esc(todayAction)}</strong></div>
-    <div class="operator-card"><span>最佳内容</span><strong>${winner ? `#${esc(winner.plan?.id || winner.feedback.content_plan_id)} ${esc(winner.plan?.topic || '已回填内容')}｜咨询 ${num(winner.feedback.consultations)}` : '暂无有效反馈，先完成发布回填'}</strong></div>
-    <div class="operator-card"><span>当前风险</span><strong>${unfilled ? `${unfilled} 条已发布内容缺反馈` : (clientState.feedback.length ? '暂无关键缺口，准备周期复盘' : '还没有真实发布反馈')}</strong></div>
+    <div class="operator-card metric-primary"><span>本轮成果</span><strong>${d.published_plans}/${d.total_plans}</strong><p>已发布内容 · 曝光 ${compactNumber(d.total_views)} · 咨询 ${compactNumber(d.total_consultations)}</p></div>
+    <div class="operator-card"><span>今天先做</span><strong>${esc(todayAction)}</strong></div>
+    <div class="operator-card"><span>值得复制</span><strong>${winner ? `${esc(winner.plan?.topic || '已回填内容')}｜咨询 ${num(winner.feedback.consultations)}` : '暂无有效反馈，先完成发布回填'}</strong></div>
+    <div class="operator-card"><span>风险提醒</span><strong>${unfilled ? `${unfilled} 条已发布内容缺反馈` : (clientState.feedback.length ? '暂无关键缺口，准备周期复盘' : '还没有真实发布反馈')}</strong></div>
   </div>
-  <div class="workbench-actions">${primary}<button class="secondary" type="button" onclick="showDiagnosisWorkflow()">新项目/重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一周期</button></div>`;
+  <div class="workbench-actions">${primary}<button class="secondary" type="button" onclick="showDiagnosisWorkflow()">新项目 / 重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一轮</button></div>`;
 }
 function showDiagnosisWorkflow(){
   const el = $('#diagnosisWorkflow');
@@ -330,7 +339,7 @@ function startNextCycle(){
   clientState.review = null;
   saveLocal();
   renderAllFromClient();
-  toast('已进入下一周期，请基于复盘调整内容计划');
+  toast('已进入下一轮增长周期，请基于复盘调整内容计划');
 }
 window.showDiagnosisWorkflow = showDiagnosisWorkflow;
 window.startNextCycle = startNextCycle;
@@ -489,7 +498,7 @@ function renderPlans(plans){
     summaryEl.innerHTML = plans.slice(0, 3).map(p=>`<div class="plan-card">
       <div><span class="badge">#${p.id} · ${esc(p.platform)}</span><strong>${esc(p.topic)}</strong></div>
       <p>${esc(p.angle)}</p>
-      <button class="secondary" onclick="prefillFeedback(${p.id})">发布后回填</button>
+      <button class="secondary" type="button" onclick="prefillFeedback(${Number(p.id)})">发布后回填</button>
     </div>`).join('') || '<div class="empty">暂无计划，先提交一次快速体检。</div>';
   }
   $('#plansBody').innerHTML = plans.map(p=>`<tr>
@@ -501,7 +510,7 @@ function renderPlans(plans){
     <td>${esc(p.cta || '')}<div class="small">${esc(p.publish_quality || '')}${p.quality_note ? '：' + esc(p.quality_note) : ''}</div></td>
     <td>${esc(p.target_metric)}${p.publish_link ? `<div class="small"><a href="${esc(p.publish_link)}" target="_blank">发布链接已回填</a></div>` : '<div class="small">发布后需回填链接</div>'}</td>
     <td><span class="status">${esc(p.status)}</span></td>
-    <td><button class="secondary" onclick="prefillFeedback(${p.id})">填反馈</button></td>
+    <td><button class="secondary" type="button" onclick="prefillFeedback(${Number(p.id)})">填反馈</button></td>
   </tr>`).join('') || '<tr><td colspan="9">暂无计划</td></tr>';
 }
 
@@ -561,8 +570,18 @@ function renderReview(r){
 }
 
 function prefillFeedback(id){
-  $('#feedbackForm [name=content_plan_id]').value = id;
-  window.scrollTo({top: document.body.scrollHeight, behavior:'smooth'});
+  const planId = Number(id);
+  const form = $('#feedbackForm');
+  const workflow = $('#feedbackWorkflow');
+  const planInput = form?.querySelector('[name=content_plan_id]');
+  const linkInput = form?.querySelector('[name=publish_link]');
+  if (!form || !planInput) return;
+  if (workflow) workflow.hidden = false;
+  planInput.value = Number.isFinite(planId) ? String(planId) : String(id || '');
+  planInput.dispatchEvent(new Event('input', {bubbles:true}));
+  planInput.dispatchEvent(new Event('change', {bubbles:true}));
+  (workflow || form).scrollIntoView({behavior:'smooth', block:'start'});
+  window.setTimeout(()=>linkInput?.focus(), 260);
 }
 window.prefillFeedback = prefillFeedback;
 

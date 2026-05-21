@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.5.0';
-const VERSION_LABEL = 'v1.5.0 · 项目生命周期工作台';
+const APP_VERSION = '1.5.1';
+const VERSION_LABEL = 'v1.5.1 · 客户展示体验与审美修复版';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
