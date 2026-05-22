@@ -53,7 +53,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.5.2', `expected app_version 1.5.2, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.5.4', `expected app_version 1.5.4, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -73,6 +73,19 @@ assert(appJs.includes("[name=publish_link]") && appJs.includes('linkInput?.focus
 assert(appJs.includes('scrollIntoView'), 'prefillFeedback should scroll to the feedback form area');
 assert(appJs.includes('is-highlighted'), 'prefillFeedback should highlight the feedback area');
 assert(appJs.includes('已定位到计划 #'), 'prefillFeedback should show a business toast after locating the form');
+
+assert(appJs.includes('function autoReviewFromFeedback()'), 'app should auto-generate weekly review from existing feedback');
+assert(appJs.includes('保存反馈后，系统会自动生成周复盘') || appJs.includes('这里会自动出现复盘'), 'weekly review empty state should explain auto review');
+assert(appJs.includes('function planUiMeta'), 'plan cards should classify priority/pending/done states');
+assert(appJs.includes('plan-next') && appJs.includes('优先处理'), 'first pending plan should be visually distinguished in-place');
+assert(appJs.includes('查看客户输入和诊断依据') && appJs.includes('evidenceButton'), 'customer input evidence should be a compact button in the top key conclusion workbench');
+assert(appJs.includes('数据展示') && appJs.includes('本轮成果数据'), 'metric area should be explicitly labeled as data display');
+assert(appJs.indexOf('下一轮建议') < appJs.indexOf('数据展示'), 'next suggestion should stay with decision cards, not metric/data display');
+assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
+const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
+assert(indexHtml.includes('诊断依据') && !indexHtml.includes('<h2>关键结论</h2>'), 'diagnosis panel should not duplicate the top key conclusion title');
+assert(!indexHtml.includes('id="firstLinkGate"'), 'first-link gate element should be removed from the DOM');
+assert(indexHtml.includes('<h2>回填</h2>') && !indexHtml.includes('<h2>反馈回填</h2>'), 'feedback title should be simplified to 回填');
 assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17', 'Shanghai business date should roll forward at UTC+8 midnight');
 assert(shanghaiDateIso(1, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-18', 'Shanghai offset should advance from business date');
 assert(plans[0].planned_date === shanghaiDateIso(), `planned_date should start today in Asia/Shanghai, got ${plans[0].planned_date}`);
