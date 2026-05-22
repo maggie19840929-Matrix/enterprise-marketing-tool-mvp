@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.5.5';
-const VERSION_LABEL = 'v1.5.5 · 状态分层与按钮精简版';
+const APP_VERSION = '1.5.5.1';
+const VERSION_LABEL = 'v1.5.5.1 · 客户理解修补版';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
@@ -316,14 +316,14 @@ function renderLifecycleWorkbench(){
         ? '确认下一周期要复制/停止/重诊断的方向'
         : (unfilled ? `补回填 ${unfilled} 条已发布内容数据` : d.next_suggestion);
   const primary = clientState.project_stage === '未诊断'
-    ? `<button type="button" onclick="showDiagnosisWorkflow()">诊断</button>`
+    ? `<button type="button" onclick="showDiagnosisWorkflow()">开始诊断</button>`
     : clientState.project_stage === '待启动'
-      ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">计划</button>`
-      : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">复盘</button>`;
-  const evidenceButton = `<button class="secondary" type="button" onclick="openClientEvidence()">依据</button>`;
+      ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">看计划</button>`
+      : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">回填/复盘</button>`;
+  const evidenceButton = `<button class="secondary" type="button" onclick="openClientEvidence()">查看依据</button>`;
   if (!clientState.diagnosis) {
     el.innerHTML = `<div class="workbench-head compact-workbench">
-      <div class="workbench-title"><p class="eyebrow">Growth Cockpit</p><h2>先做一次增长诊断</h2></div>
+      <div class="workbench-title"><p class="eyebrow">Growth Cockpit</p><h2>先做一次增长诊断</h2><p class="hint">填写 5 个关键信息，生成第一版内容方向。</p></div>
       <div class="workbench-actions single-action">${primary}</div>
     </div>`;
     return;
@@ -340,7 +340,7 @@ function renderLifecycleWorkbench(){
     <div class="operator-card decision-card data-evidence-card"><span>数据状态</span><strong>${hasRealFeedback ? `已保存 ${clientState.feedback.length} 条真实反馈` : '暂无真实反馈'}</strong><p>${esc(clientState.saved_at || '未标记时间')}</p></div>
   </div>
   <div class="operator-grid outcome-grid" aria-label="本轮成果数据">${renderOutcomeCards(d)}</div>
-  <div class="workbench-actions grouped-actions">${primary}${evidenceButton}<details class="inline-more"><summary>更多</summary><button class="secondary" type="button" onclick="showDiagnosisWorkflow()">重诊断</button><button class="secondary" type="button" onclick="startNextCycle()">下一轮</button></details></div>`;
+  <div class="workbench-actions grouped-actions">${primary}${evidenceButton}<details class="inline-more"><summary>更多</summary><button class="secondary" type="button" onclick="showDiagnosisWorkflow()">重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一轮</button></details></div>`;
 }
 function showDiagnosisWorkflow(){
   const el = $('#diagnosisWorkflow');
@@ -477,7 +477,7 @@ function renderAccountSetup(setup){
 }
 
 function renderDiagnosis(d){
-  if(!d){ $('#latestDiagnosis').innerHTML='提交后这里生成诊断报告。'; return; }
+  if(!d){ $('#latestDiagnosis').innerHTML='提交后生成诊断报告、7天计划和回填入口。'; return; }
   const platformRecommendations = parsePlatformRecommendations(d.platform_recommendations);
   const platformModule = platformRecommendations ? `<div class="warning">
     <div class="small">平台发布建议</div>
@@ -632,7 +632,7 @@ function prefillFeedback(id){
   (workflow || form).scrollIntoView({behavior:'smooth', block:'start'});
   window.setTimeout(()=>{
     linkInput?.focus();
-    toast(`已定位 #${planInput.value}，请保存反馈。`);
+    toast(`已定位到计划 #${planInput.value}，请粘贴发布链接并保存反馈。`);
   }, 260);
   window.setTimeout(()=>workflow?.classList.remove('is-highlighted'), 1900);
 }
@@ -733,7 +733,7 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
     saveLocal();
     renderAllFromClient();
     e.target.reset();
-    toast('反馈已保存');
+    toast('反馈已保存，看板和复盘已更新。');
     api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
       .catch(() => toast('本地已保存；云端临时接口同步失败，不影响本浏览器查看'));
   });
@@ -744,7 +744,7 @@ $('#reviewBtn').addEventListener('click', async ()=>{
     clientState.review = createLocalReview();
     saveLocal();
     renderAllFromClient();
-    toast('复盘已更新');
+    toast('周复盘已更新');
     api('/api/reviews', {method:'POST', body: JSON.stringify({})})
       .catch(() => toast('本地复盘已保存；云端临时接口同步失败'));
   });
