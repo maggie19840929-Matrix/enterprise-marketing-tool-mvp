@@ -21,15 +21,15 @@ def memory_conn():
 def test_assessment_generates_stage_score_and_priority_problem():
     conn = memory_conn()
     assessment_id = create_assessment(conn, {
-        'company_name': '南京样板制造有限公司',
-        'industry': '工业设备',
-        'main_goal': '获得更多咨询',
-        'current_channels': '视频号, 小红书',
+        'company_name': '南京微笑口腔门诊',
+        'industry': '口腔门诊',
+        'main_goal': '获得更多儿童牙齿矫正咨询',
+        'current_channels': '小红书, 美团',
         'posting_frequency': '偶尔发布',
         'biggest_problem': '不知道发什么',
-        'target_customer': '工厂采购负责人',
-        'offer': '免费选型建议',
-        'best_recent_content': '客户案例短视频',
+        'target_customer': '本地宝妈和家庭客户',
+        'offer': '儿童牙齿矫正初筛',
+        'best_recent_content': '医生科普短视频',
         'contact': '赵娜'
     })
 
@@ -38,23 +38,23 @@ def test_assessment_generates_stage_score_and_priority_problem():
     assert diagnosis['stage'] == '起步诊断期'
     assert diagnosis['priority_problem'] == '选题不稳定'
     assert diagnosis['score'] > 50
-    assert '视频号, 小红书' in diagnosis['weekly_action']
-    assert '工厂采购负责人' in diagnosis['weekly_action']
-    assert '获得更多咨询' in diagnosis['weekly_action']
+    assert '小红书, 美团' in diagnosis['weekly_action']
+    assert '本地宝妈和家庭客户' in diagnosis['weekly_action']
+    assert '获得更多儿童牙齿矫正咨询' in diagnosis['weekly_action']
 
 
 def test_content_plan_creates_seven_actionable_items_from_diagnosis():
     conn = memory_conn()
     assessment_id = create_assessment(conn, {
-        'company_name': '南京样板制造有限公司',
-        'industry': '工业设备',
-        'main_goal': '获得更多咨询',
-        'current_channels': '视频号',
+        'company_name': '南京美甲美睫门店',
+        'industry': '美容美甲门店',
+        'main_goal': '获得更多到店预约',
+        'current_channels': '小红书',
         'posting_frequency': '每周1条',
         'biggest_problem': '没咨询',
-        'target_customer': '工厂老板',
-        'offer': '免费方案评估',
-        'best_recent_content': '售后案例',
+        'target_customer': '附近3公里爱美客户',
+        'offer': '到店体验套餐',
+        'best_recent_content': '顾客前后对比案例',
         'contact': '赵娜'
     })
     diagnosis = generate_diagnosis(conn, assessment_id)
@@ -62,10 +62,10 @@ def test_content_plan_creates_seven_actionable_items_from_diagnosis():
     items = create_content_plan(conn, diagnosis['id'])
 
     assert len(items) == 7
-    assert items[0]['platform'] == '视频号'
+    assert items[0]['platform'] == '小红书'
     assert all(item['status'] == '待发布' for item in items)
     assert any('痛点' in item['angle'] for item in items)
-    assert any('免费方案评估' in item['cta'] for item in items)
+    assert any('到店体验套餐' in item['cta'] for item in items)
 
 
 def test_feedback_updates_dashboard_metrics_and_next_suggestion():

@@ -3,25 +3,25 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业营销增长工作台 v1.5.4</title>
+  <title>企业营销增长工作台 v1.5.5</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <p class="eyebrow">v1.5.4 · 驾驶舱视觉层级优化版</p>
+      <p class="eyebrow">v1.5.5 · 状态分层与按钮精简版</p>
       <h1>企业营销增长驾驶舱</h1>
-      <p class="sub">关键判断在上方，结果数据在中间，执行动作在下方。</p>
+      
     </div>
     <div class="hero-actions clean-actions">
-      <button type="button" onclick="document.querySelector('#diagnosisWorkflow')?.scrollIntoView({behavior:'smooth'})">开始诊断</button>
-      <button id="sampleBtn" class="secondary" type="button">载入样例</button>
+      <button type="button" onclick="document.querySelector('#diagnosisWorkflow')?.scrollIntoView({behavior:'smooth'})">诊断</button>
+      <button id="sampleBtn" class="secondary" type="button">样例</button>
       <details class="more-actions">
         <summary>更多</summary>
         <div class="more-actions-menu">
-          <button class="secondary" type="button" onclick="downloadDataBackup()">导出备份</button>
-          <label class="secondary import-btn">导入备份<input id="importFile" type="file" accept="application/json" hidden onchange="importDataBackup(this.files[0]); this.value=''" /></label>
-          <button id="refreshBtn" class="secondary danger-action" type="button">清空数据</button>
+          <button class="secondary" type="button" onclick="downloadDataBackup()">导出</button>
+          <label class="secondary import-btn">导入<input id="importFile" type="file" accept="application/json" hidden onchange="importDataBackup(this.files[0]); this.value=''" /></label>
+          <button id="refreshBtn" class="secondary danger-action" type="button">清空</button>
         </div>
       </details>
     </div>
@@ -30,23 +30,22 @@
   <main>
     <section class="panel workbench-panel" id="lifecycleWorkbench"></section>
 
-    <section class="cards metric-section" id="metricCards"></section>
+    <section class="cards metric-section" id="metricCards" hidden></section>
 
     <section class="grid cockpit" id="diagnosisWorkflow">
       <article class="panel intake-panel">
         <div class="panel-head compact-head">
           <div>
             <h2>增长诊断</h2>
-            <p class="hint">新客户从这里开始；运营中项目优先看上方增长驾驶舱，需要调整策略时再重新诊断。</p>
+            
           </div>
-          <span>少填信息，也能先形成判断</span>
         </div>
         <form id="assessmentForm" class="assessment-form compact-form">
           <div class="form-section-title wide-field">模块 A｜快速了解你的业务</div>
-          <label>你是做什么的？<input name="industry" required placeholder="例如：口腔门诊 / 企业营销增长工具 / 教育培训" /></label>
-          <label>你想通过内容获得什么结果？<input name="main_goal" required placeholder="例如：获得更多咨询 / 到店 / 报名" /></label>
-          <label>你的目标客户是谁？<input name="target_customer" placeholder="例如：企业主、商家、负责人" /></label>
-          <label>你现在主要发在哪个平台？<input name="current_channels" required placeholder="例如：小红书 / 视频号 / 朋友圈" /></label>
+          <label>你是做什么的？<input name="industry" required placeholder="例如：口腔门诊 / 美容美甲门店 / 教育培训 / 餐饮门店" /></label>
+          <label>你想通过内容获得什么结果？<input name="main_goal" required placeholder="例如：获得更多咨询 / 到店预约 / 课程报名" /></label>
+          <label>你的目标客户是谁？<input name="target_customer" placeholder="例如：本地宝妈、家庭客户、商家、门店负责人" /></label>
+          <label>你现在主要发在哪个平台？<input name="current_channels" required placeholder="例如：小红书 / 抖音 / 视频号 / 朋友圈 / 美团" /></label>
           <label>当前最大问题是什么？
             <select name="biggest_problem" required>
               <option>不知道发什么</option>
@@ -86,8 +85,8 @@
                   <option>每天稳定发布</option>
                 </select>
               </label>
-              <label>产品/服务入口<input name="offer" placeholder="例如：免费选型建议 / 到店体验课 / 方案评估" /></label>
-              <label>现有内容资产<input name="content_assets" placeholder="客户案例、产品照片、FAQ" /></label>
+              <label>产品/服务入口<input name="offer" placeholder="例如：预约检查 / 到店体验 / 课程试听 / 方案评估" /></label>
+              <label>现有内容资产<input name="content_assets" placeholder="客户案例、门店照片、服务过程、FAQ" /></label>
               <label>月预算<input name="monthly_budget" placeholder="例如3000元以内" /></label>
               <label>决策周期<input name="decision_cycle" placeholder="例如1周/1个月" /></label>
               <label>最近效果最好的内容<input name="best_recent_content" placeholder="客户案例、产品演示、老板出镜..." /></label>
@@ -100,21 +99,21 @@
       </article>
 
       <article class="panel highlight diagnosis-panel diagnosis-evidence-panel">
-        <h2>诊断依据</h2>
-        <div id="latestDiagnosis" class="empty">填写模块 A 和对标账号后，这里展示诊断过程和依据；关键结论在页面顶部。</div>
+        <h2>诊断报告</h2>
+        <div id="latestDiagnosis" class="empty">提交后生成诊断报告。</div>
       </article>
     </section>
 
     <details id="clientEvidencePanel" class="panel client-snapshot-panel compact-client-panel collapsible-panel">
-      <summary>客户输入与诊断依据明细</summary>
-      <p class="hint">这里保留本次诊断使用的客户原始输入，默认收起，适合内部核对。</p>
+      <summary>客户输入</summary>
+      
       <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
     </details>
 
     <section class="panel compact-plan-panel" id="planSection" hidden>
       <div class="panel-head">
         <h2>7天内容发布计划</h2>
-        <span>默认只看前三条；状态直接标在卡片上，不再单独重复提示。</span>
+        
       </div>
       <div id="plansSummary" class="plan-summary empty">生成诊断后显示前三个优先动作。</div>
       <details class="table-details">
@@ -130,13 +129,13 @@
 
     <section class="panel" id="feedbackHint">
       <h2>回填</h2>
-      <p class="hint">发布后补链接和关键数据。</p>
+      
     </section>
 
     <section class="grid two feedback-focus" id="feedbackWorkflow" hidden>
       <article class="panel">
         <h2>回填</h2>
-        <p class="hint">选计划、贴链接、填关键数据。</p>
+        
         <form id="feedbackForm">
           <label>发布计划ID<input name="content_plan_id" required type="number" placeholder="从发布计划表中选择 ID" /></label>
           <label>发布链接<input name="publish_link" required type="url" placeholder="粘贴已发布内容链接" /></label>
@@ -156,14 +155,14 @@
             <label>私信/咨询<input name="consultations" type="number" value="0" /></label>
           </div>
           <label>备注<textarea name="notes" placeholder="例如：有客户问价格 / 私信问资料 / 开头被吐槽"></textarea></label>
-          <button type="submit">保存反馈</button>
+          <button type="submit">保存</button>
         </form>
       </article>
 
       <article class="panel">
         <div class="panel-head">
           <h2>周复盘</h2>
-          <button id="reviewBtn" class="secondary">更新周复盘</button>
+          <button id="reviewBtn" class="secondary">更新</button>
         </div>
         <div id="reviewBox" class="empty">保存反馈后，系统会自动生成周复盘。</div>
         <h3>记录</h3>
