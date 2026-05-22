@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.5.5';
-const VERSION_LABEL = 'v1.5.5 · 状态分层与按钮精简版';
+const APP_VERSION = '1.5.4';
+const VERSION_LABEL = 'v1.5.4 · 驾驶舱视觉层级优化版';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -106,11 +106,12 @@ const latestFeedbackRows = (planIds = null) => {
 };
 const shortAudience = (target = '') => {
   const text = target.replace(/[。；;]+$/g, '');
-  if (hasAny(text, ['老板'])) return '老板/企业主';
+  if (hasAny(text, ['小老板', '老板'])) return '老板/企业主';
   if (hasAny(text, ['中小企业', '企业负责人', '企业主'])) return '企业主';
+  if (hasAny(text, ['本地生活', '商家', '门店'])) return '服务型商家';
+  if (hasAny(text, ['采购', '工厂'])) return '采购负责人';
   if (hasAny(text, ['宝妈'])) return '宝妈/家长';
   if (hasAny(text, ['家长'])) return '家长';
-  if (hasAny(text, ['本地生活', '商家', '门店', '到店客户', '本地客户'])) return '服务型商家';
   return text.split(/[、,，/]/).map((x) => x.trim()).filter(Boolean)[0] || '目标客户';
 };
 const painLabel = (pain = '', problem = '') => {
@@ -183,7 +184,7 @@ const benchmarkReferenceFor = (assessment) => {
   };
 };
 const softCta = (offer = '', pain = '') => {
-  if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，可以私信具体情况，从一张内容反馈表开始。';
+  if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，先私信“复盘”，从一张内容反馈表开始。';
   return `如果你也遇到「${pain || '类似问题'}」，可以私信具体情况，先判断问题卡在哪里。`;
 };
 const isMetaMarketingAccount = (assessment) => hasAny([assessment.industry, assessment.offer, assessment.main_goal].filter(Boolean).join(' '), ['企业内容增长', '线上获客', 'AI营销复盘', '营销增长', '内容获客']);
@@ -201,7 +202,7 @@ const platformStyleRulesFor = (platform) => {
     '抖音': '适合短视频曝光测试，需要更强开头钩子和持续素材能力，不宜第一天就重投入。',
     '知乎': '适合专业问题搜索和方案型信任，重逻辑与证据，不追求小红书式精致感。',
   };
-  return rules[platform] || '按该平台用户语境调整表达，不把小红书规则生搬硬套到所有平台。';
+  return rules[platform] || '按该平台用户语境调整表达，不把小红书规则机械套到所有平台。';
 };
 
 const accountSetupFor = (assessment, recommendations) => {
@@ -235,7 +236,7 @@ const accountSetupFor = (assessment, recommendations) => {
       reason: recommendations?.primary?.[0]?.reason || '先选择一个主平台跑7天小样本，避免多平台分散。',
       rule: platformStyleRulesFor(primary),
     },
-    naming_warning: '对外称呼优先用老板、企业主、商家、门店老板、企业负责人，保持专业和尊重。',
+    naming_warning: '对外称呼优先用老板、企业主、商家、门店老板、企业负责人；避免高频使用“小老板”。',
     scope_note: '账号基础设置是发布前门禁：定位、简介、主页关键词、头像方向和起步主平台先确认，再生成内容。',
   };
 };
@@ -282,7 +283,7 @@ const recommendPlatforms = (assessment) => {
     addPlatform(avoid, '美团/大众点评', '这是本地商家的承接平台，不是企业营销工具测试号自身的发布平台。');
     addPlatform(avoid, 'B站', '长内容生产成本高，不适合作为30天闭环验证主阵地。');
     if (hasAny(targetText, ['本地生活', '门店', '到店', '商家'])) addClient('美团/大众点评', '若客户本身是本地到店商家，可作为客户侧搜索承接平台。');
-  } else if (hasAny(accountText, ['口腔', '牙', '门诊', '种植', '矫正', '正畸'])) {
+  } else if (hasAny(accountText, ['口腔', '牙', '门诊', '种植', '矫正', '正畸', '到店'])) {
     addPlatform(primary, '小红书', '适合做本地宝妈种草、儿童矫正避坑、医生专业信任内容。');
     addPlatform(primary, '美团/大众点评', '适合承接已有到店意图的用户，重点优化套餐、评价和门店转化。');
     addPlatform(primary, '朋友圈/私域', '适合做老客转介绍、客户案例、活动提醒和信任维护。');
@@ -290,38 +291,28 @@ const recommendPlatforms = (assessment) => {
     addPlatform(support, '视频号', '适合微信生态内的熟人关系转化和本地信任沉淀。');
     addPlatform(avoid, '公众号', '冷启动慢，不适合作为30天内快速获客主渠道。');
     addPlatform(avoid, 'B站', '内容生产成本高，短期本地咨询转化弱。');
-  } else if (hasAny(accountText, ['美业', '美甲', '美睫', '美容', '皮肤管理', '医美', '产康', '纹眉', '半永久'])) {
-    addPlatform(primary, '小红书', '适合承接同城搜索、效果案例、避坑清单和价格顾虑。');
-    addPlatform(primary, '抖音', '适合用短视频放大同城曝光，展示服务过程、环境和前后变化。');
-    addPlatform(primary, '朋友圈/私域', '适合老客复购、转介绍、活动提醒和信任维护。');
-    addPlatform(support, '美团/大众点评', '适合承接到店意图，重点优化套餐、评价和门店页转化。');
-    addPlatform(support, '视频号', '适合微信生态内做案例沉淀和熟人信任。');
-    addPlatform(avoid, 'B站', '本地到店转化链路较长，不建议作为第一主阵地。');
-  } else if (hasAny(accountText, ['餐饮', '饭店', '餐厅', '咖啡', '茶饮', '火锅', '烧烤', '烘焙', '甜品', '小吃'])) {
-    addPlatform(primary, '抖音', '适合用同城短视频放大菜品、环境、活动和到店氛围。');
-    addPlatform(primary, '小红书', '适合做同城探店、收藏清单、场景种草和菜单决策内容。');
-    addPlatform(primary, '美团/大众点评', '适合承接搜索、评价、团购和到店转化。');
-    addPlatform(support, '朋友圈/私域', '适合老客复购、会员活动和社群触达。');
-    addPlatform(support, '视频号', '适合老板/门店日常和微信生态活动承接。');
-    addPlatform(avoid, 'B站', '短期到店效率低，除非已有长视频内容能力。');
-  } else if (hasAny(accountText, ['教育', '培训', '课程', '报名', '留学', '考试', '教培', '托管', '素质教育'])) {
-    addPlatform(primary, '小红书', '适合用学习经验、避坑、家长疑问和案例内容承接主动搜索。');
-    addPlatform(primary, '视频号', '适合家长/熟人圈层转化、直播讲解和信任沉淀。');
-    addPlatform(primary, '朋友圈/私域', '适合跟进试听、答疑、转介绍和报名转化。');
-    addPlatform(support, '抖音', '适合扩大曝光，但需要高频短视频和强钩子。');
-    addPlatform(avoid, 'B站', '适合长期知识资产，不适合短期报名转化主渠道。');
-  } else if (hasAny(accountText, ['本地', '到店', '门店', '附近', '同城', '本地生活', '家政', '维修', '摄影', '宠物', '体验课'])) {
+  } else if (hasAny(accountText, ['本地', '到店', '门店', '附近', '同城', '美业', '产康', '体验课'])) {
     addPlatform(primary, '小红书', '适合做同城种草、案例体验和痛点搜索承接。');
     addPlatform(primary, '朋友圈/私域', '适合做熟人信任、老客复购和转介绍。');
     addPlatform(primary, '抖音', '适合用短视频放大同城曝光，但要控制内容节奏和转化入口。');
     addPlatform(support, '美团/大众点评', '适合有到店需求时承接搜索和评价转化。');
     addPlatform(avoid, 'B站', '本地短期获客效率较低，不建议作为第一主阵地。');
+  } else if (hasAny(accountText, ['工业', '设备', '工厂', '采购', 'B2B', '企业', '方案', '软件', '服务商'])) {
+    addPlatform(primary, '视频号', '适合沉淀专业信任、销售转发和微信生态线索承接。');
+    addPlatform(primary, '公众号', '适合沉淀方案文章、案例和长期搜索资料。');
+    addPlatform(primary, '知乎', '适合承接专业问题搜索，建立方案型信任。');
+    addPlatform(support, '小红书', '可测试采购避坑、老板视角和案例拆解，但不宜只追求种草感。');
+    addPlatform(avoid, '美团/大众点评', 'B2B企业服务通常不是本地主动搜索到店场景。');
+  } else if (hasAny(accountText, ['教育', '培训', '课程', '报名', '留学', '考试'])) {
+    addPlatform(primary, '小红书', '适合用学习经验、避坑和案例内容承接主动搜索。');
+    addPlatform(primary, '视频号', '适合家长/熟人圈层转化和直播沉淀。');
+    addPlatform(primary, '朋友圈/私域', '适合跟进试听、答疑和报名转化。');
+    addPlatform(support, '抖音', '适合扩大曝光，但需要高频短视频和强钩子。');
+    addPlatform(avoid, 'B站', '适合长期知识资产，不适合短期报名转化主渠道。');
   } else {
     current.slice(0, 3).forEach((platform) => addPlatform(primary, platform, '这是当前已有平台，1.0先用它低成本测试内容反馈。'));
     if (primary.length < 3) addPlatform(primary, '小红书', '适合测试用户痛点、案例和搜索型内容反馈。');
-    addPlatform(support, '朋友圈/私域', '适合承接信任、复购和轻咨询转化。');
     addPlatform(support, '视频号', '适合沉淀微信生态信任和私域承接。');
-    addPlatform(support, '美团/大众点评', '如果属于到店服务，可作为搜索评价和转化承接平台。');
     addPlatform(avoid, 'B站', '内容生产周期较长，除非已有稳定长内容能力，否则暂不作为第一优先。');
   }
 
@@ -351,7 +342,7 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
     const directCta = `想要「${goal}」，可以私信了解「${offer}」。`;
     const items = [
       [`${audience}最关心的3个${industry}问题`, `痛点共鸣：围绕「${painShort}」说清具体困扰`, '短视频/图文', directCta, '咨询数', '需要人工润色', '适合补充真实客户问题或本地案例后发布'],
-      [`一个真实场景：${audience}如何判断是否需要${offer}`, '案例信任：讲清前后变化、过程和判断标准', '短视频', `可以通过主页咨询「${offer}」的适配情况。`, '私信数', '需要人工润色', '需要替换成真实案例，避免空泛承诺'],
+      [`一个真实场景：${audience}如何判断是否需要${offer}`, '案例信任：讲清前后变化、过程和判断标准', '短视频', `私信“方案”，获取「${offer}」说明。`, '私信数', '需要人工润色', '需要替换成真实案例，避免空泛承诺'],
       [`${audience}在选择${offer}前最容易忽略什么？`, '避坑科普：降低客户决策风险，建立专业信任', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏数', '可直接进入草稿', '结构完整，发布前补充门店/服务细节即可'],
       [`为什么有「${painShort}」的人，迟迟没有行动？`, `阻力拆解：把「${painShort}」转成可理解、可咨询的问题`, '图文/短视频', directCta, '评论数', '需要人工润色', '适合测试痛点表达是否准确'],
       [`${offer}到底能帮${audience}解决什么？`, '价值说明：用客户语言解释交付结果和适合人群', '图文', directCta, '咨询数', '可直接进入草稿', '主题清楚，适合承接咨询'],
@@ -372,7 +363,7 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
     [`AI写文案很快，为什么带不来客户？`, '误区拆解：区分内容产出和获客转化', '图文', cta, '收藏数', '需要人工润色', '适合作为方法论选题，避免写成AI工具教程'],
     [`一条内容有没有获客价值，不是看点赞`, '复盘方法：用收藏、评论、私信判断需求信号', '图文', '发布后记录浏览、收藏、私信、咨询四个数据，再决定下一条怎么改。', '收藏/私信', '可直接进入草稿', '主题清晰，可用于测试复盘能力'],
     [`企业账号别只发产品，先发客户问题`, `选题转译：把「${painShort}」改写成客户看得懂的问题`, '图文/短视频', cta, '评论数', '需要人工润色', '需要补充具体行业例子'],
-    [`老板没时间做运营，怎么做每周内容复盘？`, '低成本流程：发布-回填-复盘-下条调整', '图文', '需要复盘表时，可以私信具体情况。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
+    [`老板没时间做运营，怎么做每周内容复盘？`, '低成本流程：发布-回填-复盘-下条调整', '图文', '想要复盘表，可以私信“复盘”。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
     [`为什么爆款不等于能成交？`, '指标校准：曝光、互动、咨询分层看', '短视频/图文', '不要只问能不能火，先问能不能带来客户信号。', '评论/收藏', '需要人工润色', '适合做认知内容'],
     [`本周内容测试复盘：哪个问题带来了真实反馈？`, '复盘公开：把7天反馈转成下周选题依据', '图文', '如果你也想知道内容怎么复盘，可以私信你现在最卡的点。', '评论/关注', '仅为策略方向', '必须等真实数据回填后再发布'],
   ];

@@ -41,13 +41,6 @@ const assertNoUnsafeCommentCta = (label, value) => {
   });
 };
 
-const assertNoWrongDefaultScenario = (label, value) => {
-  const text = JSON.stringify(value);
-  ['工厂', '机械制造', 'B2B生产企业', '工业品', '外贸工厂', '采购负责人'].forEach((word) => {
-    assert(!text.includes(word), `${label} must not include wrong default scenario: ${word}`);
-  });
-};
-
 const submitAssessment = async (body) => {
   const res = await handler(request('POST', 'assessments', body));
   if (res.status !== 201) throw new Error(`expected 201, got ${res.status}: ${await res.text()}`);
@@ -60,14 +53,14 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.5.5', `expected app_version 1.5.5, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.5.4', `expected app_version 1.5.4, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
 assert(diagnosis.loop_score < 30, `loop_score must stay low before feedback, got ${diagnosis.loop_score}`);
 assert(diagnosis.account_setup.account_name === '内容决策局', 'meta-marketing test account should get 内容决策局 cold-start setup');
 assert(diagnosis.account_setup.starting_platform.platform === '小红书', 'cold-start setup should expose starting platform');
-assert(diagnosis.account_setup.naming_warning.includes('保持专业和尊重'), 'cold-start setup should include naming warning');
+assert(diagnosis.account_setup.naming_warning.includes('避免高频使用'), 'cold-start setup should include naming warning');
 assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', 'new account should prioritize 小红书');
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
@@ -79,18 +72,18 @@ assert(appJs.includes("[name=content_plan_id]"), 'prefillFeedback should target 
 assert(appJs.includes("[name=publish_link]") && appJs.includes('linkInput?.focus()'), 'prefillFeedback should focus the publish link field');
 assert(appJs.includes('scrollIntoView'), 'prefillFeedback should scroll to the feedback form area');
 assert(appJs.includes('is-highlighted'), 'prefillFeedback should highlight the feedback area');
-assert(appJs.includes('已定位 #'), 'prefillFeedback should show a compact toast after locating the form');
+assert(appJs.includes('已定位到计划 #'), 'prefillFeedback should show a business toast after locating the form');
 
 assert(appJs.includes('function autoReviewFromFeedback()'), 'app should auto-generate weekly review from existing feedback');
-assert(appJs.includes('保存至少1条发布链接和反馈后') || appJs.includes('这里会自动出现复盘'), 'weekly review empty state should explain auto review');
+assert(appJs.includes('保存反馈后，系统会自动生成周复盘') || appJs.includes('这里会自动出现复盘'), 'weekly review empty state should explain auto review');
 assert(appJs.includes('function planUiMeta'), 'plan cards should classify priority/pending/done states');
 assert(appJs.includes('plan-next') && appJs.includes('优先处理'), 'first pending plan should be visually distinguished in-place');
-assert(appJs.includes('>依据</button>') && appJs.includes('evidenceButton'), 'customer input evidence should be a compact button in the top key conclusion workbench');
-assert(appJs.includes('function renderOutcomeCards') && appJs.includes('outcome-grid'), 'outcome metrics should live inside the top cockpit layout');
-assert(appJs.indexOf('下一轮建议') < appJs.indexOf('function renderOutcomeCards'), 'next suggestion should stay with decision cards, before outcome metrics');
+assert(appJs.includes('查看客户输入和诊断依据') && appJs.includes('evidenceButton'), 'customer input evidence should be a compact button in the top key conclusion workbench');
+assert(appJs.includes('数据展示') && appJs.includes('本轮成果数据'), 'metric area should be explicitly labeled as data display');
+assert(appJs.indexOf('下一轮建议') < appJs.indexOf('数据展示'), 'next suggestion should stay with decision cards, not metric/data display');
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
-assert(indexHtml.includes('诊断报告') && !indexHtml.includes('<h2>关键结论</h2>'), 'diagnosis panel should be a report, not duplicate the top key conclusion title');
+assert(indexHtml.includes('诊断依据') && !indexHtml.includes('<h2>关键结论</h2>'), 'diagnosis panel should not duplicate the top key conclusion title');
 assert(!indexHtml.includes('id="firstLinkGate"'), 'first-link gate element should be removed from the DOM');
 assert(indexHtml.includes('<h2>回填</h2>') && !indexHtml.includes('<h2>反馈回填</h2>'), 'feedback title should be simplified to 回填');
 assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17', 'Shanghai business date should roll forward at UTC+8 midnight');
@@ -107,52 +100,6 @@ const preferredName = await submitAssessment({
   account_preference: '企业获客复盘号',
 });
 assert(preferredName.diagnosis.account_setup.account_name === '企业获客复盘号', 'account_preference should override default account name');
-
-const beauty = await submitAssessment({
-  company_name: '本地美容美甲门店',
-  industry: '美容美甲门店',
-  main_goal: '获得更多到店预约',
-  target_customer: '附近3公里爱美客户和通勤女性',
-  offer: '美甲美睫到店体验套餐',
-  customer_pain: '担心效果不自然、价格不透明、卫生不放心',
-  current_channels: '小红书、抖音、朋友圈',
-  posting_frequency: '每周3条',
-  biggest_problem: '发了内容但没咨询',
-});
-assertNoWrongDefaultScenario('beauty service output', beauty);
-assert(beauty.diagnosis.platform_recommendations.primary.some((x) => x.platform === '小红书'), 'beauty shop should prioritize 小红书');
-assert(beauty.diagnosis.platform_recommendations.primary.some((x) => x.platform === '抖音'), 'beauty shop should prioritize 抖音');
-assert(JSON.stringify(beauty).includes('美容美甲门店'), 'beauty output should preserve industry');
-
-const education = await submitAssessment({
-  company_name: '本地教育培训机构',
-  industry: '教育培训机构',
-  main_goal: '获得更多试听课报名',
-  target_customer: '本地家长和小学阶段学生家庭',
-  offer: '数学思维试听课',
-  customer_pain: '担心孩子跟不上、试听后不知道是否适合',
-  current_channels: '视频号、小红书、朋友圈',
-  posting_frequency: '每周3条',
-  biggest_problem: '不知道发什么',
-});
-assertNoWrongDefaultScenario('education service output', education);
-assert(education.diagnosis.platform_recommendations.primary.some((x) => x.platform === '视频号'), 'education should include 视频号');
-assert(JSON.stringify(education).includes('教育培训机构'), 'education output should preserve industry');
-
-const restaurant = await submitAssessment({
-  company_name: '本地餐饮门店',
-  industry: '餐饮门店',
-  main_goal: '获得更多周末到店消费',
-  target_customer: '周边家庭顾客和年轻上班族',
-  offer: '周末家庭套餐',
-  customer_pain: '不知道附近哪里适合聚餐、担心排队和性价比',
-  current_channels: '抖音、小红书、美团',
-  posting_frequency: '每周3条',
-  biggest_problem: '曝光不足',
-});
-assertNoWrongDefaultScenario('restaurant service output', restaurant);
-assert(restaurant.diagnosis.platform_recommendations.primary.some((x) => x.platform === '美团/大众点评'), 'restaurant should include 美团/大众点评');
-assert(JSON.stringify(restaurant).includes('餐饮门店'), 'restaurant output should preserve industry');
 
 const oral = await submitAssessment({
   company_name: '本地口腔门诊',
@@ -173,7 +120,6 @@ const oral = await submitAssessment({
 });
 const oralText = JSON.stringify(oral);
 assertNoUnsafeCommentCta('customer diagnosis/plans', oral);
-assertNoWrongDefaultScenario('oral clinic output', oral);
 assert(oral.plans.length === 7, `oral sample expected 7 plans, got ${oral.plans.length}`);
 assert(oral.plans.slice(0, 6).map((p) => p.platform).join('|') === '小红书|美团/大众点评|朋友圈/私域|小红书|美团/大众点评|朋友圈/私域', 'oral plans should rotate recommended platforms');
 ['口腔门诊', '宝妈', '儿童牙齿矫正', '种植牙', '口腔检查', '怕贵', '医生专业度'].forEach((word) => {
@@ -252,7 +198,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
   app_version: diagnosis.app_version,
-  unsafe_comment_cta_count: JSON.stringify({ diagnosis, plans, beauty, education, restaurant, oral }).match(/评论区告诉我|留言关键词|留言“复盘”|评论\/私信“方案”|可以留言你的情况/g)?.length || 0,
+  unsafe_comment_cta_count: JSON.stringify({ diagnosis, plans, oral }).match(/评论区告诉我|留言关键词|留言“复盘”|评论\/私信“方案”|可以留言你的情况/g)?.length || 0,
   loop_score: diagnosis.loop_score,
   account_setup: diagnosis.account_setup,
   own_platforms: diagnosis.platform_recommendations.primary.map((x) => x.platform),
