@@ -41,40 +41,40 @@ def test_light_assessment_allows_no_company_before_value_is_shown():
 def test_diagnosis_contains_score_stage_and_next_step_for_new_mvp():
     conn = memory_conn()
     assessment_id = create_assessment(conn, {
-        'industry': '工业设备',
-        'main_goal': '获得更多咨询',
-        'current_channels': '视频号',
+        'industry': '教育培训机构',
+        'main_goal': '获得更多课程报名',
+        'current_channels': '小红书',
         'posting_frequency': '每周1条',
         'biggest_problem': '没咨询',
-        'target_customer': '工厂采购负责人',
-        'offer': '免费方案评估',
+        'target_customer': '本地家长',
+        'offer': '试听课预约',
     })
 
     diagnosis = generate_diagnosis(conn, assessment_id)
 
     assert 0 <= diagnosis['score'] <= 100
     assert diagnosis['priority_problem'] == '内容不转化'
-    assert diagnosis['next_step'] == '把内容结尾改成「免费方案评估」相关 CTA，并追踪是否真的带来「获得更多咨询」。'
+    assert diagnosis['next_step'] == '把内容结尾改成「试听课预约」相关 CTA，并追踪是否真的带来「获得更多课程报名」。'
 
 
 def test_content_plan_uses_target_customer_and_offer():
     conn = memory_conn()
     assessment_id = create_assessment(conn, {
-        'industry': '工业设备',
-        'main_goal': '获得更多咨询',
-        'current_channels': '视频号',
+        'industry': '餐饮门店',
+        'main_goal': '获得更多到店消费',
+        'current_channels': '抖音',
         'posting_frequency': '每周1条',
         'biggest_problem': '不知道发什么',
-        'target_customer': '设备采购负责人',
-        'offer': '免费选型建议',
+        'target_customer': '周边家庭顾客',
+        'offer': '周末家庭套餐',
     })
     diagnosis = generate_diagnosis(conn, assessment_id)
 
     items = create_content_plan(conn, diagnosis['id'])
 
     assert len(items) == 7
-    assert any('设备采购负责人' in item['topic'] for item in items)
-    assert any('免费选型建议' in item['cta'] for item in items)
+    assert any('周边家庭顾客' in item['topic'] for item in items)
+    assert any('周末家庭套餐' in item['cta'] for item in items)
 
 
 def test_oral_clinic_plan_uses_current_form_fields_without_old_mock():

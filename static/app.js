@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.5.4';
-const VERSION_LABEL = 'v1.5.4 · 驾驶舱视觉层级优化版';
+const APP_VERSION = '1.5.5';
+const VERSION_LABEL = 'v1.5.5 · 状态分层与按钮精简版';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
@@ -316,21 +316,21 @@ function renderLifecycleWorkbench(){
         ? '确认下一周期要复制/停止/重诊断的方向'
         : (unfilled ? `补回填 ${unfilled} 条已发布内容数据` : d.next_suggestion);
   const primary = clientState.project_stage === '未诊断'
-    ? `<button type="button" onclick="showDiagnosisWorkflow()">开始增长诊断</button>`
+    ? `<button type="button" onclick="showDiagnosisWorkflow()">诊断</button>`
     : clientState.project_stage === '待启动'
-      ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">查看7天计划</button>`
-      : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">回填/复盘</button>`;
-  const evidenceButton = `<button class="secondary" type="button" onclick="openClientEvidence()">查看客户输入和诊断依据</button>`;
+      ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">计划</button>`
+      : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">复盘</button>`;
+  const evidenceButton = `<button class="secondary" type="button" onclick="openClientEvidence()">依据</button>`;
   if (!clientState.diagnosis) {
     el.innerHTML = `<div class="workbench-head compact-workbench">
-      <div class="workbench-title"><p class="eyebrow">Growth Cockpit</p><h2>先做一次增长诊断</h2><p class="hint">填写 5 个关键信息，生成第一版内容方向。</p></div>
+      <div class="workbench-title"><p class="eyebrow">Growth Cockpit</p><h2>先做一次增长诊断</h2></div>
       <div class="workbench-actions single-action">${primary}</div>
     </div>`;
     return;
   }
   const cycleText = cycleLabel(clientState.current_cycle_id);
   el.innerHTML = `<div class="workbench-head compact-workbench">
-    <div class="workbench-title"><p class="eyebrow">关键结论 · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2><p class="hint">${esc(todayAction)}</p></div>
+    <div class="workbench-title"><p class="eyebrow">关键结论 · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2></div>
     <div class="stage-pill"><span>当前周期</span><strong>${esc(cycleText)}</strong></div>
   </div>
   <div class="operator-grid decision-grid" aria-label="关键决策信息">
@@ -339,7 +339,8 @@ function renderLifecycleWorkbench(){
     <div class="operator-card decision-card decision-next"><span>下一轮建议</span><strong>${esc(d.next_suggestion)}</strong></div>
     <div class="operator-card decision-card data-evidence-card"><span>数据状态</span><strong>${hasRealFeedback ? `已保存 ${clientState.feedback.length} 条真实反馈` : '暂无真实反馈'}</strong><p>${esc(clientState.saved_at || '未标记时间')}</p></div>
   </div>
-  <div class="workbench-actions">${primary}${evidenceButton}<details class="inline-more"><summary>更多操作</summary><button class="secondary" type="button" onclick="showDiagnosisWorkflow()">重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一轮</button></details></div>`;
+  <div class="operator-grid outcome-grid" aria-label="本轮成果数据">${renderOutcomeCards(d)}</div>
+  <div class="workbench-actions grouped-actions">${primary}${evidenceButton}<details class="inline-more"><summary>更多</summary><button class="secondary" type="button" onclick="showDiagnosisWorkflow()">重诊断</button><button class="secondary" type="button" onclick="startNextCycle()">下一轮</button></details></div>`;
 }
 function showDiagnosisWorkflow(){
   const el = $('#diagnosisWorkflow');
@@ -372,10 +373,24 @@ function renderAllFromClient(){
   renderReview(clientState.review || autoReviewFromFeedback());
 }
 
+
+function renderOutcomeCards(d){
+  const cards = [
+    ['计划', d.total_plans],
+    ['发布', d.published_plans],
+    ['回填', pct(d.feedback_rate)],
+    ['曝光', d.total_views],
+    ['互动', d.total_interactions],
+    ['咨询', d.total_consultations],
+    ['闭环', dynamicLoopScore()],
+  ];
+  return cards.map(([k,v])=>`<div class="operator-card outcome-card"><span>${k}</span><strong>${v}</strong></div>`).join('');
+}
+
 function renderDashboard(d){
   const el = $('#metricCards');
   if (!clientState.diagnosis) {
-    el.innerHTML = `<div class="data-section-head"><div><p class="eyebrow">数据展示</p><h2>本轮成果数据</h2></div><span>这里只放结果指标，不放建议和风险。</span></div><div class="card advice status-card"><span>当前状态</span><b>先填写业务信息和一个对标账号，生成第一版内容判断。</b></div>`;
+    el.innerHTML = '';
     return;
   }
   const cards = [
@@ -388,7 +403,7 @@ function renderDashboard(d){
     ['私信/咨询', d.total_consultations],
     ['动态闭环分', dynamicLoopScore()],
   ].map(([k,v], index)=>`<div class="card metric-card ${index === 0 ? 'metric-primary' : ''}"><span>${k}</span><b>${v}</b></div>`).join('');
-  el.innerHTML = `<div class="data-section-head"><div><p class="eyebrow">数据展示</p><h2>本轮成果数据</h2></div><span>计划、发布、回填、曝光、互动、咨询和闭环分。</span></div>${cards}`;
+  el.innerHTML = '';
 }
 
 function renderWorkflowVisibility(){
@@ -396,11 +411,11 @@ function renderWorkflowVisibility(){
   const hint = $('#feedbackHint');
   const workflow = $('#feedbackWorkflow');
   const planSection = $('#planSection');
-  if (planSection) planSection.hidden = !hasPlans;
-  if (hint) hint.hidden = hasPlans;
-  if (workflow) workflow.hidden = !hasPlans;
+  if (planSection) planSection.hidden = !hasPlans || clientState.project_stage === '未诊断';
+  if (hint) hint.hidden = hasPlans || clientState.project_stage !== '未诊断';
+  if (workflow) workflow.hidden = !hasPlans || clientState.project_stage === '未诊断';
   const diagnosisWorkflow = $('#diagnosisWorkflow');
-  if (diagnosisWorkflow) diagnosisWorkflow.hidden = ['运营中','复盘期'].includes(clientState.project_stage);
+  if (diagnosisWorkflow) diagnosisWorkflow.hidden = clientState.project_stage !== '未诊断';
 }
 
 
@@ -462,7 +477,7 @@ function renderAccountSetup(setup){
 }
 
 function renderDiagnosis(d){
-  if(!d){ $('#latestDiagnosis').innerHTML='暂无诊断，先提交一次营销体检。'; return; }
+  if(!d){ $('#latestDiagnosis').innerHTML='提交后这里生成诊断报告。'; return; }
   const platformRecommendations = parsePlatformRecommendations(d.platform_recommendations);
   const platformModule = platformRecommendations ? `<div class="warning">
     <div class="small">平台发布建议</div>
@@ -486,7 +501,7 @@ function renderDiagnosis(d){
     <div><div class="small">下一步</div><p><strong>${esc(d.next_step || d.weekly_action)}</strong></p></div>
     ${benchmarkModule}
     <details class="diagnosis-more">
-      <summary>展开完整诊断依据、账号配置和平台建议</summary>
+      <summary>审核依据</summary>
       <div class="warning"><div class="small">评分说明</div><p>${esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。')}</p></div>
       ${extraModules}
       <div><div class="small">本周动作</div><p><strong>${esc(d.weekly_action)}</strong></p></div>
@@ -617,7 +632,7 @@ function prefillFeedback(id){
   (workflow || form).scrollIntoView({behavior:'smooth', block:'start'});
   window.setTimeout(()=>{
     linkInput?.focus();
-    toast(`已定位到计划 #${planInput.value}，请粘贴发布链接并保存反馈。`);
+    toast(`已定位 #${planInput.value}，请保存反馈。`);
   }, 260);
   window.setTimeout(()=>workflow?.classList.remove('is-highlighted'), 1900);
 }
@@ -686,7 +701,7 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
     });
     saveLocal();
     e.target.reset();
-    toast('已生成诊断和7天发布计划');
+    toast('诊断已生成');
     renderAllFromClient();
   });
 });
@@ -718,7 +733,7 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
     saveLocal();
     renderAllFromClient();
     e.target.reset();
-    toast('反馈已保存，周复盘已自动更新。');
+    toast('反馈已保存');
     api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
       .catch(() => toast('本地已保存；云端临时接口同步失败，不影响本浏览器查看'));
   });
@@ -729,7 +744,7 @@ $('#reviewBtn').addEventListener('click', async ()=>{
     clientState.review = createLocalReview();
     saveLocal();
     renderAllFromClient();
-    toast('周复盘已生成并保存到本浏览器');
+    toast('复盘已更新');
     api('/api/reviews', {method:'POST', body: JSON.stringify({})})
       .catch(() => toast('本地复盘已保存；云端临时接口同步失败'));
   });
@@ -743,6 +758,6 @@ $('#refreshBtn').addEventListener('click', () => {
   safeStorage.setItem(DEMO_DISABLED_KEY, '1');
   clientState = { project: null, project_stage: '未诊断', current_cycle_id: 'cycle-1', assessment: null, diagnosis: null, plans: [], feedback: [], review: null };
   renderAllFromClient();
-  toast('已清空本浏览器演示数据，可重新载入样例');
+  toast('数据已清空');
 });
 loadAll().catch(err=>toast(err.message));
