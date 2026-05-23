@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.5.5.1';
-const VERSION_LABEL = 'v1.5.5.1 · 客户理解修补版';
+const APP_VERSION = '1.5.7';
+const VERSION_LABEL = 'v1.5.7 · 运营周期优先版';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
@@ -125,24 +125,115 @@ const withBusy = async (button, busyText, task) => {
   }
 };
 
+function localSampleDiagnosis(){
+  return {
+    id: 1,
+    app_version: APP_VERSION,
+    version_label: VERSION_LABEL,
+    assessment_id: 1,
+    score: 96,
+    strategy_score: 96,
+    loop_score: 55,
+    score_note: '策略清晰度来自业务输入；运营周期优先看发布、回填和复盘数据。',
+    stage: '运营周期',
+    priority_problem: '发完没人复盘',
+    insight: '当前不是缺内容想法，而是缺少把发布结果回填成下一轮选题判断的机制。',
+    weekly_action: '本周围绕“内容有没有带来客户”连续测试 7 条内容，并按 T+24 / T+72 / T+7 回填。',
+    next_step: '先复制收藏和咨询信号更强的复盘表主题，再降权纯工具介绍内容。',
+    risk_warning: '如果只看点赞，不看收藏、评论和咨询，会误判内容是否真的带来客户。',
+    platform_recommendations: {
+      strategy: '主平台先做小红书，视频号做复用，朋友圈承接信任。',
+      primary: [{platform:'小红书', reason:'适合沉淀搜索和收藏型内容'}],
+      support: [{platform:'视频号', reason:'复用老板视角短视频'}],
+      client_platforms: [{platform:'朋友圈/私域', reason:'承接已有客户信任'}],
+      avoid: [{platform:'自动矩阵发布', reason:'当前阶段不做自动发布，避免封号和失控'}],
+    },
+    benchmark_reference: {
+      source_summary: '基于企业增长类账号的标题结构和用户反馈信号。',
+      recent_topics: ['发了内容为什么没咨询', '老板每周怎么复盘内容', '内容获客看哪些数据'],
+      title_structures: ['不是看A，而是看B', '老板没时间做X，先做Y', '一张表判断X有没有用'],
+      transferable_directions: ['内容复盘表', '客户咨询路径', '低成本验证'],
+      avoid: ['空泛AI工具介绍', '承诺涨粉涨咨询'],
+    },
+    account_setup: {
+      account_name: '内容决策局',
+      positioning: '给老板看的内容增长复盘号',
+      bio_lines: ['不教玄学涨粉，只看内容有没有带来客户', '每周一张表复盘发布、回填和咨询'],
+      homepage_keywords: ['内容复盘', '企业获客', '老板增长'],
+      avatar_direction: '深色专业文字标识，避免花哨IP感',
+      starting_platform: {platform:'小红书', reason:'先验证收藏和咨询信号', rule:'短正文、强分段、不要评论区关键词引导'},
+      naming_warning: '对外称老板/企业主/商家，避免小老板。',
+    },
+    created_at: localTimestamp(),
+  };
+}
+function localSamplePlans(){
+  const topics = [
+    ['一条内容有没有获客价值，不是看点赞', '用收藏、评论、咨询三类信号判断内容是否值得复制', '图文/短视频', '引导主页查看复盘表', '收藏+咨询'],
+    ['老板没时间做运营，先做每周内容复盘', '把复杂运营动作压缩成每周一次看板判断', '图文', '引导领取内容复盘表', '收藏'],
+    ['发了很多内容为什么还是没人咨询', '拆解内容没有承接到服务入口的常见断点', '短视频', '引导主页咨询诊断', '咨询'],
+    ['别再只问AI写什么，先问客户为什么买', '把选题从工具输出拉回客户真实痛点', '图文', '引导做一次诊断', '评论+收藏'],
+    ['企业账号第一周别追爆款', '先做低成本小样本验证，避免一开始重投入', '图文', '引导保存检查清单', '收藏'],
+    ['内容复盘表怎么填才有用', '展示发布链接、T+24/T+72/T+7、咨询信号字段', '图文', '引导主页查看模板', '收藏+私信'],
+    ['下周选题不是拍脑袋，是复制胜出主题', '用本周数据决定复制、降权和重测方向', '短视频', '引导预约复盘', '咨询'],
+  ];
+  return topics.map(([topic, angle, content_type, cta, target_metric], index) => ({
+    id: index + 1,
+    diagnosis_id: 1,
+    planned_date: localDateIso(new Date(Date.now() + index * 86400000)),
+    platform: index % 2 ? '视频号' : '小红书',
+    topic, angle, content_type, cta, target_metric,
+    publish_quality: index === 0 ? '已验证' : '待验证',
+    quality_note: index === 0 ? '已有收藏和咨询信号，适合复制同主题' : '发布后必须回填数据',
+    owner: '客户负责人',
+    status: index === 0 ? '已发布' : '待发布',
+    publish_link: index === 0 ? 'https://example.com/published/content-review-table' : '',
+    created_at: localTimestamp(),
+  }));
+}
+function makeOperatingSampleFeedback(){
+  return [{
+    id: Date.now(),
+    project_id: 'project-content-decision-demo',
+    cycle_id: 'cycle-1',
+    content_plan_id: 1,
+    publish_link: 'https://example.com/published/content-review-table',
+    feedback_stage: 'T+72',
+    views: 1800,
+    likes: 41,
+    comments: 6,
+    favorites: 39,
+    shares: 8,
+    consultations: 3,
+    notes: '收藏高于点赞，私信集中问复盘表，说明“内容是否带来客户”主题值得复制。',
+    created_at: localTimestamp(),
+  }];
+}
 async function loadContentDecisionSample({silent = false} = {}){
-  const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(CONTENT_DECISION_SAMPLE)});
-  const assessment = result.assessment || CONTENT_DECISION_SAMPLE;
+  let result = null;
+  try {
+    result = await api('/api/assessments', {method:'POST', body: JSON.stringify(CONTENT_DECISION_SAMPLE)});
+  } catch {
+    result = {assessment: {...CONTENT_DECISION_SAMPLE, id: 1, created_at: localTimestamp()}, diagnosis: localSampleDiagnosis(), plans: localSamplePlans()};
+  }
+  const assessment = result.assessment || {...CONTENT_DECISION_SAMPLE, id: 1, created_at: localTimestamp()};
   const project = makeProject(assessment, {id:'project-content-decision-demo', name: assessment.company_name || '内容决策局', created_at: localTimestamp()});
+  const plans = (result.plans?.length ? result.plans : localSamplePlans()).map((plan, index)=> index === 0 ? {...plan, status:'已发布', publish_link: plan.publish_link || 'https://example.com/published/content-review-table'} : plan);
   clientState = normalizeState({
     project,
-    project_stage: '待启动',
+    project_stage: '运营中',
     current_cycle_id: 'cycle-1',
     assessment,
-    diagnosis: result.diagnosis,
-    plans: result.plans || [],
-    feedback: [],
+    diagnosis: result.diagnosis || localSampleDiagnosis(),
+    plans,
+    feedback: makeOperatingSampleFeedback(),
     review: null,
   });
+  clientState.review = createLocalReview();
   safeStorage.removeItem(DEMO_DISABLED_KEY);
   saveLocal();
   renderAllFromClient();
-  if (!silent) toast('已载入内容决策局样例数据');
+  if (!silent) toast('已载入运营周期样例数据');
 }
 
 async function loadAll(){
@@ -304,40 +395,50 @@ function renderLifecycleWorkbench(){
   if (!el) return;
   const d = clientDashboard();
   const meta = stageMeta(clientState.project_stage);
-  const projectName = clientState.project?.name || clientState.assessment?.company_name || clientState.assessment?.industry || '暂无项目';
+  const projectName = clientState.project?.name || clientState.assessment?.company_name || clientState.assessment?.industry || '新客户项目';
   const winner = bestContent();
   const unfilled = missingFeedbackCount();
   const hasRealFeedback = clientState.feedback.length > 0;
   const todayAction = clientState.project_stage === '未诊断'
-    ? '创建项目并完成增长诊断'
+    ? '先完成一次增长诊断，生成第一轮7天内容计划'
     : clientState.project_stage === '待启动'
-      ? '发布第1条内容，并回填发布链接'
+      ? '发布第1条内容，并粘贴发布链接回填'
       : clientState.project_stage === '复盘期'
-        ? '确认下一周期要复制/停止/重诊断的方向'
+        ? '确认下一周期复制什么、停止什么、重诊断什么'
         : (unfilled ? `补回填 ${unfilled} 条已发布内容数据` : d.next_suggestion);
   const primary = clientState.project_stage === '未诊断'
     ? `<button type="button" onclick="showDiagnosisWorkflow()">开始诊断</button>`
     : clientState.project_stage === '待启动'
-      ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">看计划</button>`
+      ? `<button type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth'})">看今日计划</button>`
       : `<button type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth'})">回填/复盘</button>`;
-  const evidenceButton = `<button class="secondary" type="button" onclick="openClientEvidence()">查看依据</button>`;
+  const evidenceButton = `<button class="secondary" type="button" onclick="openClientEvidence()">诊断依据</button>`;
   if (!clientState.diagnosis) {
-    el.innerHTML = `<div class="workbench-head compact-workbench">
-      <div class="workbench-title"><p class="eyebrow">Growth Cockpit</p><h2>先做一次增长诊断</h2><p class="hint">填写 5 个关键信息，生成第一版内容方向。</p></div>
-      <div class="workbench-actions single-action">${primary}</div>
+    el.innerHTML = `<div class="boss-cockpit empty-cockpit">
+      <div class="cockpit-hero-card">
+        <p class="eyebrow">运营看板 · 暂未检测到本地数据</p>
+        <h2>当前浏览器没有检测到运营数据，不代表线上项目数据已丢失。</h2>
+        <p>如果这是线上项目，请先导入备份或检查数据同步；如果是新项目，再创建诊断。</p>
+        <div class="workbench-actions grouped-actions"><button type="button" onclick="showDiagnosisWorkflow()">创建真实诊断</button><button class="secondary" type="button" onclick="document.querySelector('#sampleBtn')?.click()">查看运营样例</button></div>
+      </div>
+      <div class="cockpit-side-card"><span>今天要做</span><strong>${esc(todayAction)}</strong><p>运营项目应优先展示：计划、发布、回填、复盘，而不是重新诊断。</p></div>
     </div>`;
     return;
   }
   const cycleText = cycleLabel(clientState.current_cycle_id);
-  el.innerHTML = `<div class="workbench-head compact-workbench">
-    <div class="workbench-title"><p class="eyebrow">关键结论 · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2></div>
-    <div class="stage-pill"><span>当前周期</span><strong>${esc(cycleText)}</strong></div>
+  const winningText = winner ? `${esc(winner.plan?.topic || '已回填内容')}｜咨询 ${num(winner.feedback.consultations)}` : '暂无胜出内容，先发布并回填';
+  const riskText = unfilled ? `${unfilled} 条已发布内容缺反馈` : (hasRealFeedback ? '暂无关键缺口' : '还没有真实反馈，不能判断胜负');
+  el.innerHTML = `<div class="boss-cockpit">
+    <div class="cockpit-hero-card">
+      <div class="cockpit-title-row"><div><p class="eyebrow">运营周期优先 · ${esc(meta.label)}</p><h2>${esc(projectName)}</h2></div><div class="stage-pill"><span>${esc(cycleText)}</span><strong>${esc(meta.focus)}</strong></div></div>
+      <div class="next-action-strip"><span>今天最该做</span><strong>${esc(todayAction)}</strong></div>
+    </div>
+    <div class="cockpit-side-card data-status-card"><span>数据可信度</span><strong>${hasRealFeedback ? `已回收 ${clientState.feedback.length} 条反馈` : '暂无真实反馈'}</strong><p>${esc(clientState.saved_at || '未保存')} · ${hasRealFeedback ? '可进入复盘判断' : '当前只能看计划，不能判断内容胜负'}</p></div>
   </div>
   <div class="operator-grid decision-grid" aria-label="关键决策信息">
-    <div class="operator-card decision-card decision-copy"><span>值得复制</span><strong>${winner ? `${esc(winner.plan?.topic || '已回填内容')}｜咨询 ${num(winner.feedback.consultations)}` : '发布后这里显示胜出内容'}</strong></div>
-    <div class="operator-card decision-card decision-risk"><span>风险</span><strong>${unfilled ? `${unfilled} 条内容缺反馈` : (hasRealFeedback ? '暂无关键缺口' : '还没有真实反馈')}</strong></div>
+    <div class="operator-card decision-card decision-copy"><span>值得复制</span><strong>${winningText}</strong></div>
+    <div class="operator-card decision-card decision-risk"><span>当前风险</span><strong>${riskText}</strong></div>
     <div class="operator-card decision-card decision-next"><span>下一轮建议</span><strong>${esc(d.next_suggestion)}</strong></div>
-    <div class="operator-card decision-card data-evidence-card"><span>数据状态</span><strong>${hasRealFeedback ? `已保存 ${clientState.feedback.length} 条真实反馈` : '暂无真实反馈'}</strong><p>${esc(clientState.saved_at || '未标记时间')}</p></div>
+    <div class="operator-card decision-card data-evidence-card"><span>诊断依据</span><strong>${esc(clientState.assessment?.biggest_problem || meta.desc)}</strong><p>${esc(clientState.assessment?.current_channels || '未填写渠道')}</p></div>
   </div>
   <div class="operator-grid outcome-grid" aria-label="本轮成果数据">${renderOutcomeCards(d)}</div>
   <div class="workbench-actions grouped-actions">${primary}${evidenceButton}<details class="inline-more"><summary>更多</summary><button class="secondary" type="button" onclick="showDiagnosisWorkflow()">重新诊断</button><button class="secondary" type="button" onclick="startNextCycle()">进入下一轮</button></details></div>`;
@@ -376,13 +477,13 @@ function renderAllFromClient(){
 
 function renderOutcomeCards(d){
   const cards = [
-    ['计划', d.total_plans],
-    ['发布', d.published_plans],
-    ['回填', pct(d.feedback_rate)],
-    ['曝光', d.total_views],
-    ['互动', d.total_interactions],
-    ['咨询', d.total_consultations],
-    ['闭环', dynamicLoopScore()],
+    ['计划内容', d.total_plans],
+    ['已发布', d.published_plans],
+    ['回填率', pct(d.feedback_rate)],
+    ['总曝光', compactNumber(d.total_views)],
+    ['总互动', compactNumber(d.total_interactions)],
+    ['咨询数', d.total_consultations],
+    ['闭环分', dynamicLoopScore()],
   ];
   return cards.map(([k,v])=>`<div class="operator-card outcome-card"><span>${k}</span><strong>${v}</strong></div>`).join('');
 }
@@ -523,11 +624,11 @@ function renderPlans(plans){
   const summaryEl = $('#plansSummary');
   const firstOpen = plans.find((p)=>!(p.status === '已发布' || p.publish_link || hasFeedbackForPlan(p.id)));
   if (summaryEl) {
-    summaryEl.innerHTML = plans.slice(0, 3).map(p=>{
+    summaryEl.innerHTML = plans.slice(0, 3).map((p, index)=>{
       const meta = planUiMeta(p, firstOpen?.id);
       return `<div class="plan-card ${meta.className}">
-        <div><span class="badge">#${p.id} · ${esc(p.platform)} · ${meta.label}</span><strong>${esc(p.topic)}</strong></div>
-        <p>${esc(p.angle)}</p>
+        <div class="plan-rank">${index === 0 ? '今天优先' : `第 ${index + 1} 步`}</div>
+        <div class="plan-main"><span class="badge">#${p.id} · ${esc(p.platform)} · ${meta.label}</span><strong>${esc(p.topic)}</strong><p>${esc(p.angle)}</p></div>
         <button class="secondary" type="button" onclick="prefillFeedback(${Number(p.id)})">${meta.action}</button>
       </div>`;
     }).join('') || '<div class="empty">暂无计划，先提交一次快速体检。</div>';
