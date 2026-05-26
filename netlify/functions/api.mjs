@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.5.7';
-const VERSION_LABEL = 'v1.5.7 · 运营周期优先版';
+const APP_VERSION = '1.6.5';
+const VERSION_LABEL = 'v1.6.5 · 依据中心与复盘判断升级版';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -393,7 +393,7 @@ const createAssessment = (payload) => {
 
   const assessment = {
     id: state.next.assessment++,
-    company_name: clean(payload, 'company_name', '未命名客户') || '未命名客户',
+    company_name: clean(payload, 'company_name'),
     industry: clean(payload, 'industry'),
     main_goal: clean(payload, 'main_goal'),
     current_channels: clean(payload, 'current_channels'),
@@ -552,9 +552,10 @@ const createWeeklyReview = () => {
   )[0];
   let bottleneck = '暂无反馈数据';
   let next_actions = '先完成至少1条内容发布和反馈回填，否则无法复盘。';
+  const winnerTopic = (winner?.topic || '').trim() || '最高咨询内容';
   if (rows.length && total_consultations > 0) {
     bottleneck = '需要扩大有效内容样本';
-    next_actions = `加码「${winner.topic}」同类角度，下周至少复制3条，并保留合规私信/主页咨询入口。`;
+    next_actions = `加码「${winnerTopic}」同类角度，下周至少复制3条，并保留合规私信/主页咨询入口。`;
   } else if (rows.length && total_views < 1000) {
     bottleneck = '曝光不足';
     next_actions = '优先优化标题/封面/开头，先获得足够曝光样本。';
@@ -571,7 +572,7 @@ const createWeeklyReview = () => {
     total_views,
     total_interactions,
     total_consultations,
-    winner_topic: winner?.topic || '',
+    winner_topic: winnerTopic,
     bottleneck,
     next_actions,
     created_at: nowIso(),

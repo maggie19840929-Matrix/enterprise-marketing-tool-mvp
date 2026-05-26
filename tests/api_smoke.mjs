@@ -60,7 +60,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.5.7', `expected app_version 1.5.7, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.5', `expected app_version 1.6.5, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -77,30 +77,35 @@ const appJs = readFileSync(new URL('../static/app.js', import.meta.url), 'utf8')
 assert(appJs.includes('function prefillFeedback(id)'), 'app should expose prefillFeedback for plan feedback buttons');
 assert(appJs.includes("[name=content_plan_id]"), 'prefillFeedback should target the content_plan_id field');
 assert(appJs.includes("[name=publish_link]") && appJs.includes('linkInput?.focus()'), 'prefillFeedback should focus the publish link field');
+assert(appJs.includes('existingFeedback?.publish_link || plan?.publish_link'), 'prefillFeedback should prefill existing publish links');
 assert(appJs.includes('scrollIntoView'), 'prefillFeedback should scroll to the feedback form area');
 assert(appJs.includes('is-highlighted'), 'prefillFeedback should highlight the feedback area');
 assert(appJs.includes('已定位到计划 #'), 'prefillFeedback should show a business toast after locating the form');
+assert(appJs.includes('function hasRestorableState'), 'app should detect restorable local state before showing the first form again');
+assert(appJs.includes('function resetForNewCustomer'), 'war-room should keep a reset/new customer entry');
+assert(appJs.includes('customerDisplayName') && !appJs.includes("a.company_name || '未命名客户'"), 'app should not render 未命名客户 as the customer title');
 
 assert(appJs.includes('function autoReviewFromFeedback()'), 'app should auto-generate weekly review from existing feedback');
 assert(appJs.includes('保存至少1条发布链接和反馈后') || appJs.includes('这里会自动出现复盘'), 'weekly review empty state should explain auto review');
 assert(appJs.includes('function planUiMeta'), 'plan cards should classify priority/pending/done states');
-assert(appJs.includes('plan-next') && appJs.includes('优先处理'), 'first pending plan should be visually distinguished in-place');
-assert(appJs.includes('>诊断依据</button>') && appJs.includes('evidenceButton'), 'customer input evidence should be a compact button in the top key conclusion workbench');
-assert(appJs.includes('>开始诊断</button>') && appJs.includes('>看今日计划</button>') && appJs.includes('>回填/复盘</button>'), 'workbench buttons should stay compact but understandable');
-assert(appJs.includes('>重新诊断</button>') && appJs.includes('>进入下一轮</button>'), 'more actions should use clear business verbs');
-assert(appJs.includes('function renderOutcomeCards') && appJs.includes('outcome-grid'), 'outcome metrics should live inside the top cockpit layout');
-assert(appJs.indexOf('下一轮建议') < appJs.indexOf('function renderOutcomeCards'), 'next suggestion should stay with decision cards, before outcome metrics');
+assert(appJs.includes('plan-next') && appJs.includes('今日优先'), 'first pending plan should be visually distinguished in-place');
+assert(appJs.includes("openClientEvidence('${todayEvidenceAnchor}')") && appJs.includes("openClientEvidence('${decisionEvidenceAnchor}')") && appJs.includes('为什么？'), 'K/V/R evidence should be reachable from the top war-room workbench');
+assert(appJs.includes('查看计划') && appJs.includes('回填数据') && appJs.includes('周复盘'), 'war-room buttons should stay compact but understandable');
+assert(appJs.includes('war-main-row') && appJs.includes('war-decision-main'), 'next decision should stay in the top war-room layout');
+assert(appJs.includes('function renderOutcomeCards') && appJs.includes('war-metrics'), 'outcome metrics should live inside the top war-room layout');
+assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeCards'), 'next decision should stay before outcome metrics');
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
-assert(indexHtml.includes('诊断报告') && !indexHtml.includes('<h2>关键结论</h2>'), 'diagnosis panel should be a report, not duplicate the top key conclusion title');
-assert(indexHtml.includes('v1.5.7 · 运营周期优先版'), 'index should show v1.5.7 label');
-assert(indexHtml.includes('项目进入运营周期后'), 'hero should include a short cockpit positioning hint');
-assert(indexHtml.includes('提交后生成诊断报告、7天计划和回填入口。'), 'diagnosis empty state should explain next outputs');
+assert(indexHtml.includes('你会得到什么') && !indexHtml.includes('<h2>关键结论</h2>'), 'diagnosis panel should explain outputs, not duplicate the top key conclusion title');
+assert(indexHtml.includes('v1.6.5 · 依据中心与复盘判断升级版'), 'index should show v1.6.5 label');
+assert(indexHtml.includes('企业营销增长驾驶舱'), 'hero should expose the dashboard product positioning');
+assert(indexHtml.includes('填写左侧 5 个问题后'), 'diagnosis empty state should explain next outputs');
 assert(indexHtml.includes('默认先看前三条，完整计划可展开。'), 'plan section should include a short plan hint');
-assert(indexHtml.includes('发布后补链接和关键数据。'), 'feedback section should include a short feedback hint');
+assert(indexHtml.includes('发布后补链接和关键数据。'), 'feedback section should keep the short feedback hint');
 assert(indexHtml.includes('保存反馈') && indexHtml.includes('更新复盘'), 'feedback buttons should be clear');
 assert(!indexHtml.includes('id="firstLinkGate"'), 'first-link gate element should be removed from the DOM');
 assert(indexHtml.includes('<h2>回填</h2>') && !indexHtml.includes('<h2>反馈回填</h2>'), 'feedback title should be simplified to 回填');
+assert(indexHtml.includes('曝光｜查看') && indexHtml.includes('互动｜点赞') && indexHtml.includes('转化｜咨询'), 'feedback fields should be grouped as exposure / interaction / conversion');
 assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17', 'Shanghai business date should roll forward at UTC+8 midnight');
 assert(shanghaiDateIso(1, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-18', 'Shanghai offset should advance from business date');
 assert(plans[0].planned_date === shanghaiDateIso(), `planned_date should start today in Asia/Shanghai, got ${plans[0].planned_date}`);
@@ -115,6 +120,17 @@ const preferredName = await submitAssessment({
   account_preference: '企业获客复盘号',
 });
 assert(preferredName.diagnosis.account_setup.account_name === '企业获客复盘号', 'account_preference should override default account name');
+
+const noCompanyName = await submitAssessment({
+  industry: '本地亲子摄影工作室',
+  main_goal: '提升小红书咨询和到店预约',
+  target_customer: '25-38岁宝妈',
+  current_channels: '小红书',
+  posting_frequency: '偶尔发布',
+  biggest_problem: '没咨询',
+});
+assert(noCompanyName.assessment.company_name === '', 'empty company_name should stay empty instead of becoming 未命名客户');
+assert(!JSON.stringify(noCompanyName).includes('未命名客户'), 'no-company output should not include 未命名客户');
 
 const beauty = await submitAssessment({
   company_name: '本地美容美甲门店',
