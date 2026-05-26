@@ -60,7 +60,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.5', `expected app_version 1.6.5, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.6', `expected app_version 1.6.6, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -97,7 +97,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
 assert(indexHtml.includes('你会得到什么') && !indexHtml.includes('<h2>关键结论</h2>'), 'diagnosis panel should explain outputs, not duplicate the top key conclusion title');
-assert(indexHtml.includes('v1.6.5 · 依据中心与复盘判断升级版'), 'index should show v1.6.5 label');
+assert(indexHtml.includes('v1.6.6 · 回填闭环与标题体验修复版'), 'index should show v1.6.6 label');
 assert(indexHtml.includes('企业营销增长驾驶舱'), 'hero should expose the dashboard product positioning');
 assert(indexHtml.includes('填写左侧 5 个问题后'), 'diagnosis empty state should explain next outputs');
 assert(indexHtml.includes('默认先看前三条，完整计划可展开。'), 'plan section should include a short plan hint');

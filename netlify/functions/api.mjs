@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.6.5';
-const VERSION_LABEL = 'v1.6.5 · 依据中心与复盘判断升级版';
+const APP_VERSION = '1.6.6';
+const VERSION_LABEL = 'v1.6.6 · 回填闭环与标题体验修复版';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
