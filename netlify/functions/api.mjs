@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.6.6';
-const VERSION_LABEL = 'v1.6.6 · 回填闭环与标题体验修复版';
+const APP_VERSION = '1.7.0';
+const VERSION_LABEL = 'v1.7.0 · 首访填写体验修复版';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -110,6 +110,7 @@ const shortAudience = (target = '') => {
   if (hasAny(text, ['中小企业', '企业负责人', '企业主'])) return '企业主';
   if (hasAny(text, ['宝妈'])) return '宝妈/家长';
   if (hasAny(text, ['家长'])) return '家长';
+  if (hasAny(text, ['爱美', '通勤女性', '女性'])) return '同城爱美女性';
   if (hasAny(text, ['本地生活', '商家', '门店', '到店客户', '本地客户'])) return '服务型商家';
   return text.split(/[、,，/]/).map((x) => x.trim()).filter(Boolean)[0] || '目标客户';
 };

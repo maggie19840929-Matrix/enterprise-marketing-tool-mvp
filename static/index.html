@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业营销增长驾驶舱 v1.6.6</title>
+  <title>帮你找到下一周该发什么内容 v1.7.0</title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/war-room-v1.6.1.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <p class="eyebrow">v1.6.6 · 回填闭环与标题体验修复版</p>
-      <h1>企业营销增长驾驶舱</h1>
-      <p class="sub">不只发内容，更要知道哪条内容带来客户。</p>
+      <p class="eyebrow">v1.7.0 · 首访填写体验修复版</p>
+      <h1>帮你找到下一周该发什么内容</h1>
+      <p class="sub">填 5 个问题，生成一份内容增长建议。</p>
     </div>
-    <div class="hero-actions clean-actions">
-      <button id="heroPrimaryBtn" type="button">开始增长诊断</button>
-      <button id="sampleBtn" class="secondary" type="button">看示例</button>
+    <div class="hero-actions clean-actions" id="heroActions">
+      <span id="heroProjectSwitcher"></span>
+      <button class="secondary" type="button" onclick="startNewProject()">新增项目</button>
       <details class="more-actions" id="moreActions">
         <summary aria-label="更多数据操作">更多</summary>
         <div class="more-actions-menu" role="menu">
@@ -29,17 +29,13 @@
   </header>
 
   <main>
-    <section class="panel workbench-panel" id="lifecycleWorkbench"></section>
-
-    <section class="cards metric-section" id="metricCards" hidden></section>
-
     <section class="grid cockpit" id="diagnosisWorkflow">
       <article class="panel intake-panel">
         <div class="panel-head compact-head">
           <div>
-            <p class="eyebrow">STEP 1 / 先填基础信息</p>
+            <p class="eyebrow">从这里开始填写</p>
             <h2>先填 5 个问题</h2>
-            <p class="hint">不需要懂营销术语，按真实情况填写即可。带 * 的是生成建议必填项。</p>
+            <p class="hint">不用懂营销术语，按真实情况填写即可。</p>
           </div>
         </div>
         <form id="assessmentForm" class="assessment-form compact-form">
@@ -48,15 +44,16 @@
           <label>你想通过内容获得什么结果？*<input name="main_goal" required placeholder="例如：获得更多咨询 / 到店预约 / 课程报名" /></label>
           <label>你的目标客户是谁？<input name="target_customer" placeholder="例如：本地宝妈、家庭客户、商家、门店负责人" /></label>
           <label>你现在主要发在哪个平台？*<input name="current_channels" required placeholder="例如：小红书 / 抖音 / 视频号 / 朋友圈 / 美团" /></label>
-          <label>当前最大问题是什么？*
-            <select name="biggest_problem" required>
-              <option value="" disabled selected>请选择最接近的一项</option>
-              <option>不知道发什么</option>
-              <option>没流量</option>
-              <option>没咨询</option>
-              <option>发完没人复盘</option>
-            </select>
-          </label>
+          <div class="problem-field wide-field">
+            <span class="field-label">当前最大问题是什么？*</span>
+            <input type="hidden" name="biggest_problem" required />
+            <div class="problem-options" role="group" aria-label="当前最大问题">
+              <button type="button" data-problem-option="不知道发什么">不知道发什么</button>
+              <button type="button" data-problem-option="没流量">没流量</button>
+              <button type="button" data-problem-option="没咨询">没咨询</button>
+              <button type="button" data-problem-option="发完没人复盘">发完没人复盘</button>
+            </div>
+          </div>
           <input type="hidden" name="posting_frequency" value="偶尔发布" />
           <details class="advanced-fields">
             <summary>可选补充：有资料再填，没有可直接生成</summary>
@@ -102,24 +99,18 @@
       </article>
 
       <article class="panel highlight diagnosis-panel diagnosis-evidence-panel">
-        <p class="eyebrow">STEP 2 / 系统生成</p>
-        <h2>你会得到什么</h2>
-        <div id="latestDiagnosis" class="empty">填写左侧 5 个问题后，这里会生成内容方向、7天发布计划和发布后要看的关键数据。</div>
+        <p class="eyebrow">填完会得到什么</p>
+        <h2>一份下周内容建议</h2>
+        <div id="latestDiagnosis" class="empty">提交后会生成当前问题、本周建议、7天内容计划和发布后回填提醒。</div>
       </article>
     </section>
 
-    <details id="clientEvidencePanel" class="panel client-snapshot-panel compact-client-panel collapsible-panel">
-      <summary>客户输入与诊断依据</summary>
-      
-      <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
-    </details>
-
     <section class="panel compact-plan-panel" id="planSection" hidden>
       <div class="panel-head">
-        <h2>7天内容发布计划</h2>
+        <h2>7天内容计划</h2>
         <span>默认先看前三条，完整计划可展开。</span>
       </div>
-      <div id="plansSummary" class="plan-summary empty">生成诊断后显示前三个优先动作。</div>
+      <div id="plansSummary" class="plan-summary empty">生成建议后显示前三个优先动作。</div>
       <details class="table-details">
         <summary>展开完整7天计划表</summary>
         <div class="table-wrap">
@@ -132,14 +123,14 @@
     </section>
 
     <section class="panel" id="feedbackHint" hidden>
-      <h2>回填</h2>
-      <p class="hint">发布后补链接和关键数据。</p>
+      <h2>发布后回填提醒</h2>
+      <p class="hint">内容发出去后，点击计划卡片里的“发布后回填”，补链接和关键数据。</p>
     </section>
 
     <section class="grid two feedback-focus" id="feedbackWorkflow" hidden>
       <article class="panel">
         <h2>内容数据回填</h2>
-        <p class="hint">从计划卡片进入：查看/曝光是基础，点赞/收藏/评论是互动，私信/咨询才是转化判断。</p>
+        <p class="hint">只填发布链接、曝光互动和咨询数，用来判断下一条内容怎么改。</p>
         <form id="feedbackForm">
           <label>发布计划ID<input name="content_plan_id" required type="number" placeholder="从发布计划表中选择 ID" /></label>
           <label>发布链接<input name="publish_link" required type="url" placeholder="粘贴已发布内容链接" /></label>
@@ -154,9 +145,9 @@
             <label>曝光｜查看<input name="views" type="number" value="0" /></label>
             <label>互动｜点赞<input name="likes" type="number" value="0" /></label>
             <label>互动｜评论<input name="comments" type="number" value="0" /></label>
-            <label>互动｜收藏<input name="favorites" type="number" value="0" /></label>
-            <label>互动｜分享<input name="shares" type="number" value="0" /></label>
-            <label>转化｜咨询<input name="consultations" type="number" value="0" /></label>
+            <label>互动｜收藏/分享<input name="favorites" type="number" value="0" /></label>
+            <input name="shares" type="hidden" value="0" />
+            <label>转化｜私信/咨询<input name="consultations" type="number" value="0" /></label>
           </div>
           <label>备注<textarea name="notes" placeholder="例如：有客户问价格 / 私信问资料 / 开头被吐槽"></textarea></label>
           <button type="submit">保存反馈</button>
@@ -165,14 +156,25 @@
 
       <article class="panel">
         <div class="panel-head">
-          <h2>周复盘</h2>
+          <h2>回填记录</h2>
           <button id="reviewBtn" class="secondary">更新复盘</button>
         </div>
-        <div id="reviewBox" class="empty">保存反馈后，系统会自动生成周复盘。</div>
+        <div id="reviewBox" class="empty">保存反馈后，系统会自动给出下一轮建议。</div>
         <h3>记录</h3>
         <div id="feedbackList" class="list"></div>
       </article>
+
+      <details id="clientEvidencePanel" class="panel client-snapshot-panel compact-client-panel collapsible-panel review-evidence-entry" hidden>
+        <summary>查看复盘数据 / 内部视图</summary>
+        <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
+      </details>
     </section>
+
+    <section class="panel workbench-panel" id="lifecycleWorkbench" hidden></section>
+
+    <section class="cards metric-section" id="metricCards" hidden></section>
+
+
   </main>
 
   <div id="toast"></div>

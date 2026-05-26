@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.6.6';
-const VERSION_LABEL = 'v1.6.6 · 回填闭环与标题体验修复版';
+const APP_VERSION = '1.7.0';
+const VERSION_LABEL = 'v1.7.0 · 首访填写体验修复版';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
@@ -42,6 +42,8 @@ const blankClientState = () => ({
 
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, projects: []};
+let isCreatingNewProject = false;
+let internalWorkbenchVisible = false;
 
 const api = async (url, opts={}) => {
   const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
@@ -79,6 +81,39 @@ function hasRestorableState(state = {}){
   const hasProject = Boolean(state.project?.id || cleanDisplayName(state.project?.name));
   const hasCycle = Boolean(state.current_cycle_id);
   return Boolean(state.diagnosis && (plans.length || hasProject || hasCycle));
+}
+
+function stripWorkbenchSuffix(name){
+  return String(name || '').replace(/作战台$/, '');
+}
+function displayProjectName(item = {}){
+  return stripWorkbenchSuffix(item.name || item.state?.project?.name || item.state?.assessment?.company_name || '未命名项目');
+}
+function contentDecisionSampleState(){
+  const assessment = {...CONTENT_DECISION_SAMPLE, id: 1, created_at: localTimestamp()};
+  const project = makeProject(assessment, {id:'project-content-decision-demo', name:'内容决策局｜示例项目', created_at: localTimestamp()});
+  const plans = localSamplePlans().map((plan, index)=> index === 0 ? {...plan, status:'已发布', publish_link: plan.publish_link || 'https://example.com/published/content-review-table'} : plan);
+  const state = normalizeState({
+    project,
+    project_stage: '运营中',
+    current_cycle_id: 'cycle-1',
+    assessment,
+    diagnosis: localSampleDiagnosis(),
+    plans,
+    feedback: makeOperatingSampleFeedback(),
+    review: null,
+  });
+  state.review = createLocalReview();
+  return state;
+}
+function ensureSampleProjectInStore(){
+  const sampleId = 'project-content-decision-demo';
+  if ((projectStore.projects || []).some((item)=>String(item.id) === sampleId)) return;
+  const state = contentDecisionSampleState();
+  const summary = projectSummaryFromState(state);
+  summary.name = '内容决策局｜示例项目';
+  projectStore.projects.push(summary);
+  if (!projectStore.activeProjectId) projectStore.activeProjectId = sampleId;
 }
 const normalizeState = (state = {}) => {
   const assessment = state.assessment || null;
@@ -208,13 +243,14 @@ function loadProjectStore(){
   try {
     const parsed = JSON.parse(safeStorage.getItem(PROJECTS_KEY) || 'null');
     if (parsed && Array.isArray(parsed.projects)) {
-      projectStore = {
-        activeProjectId: parsed.activeProjectId || parsed.projects[0]?.id || null,
-        projects: parsed.projects.map((item)=>({
-          ...item,
-          state: normalizeState(item.state || {}),
-        })).filter((item)=>item.id && hasRestorableState(item.state)),
-      };
+      const projects = parsed.projects.map((item)=>({
+        ...item,
+        state: normalizeState(item.state || {}),
+      })).filter((item)=>item.id && hasRestorableState(item.state));
+      const activeProjectId = projects.some((item)=>String(item.id) === String(parsed.activeProjectId))
+        ? parsed.activeProjectId
+        : projects[0]?.id || null;
+      projectStore = {activeProjectId, projects};
     }
   } catch {
     projectStore = {activeProjectId: null, projects: []};
@@ -274,6 +310,7 @@ function switchProject(projectId){
   loadProjectStore();
   const project = projectStore.projects.find((item)=>String(item.id) === String(projectId));
   if (!project) { toast('未找到该项目'); return; }
+  isCreatingNewProject = false;
   projectStore.activeProjectId = project.id;
   clientState = normalizeState(project.state);
   saveProjectStore();
@@ -283,12 +320,15 @@ function switchProject(projectId){
 }
 window.switchProject = switchProject;
 function startNewProject(){
+  isCreatingNewProject = true;
+  internalWorkbenchVisible = false;
   clientState = blankClientState();
   projectStore.activeProjectId = null;
   saveProjectStore();
   safeStorage.setItem(DEMO_DISABLED_KEY, '1');
   safeStorage.removeItem(STORAGE_KEY);
   renderAllFromClient();
+  clearProblemSelection();
   closeMoreActions();
   showDiagnosisWorkflow();
   toast('已进入新项目填写，不影响已保存项目。');
@@ -398,6 +438,8 @@ function makeOperatingSampleFeedback(){
   }];
 }
 async function loadContentDecisionSample({silent = false} = {}){
+  isCreatingNewProject = false;
+  internalWorkbenchVisible = false;
   let result = null;
   try {
     result = await api('/api/assessments', {method:'POST', body: JSON.stringify(CONTENT_DECISION_SAMPLE)});
@@ -405,7 +447,7 @@ async function loadContentDecisionSample({silent = false} = {}){
     result = {assessment: {...CONTENT_DECISION_SAMPLE, id: 1, created_at: localTimestamp()}, diagnosis: localSampleDiagnosis(), plans: localSamplePlans()};
   }
   const assessment = result.assessment || {...CONTENT_DECISION_SAMPLE, id: 1, created_at: localTimestamp()};
-  const project = makeProject(assessment, {id:'project-content-decision-demo', name: assessment.company_name || '内容决策局', created_at: localTimestamp()});
+  const project = makeProject(assessment, {id:'project-content-decision-demo', name:'内容决策局｜示例项目', created_at: localTimestamp()});
   const plans = (result.plans?.length ? result.plans : localSamplePlans()).map((plan, index)=> index === 0 ? {...plan, status:'已发布', publish_link: plan.publish_link || 'https://example.com/published/content-review-table'} : plan);
   clientState = normalizeState({
     project,
@@ -427,13 +469,24 @@ async function loadContentDecisionSample({silent = false} = {}){
 async function loadAll(){
   const params = new URLSearchParams(location.search);
   if (params.get('empty') === '1' || params.get('reset') === '1') {
-    safeStorage.removeItem(STORAGE_KEY); safeStorage.removeItem(DEMO_DISABLED_KEY);
+    safeStorage.removeItem(STORAGE_KEY);
+    safeStorage.removeItem(PROJECTS_KEY);
+    safeStorage.removeItem(DEMO_DISABLED_KEY);
+    projectStore = {activeProjectId: null, projects: []};
+    isCreatingNewProject = true;
+    internalWorkbenchVisible = false;
     clientState = blankClientState();
+    params.delete('empty');
+    params.delete('reset');
+    const query = params.toString();
+    if (history?.replaceState) history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}`);
     renderAllFromClient();
     return;
   }
   const local = loadLocal();
   if (hasRestorableState(local)) {
+    isCreatingNewProject = false;
+    internalWorkbenchVisible = false;
     clientState = {...clientState, ...local};
     renderAllFromClient();
     return;
@@ -581,8 +634,13 @@ function latestReviewEvidence(){
 function evidenceLink(anchor, label){
   return `<a class="evidence-anchor-link" href="#${esc(anchor)}" onclick="openClientEvidence('${esc(anchor)}')">${esc(label)}</a>`;
 }
-function evidenceBadge(anchor, label){
-  return `<span class="war-tag evidence-ref">依据 ${evidenceLink(anchor, label)}</span>`;
+function sourceLabelForAnchor(anchor){
+  if (anchor === 'evidence-r') return '最新内容复盘';
+  if (anchor === 'evidence-v') return '系统诊断';
+  return '客户档案';
+}
+function evidenceBadge(anchor){
+  return `<a class="source-chip" href="#${esc(anchor)}" onclick="openClientEvidence('${esc(anchor)}')">基于：${esc(sourceLabelForAnchor(anchor))}</a>`;
 }
 function missingFeedbackCount(){
   return clientState.plans.filter((p)=>p.status === '已发布' || p.publish_link).filter((p)=>!clientState.feedback.some((f)=>Number(f.content_plan_id)===Number(p.id))).length;
@@ -616,12 +674,29 @@ function runPrimaryFlow(){
 }
 window.runPrimaryFlow = runPrimaryFlow;
 
-function updateHeroPrimaryButton(){
-  const btn = $('#heroPrimaryBtn');
-  if (!btn) return;
-  const action = getPrimaryFlow();
-  btn.textContent = action.label;
-  btn.onclick = runPrimaryFlow;
+function returnToWorkbench(){
+  isCreatingNewProject = false;
+  internalWorkbenchVisible = true;
+  loadProjectStore();
+  const target = projectStore.projects.find((item)=>String(item.id) === String(projectStore.activeProjectId)) || projectStore.projects[0];
+  if (target) switchProject(target.id);
+  else renderAllFromClient();
+  scrollToSection('#lifecycleWorkbench');
+}
+window.returnToWorkbench = returnToWorkbench;
+
+function renderHeroActions(){
+  const actions = $('#heroActions');
+  const switcher = $('#heroProjectSwitcher');
+  if (!clientState.diagnosis || isCreatingNewProject) {
+    if (actions) actions.innerHTML = `<button class="secondary" type="button" onclick="loadContentDecisionSample()">看示例</button>`;
+    return;
+  }
+  if (actions && !switcher) {
+    actions.innerHTML = `<span id="heroProjectSwitcher"></span><button class="secondary" type="button" onclick="startNewProject()">重新填写</button><button class="secondary" type="button" onclick="showInternalWorkbench()">查看复盘数据</button><details class="more-actions" id="moreActions"><summary aria-label="更多数据操作">更多</summary><div class="more-actions-menu" role="menu"><button class="secondary" type="button" onclick="downloadDataBackup(); closeMoreActions();">导出数据</button><label class="secondary import-btn">导入数据<input id="importFile" type="file" accept="application/json" hidden onchange="importDataBackup(this.files[0]); this.value=''; closeMoreActions();" /></label><button id="refreshBtn" class="secondary danger-action" type="button" onclick="clearAllLocalData()">清空数据</button></div></details>`;
+  }
+  const slot = $('#heroProjectSwitcher');
+  if (slot) slot.innerHTML = renderProjectSwitcher();
 }
 
 function closeMoreActions(){
@@ -634,6 +709,17 @@ function resetForNewCustomer(){
   startNewProject();
 }
 window.resetForNewCustomer = resetForNewCustomer;
+function showInternalWorkbench(){
+  if (!clientState.diagnosis) {
+    showDiagnosisWorkflow();
+    return;
+  }
+  internalWorkbenchVisible = true;
+  renderLifecycleWorkbench();
+  scrollToSection('#lifecycleWorkbench');
+  toast('复盘数据已展开。');
+}
+window.showInternalWorkbench = showInternalWorkbench;
 function clearAllLocalData(){
   safeStorage.removeItem(STORAGE_KEY);
   safeStorage.removeItem(PROJECTS_KEY);
@@ -660,8 +746,8 @@ function renderProjectSwitcher(){
   const projects = projectStore.projects || [];
   if (!projects.length) return '';
   const activeId = clientState.project?.id || projectStore.activeProjectId || projects[0]?.id;
-  const options = projects.map((item)=>`<option value="${esc(item.id)}" ${String(item.id) === String(activeId) ? 'selected' : ''}>${esc(item.name)}｜${esc(item.stage || '未诊断')}</option>`).join('');
-  return `<label class="project-switcher"><span>当前项目</span><select onchange="switchProject(this.value)">${options}</select></label>`;
+  const options = projects.map((item)=>`<option value="${esc(item.id)}" ${String(item.id) === String(activeId) ? 'selected' : ''}>${esc(displayProjectName(item))}</option>`).join('');
+  return `<label class="project-switcher"><span>当前项目：</span><select aria-label="当前项目" onchange="switchProject(this.value)">${options}</select></label>`;
 }
 
 function renderLifecycleWorkbench(){
@@ -674,7 +760,7 @@ function renderLifecycleWorkbench(){
   const winner = bestContent();
   const unfilled = missingFeedbackCount();
   const hasRealFeedback = clientState.feedback.length > 0;
-  if (!clientState.diagnosis) {
+  if (!clientState.diagnosis || !internalWorkbenchVisible) {
     el.hidden = true;
     el.innerHTML = '';
     return;
@@ -697,9 +783,8 @@ function renderLifecycleWorkbench(){
   const todayEvidence = todayEvidenceAnchor === 'evidence-r' ? evidenceBadge('evidence-r', 'R') : evidenceBadge('evidence-k', 'K');
   const decisionEvidenceAnchor = winner ? 'evidence-r' : 'evidence-v';
   const decisionEvidence = winner ? evidenceBadge('evidence-r', 'R') : evidenceBadge('evidence-v', 'V');
-  const flow = getPrimaryFlow();
-  const primaryAction = `<button class="war-btn primary" type="button" onclick="runPrimaryFlow()">${esc(flow.label)}</button>`;
   const projectSwitcher = renderProjectSwitcher();
+  const dataTitle = hasRealFeedback ? (unfilled ? '真实反馈数据 / 待回填数据' : '真实反馈数据') : '待回填数据';
   const winningText = winner ? `#${esc(winner.plan?.id || winner.feedback.content_plan_id)} ${esc(winner.plan?.topic || '已回填内容')}` : '暂无胜出内容，先发布并回填';
   const decisionText = winner
     ? `“${esc(winner.plan?.topic || '最高咨询内容')}”方向值得继续观察`
@@ -709,16 +794,15 @@ function renderLifecycleWorkbench(){
   const reviewTag = `<span class="war-tag purple">${esc(cycleText)}</span>`;
   const hypothesis = `<span class="war-tag">假设：${esc(clientState.diagnosis?.priority_problem || clientState.assessment?.biggest_problem || '内容能否带来咨询')}</span>`;
   el.innerHTML = `<div class="war-room-shell">
-    <div class="war-nav"><div class="war-brand"><span class="war-mark"></span><strong>${esc(projectName)}</strong></div>${projectSwitcher}<div class="war-tabs"><button class="active" type="button" onclick="scrollToSection('#lifecycleWorkbench')">作战台</button><button type="button" onclick="scrollToSection('#planSection')">内容实验</button><button type="button" onclick="scrollToSection('#feedbackWorkflow')">反馈复盘</button><button type="button" onclick="startNewProject()">新增项目</button></div><div class="war-cycle">${esc(cycleText)}</div></div>
+    <div class="war-nav"><div class="war-brand"><span class="war-mark"></span><strong>${esc(projectName)}</strong></div><div class="war-tabs"><button class="active" type="button" onclick="scrollToSection('#lifecycleWorkbench')">作战台</button><button type="button" onclick="scrollToSection('#planSection')">计划/回填</button><button type="button" onclick="startNewProject()">新增项目</button></div><div class="war-cycle">${esc(cycleText)}</div></div>
     <section class="war-status-hero">
       <div><h2>${esc(cycleText)} · ${esc(meta.label)}</h2><div class="war-meta">${stageTag}${reviewTag}${hypothesis}</div></div>
-      <div class="war-actions">${primaryAction}<button class="war-btn" type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth', block:'start'})">查看计划</button><button class="war-btn" type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth', block:'start'})">周复盘</button></div>
     </section>
-    <section class="war-main-row">
-      <article class="war-card war-todo"><div class="war-card-head"><span>今日动作 · P1</span><span class="war-tag orange">${unfilled ? '待处理' : '下一步'}</span></div><h3>${esc(todayAction)}</h3><p>${esc(todayReason)}</p><div class="war-meta">${todayEvidence}</div><div class="war-inline-actions">${primaryAction}<button class="war-btn" type="button" onclick="openClientEvidence('${todayEvidenceAnchor}')">为什么？</button></div></article>
-      <article class="war-card war-decision"><div class="war-card-head"><span>下一步判断</span><button type="button" onclick="openClientEvidence('${decisionEvidenceAnchor}')">查看依据</button></div><div class="war-decision-main">${decisionText}</div><div class="war-confidence"><i style="width:${confidence}%"></i></div><div class="war-meta"><span class="war-tag green">咨询 ${d.total_consultations}</span><span class="war-tag">${winningText}</span>${decisionEvidence}</div></article>
+    <section class="war-main-row three-things">
+      <article class="war-card war-todo"><div class="war-card-head"><span>1｜今天做什么</span><span class="war-tag orange">${unfilled ? '待处理' : '下一步'}</span></div><h3>${esc(todayAction)}</h3><p>${esc(todayReason)}</p><div class="war-meta">${todayEvidence}</div></article>
+      <article class="war-card war-decision"><div class="war-card-head"><span>2｜下一步判断</span></div><div class="war-decision-main">${decisionText}</div><div class="war-confidence"><i style="width:${confidence}%"></i></div><div class="war-meta"><span class="war-tag green">咨询 ${d.total_consultations}</span><span class="war-tag">${winningText}</span>${decisionEvidence}</div></article>
+      <article class="war-card war-data-card"><div class="war-card-head"><span>3｜关键数据</span><span class="war-tag">实时更新</span></div><div class="war-metrics compact">${renderOutcomeCards(d)}</div><p>${esc(dataTitle)}：发布、回填、咨询会更新这里。</p></article>
     </section>
-    <section class="war-metrics">${renderOutcomeCards(d)}</section>
   </div>`;
 }
 function showDiagnosisWorkflow(){
@@ -741,7 +825,7 @@ window.startNextCycle = startNextCycle;
 
 function renderAllFromClient(){
   syncProjectStage();
-  updateHeroPrimaryButton();
+  renderHeroActions();
   renderLifecycleWorkbench();
   renderWorkflowVisibility();
   renderDashboard(clientDashboard());
@@ -751,16 +835,16 @@ function renderAllFromClient(){
   renderPlans(clientState.plans);
   renderFeedback(clientState.feedback);
   renderReview(clientState.review || autoReviewFromFeedback());
-  updateHeroPrimaryButton();
+  renderHeroActions();
 }
 
 
 function renderOutcomeCards(d){
   const cards = [
-    ['本周计划', d.total_plans, ''],
+    ['计划', d.total_plans, ''],
     ['已发布', `${d.published_plans}/${d.total_plans || 0}`, ''],
     ['待回填', missingFeedbackCount(), missingFeedbackCount() ? 'warn' : ''],
-    ['有效咨询', d.total_consultations, ''],
+    ['咨询', d.total_consultations, ''],
     ['闭环率', pct(d.feedback_rate), ''],
   ];
   return cards.map(([k,v,cls])=>`<div class="war-metric ${cls}"><div class="num">${v}</div><div class="name">${k}</div></div>`).join('');
@@ -787,14 +871,15 @@ function renderDashboard(d){
 
 function renderWorkflowVisibility(){
   const hasPlans = clientState.plans.length > 0;
+  const hasFeedback = clientState.feedback.length > 0;
   const hint = $('#feedbackHint');
   const workflow = $('#feedbackWorkflow');
   const planSection = $('#planSection');
   if (planSection) planSection.hidden = !hasPlans || clientState.project_stage === '未诊断';
-  if (hint) hint.hidden = true;
-  if (workflow) workflow.hidden = !hasPlans || clientState.project_stage === '未诊断';
+  if (hint) hint.hidden = !hasPlans || clientState.project_stage === '未诊断';
+  if (workflow) workflow.hidden = !hasFeedback;
   const diagnosisWorkflow = $('#diagnosisWorkflow');
-  if (diagnosisWorkflow) diagnosisWorkflow.hidden = clientState.project_stage !== '未诊断';
+  if (diagnosisWorkflow) diagnosisWorkflow.hidden = false;
 }
 
 
@@ -807,7 +892,7 @@ function renderFeedbackEvidenceRows(){
   const rows = latestFeedbackRows().slice().sort((a,b)=>(stageRank(b.feedback_stage)-stageRank(a.feedback_stage)) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
   const visibleRows = rows.slice(0, 5);
   const review = latestReviewEvidence();
-  if (!rows.length && !review) return '<div class="empty">暂无 R 内容复盘依据。发布后从计划卡片进入回填，系统会把最新反馈用于今日动作和下一步判断。</div>';
+  if (!rows.length && !review) return '<div class="empty">暂无内容复盘依据。发布后从计划卡片进入回填，系统会把最新反馈用于今日动作和下一步判断。</div>';
   const reviewHtml = review ? `<div class="pain-box review-evidence"><span>最新复盘判断</span><p><strong>胜出主题：</strong>${esc(review.winner_topic || '暂无')}｜<strong>瓶颈：</strong>${esc(review.bottleneck || '未生成')}</p><p>${esc((review.next_actions || '').replace('加码「」同类角度', '加码「最高咨询内容」同类角度'))}</p></div>` : '';
   const rowsHtml = visibleRows.map((f)=>{
     const plan = clientState.plans.find((p)=>Number(p.id) === Number(f.content_plan_id));
@@ -825,7 +910,7 @@ function renderCustomerSnapshot(a){
   const el = $('#clientSnapshot');
   if (!el) return;
   if (!a) {
-    el.innerHTML = '<div class="empty">暂无客户数据，提交体检后这里会显示本次诊断依据。</div>';
+    el.innerHTML = '<div class="empty">暂无客户数据，提交体检后这里会显示复盘与判断依据。</div>';
     return;
   }
   const d = clientState.diagnosis || {};
@@ -841,10 +926,10 @@ function renderCustomerSnapshot(a){
       <strong>${esc(customerDisplayName(a, clientState.project))}</strong>
       <span>${esc(a.created_at || '本地暂存')}</span>
     </div>
-    <div class="evidence-index"><span>依据中心</span>${evidenceLink('evidence-k','K 客户输入')}${evidenceLink('evidence-v','V 系统诊断')}${evidenceLink('evidence-r','R 内容复盘')}</div>
+    <div class="evidence-index"><span>依据中心</span>${evidenceLink('evidence-k','客户档案')}${evidenceLink('evidence-v','系统判断')}${evidenceLink('evidence-r','内容复盘依据')}</div>
     <div class="evidence-split-grid">
       <section class="evidence-column evidence-k" id="evidence-k">
-        <div class="evidence-label"><b>K</b><span>客户原始输入</span></div>
+        <div class="evidence-label"><b>档案</b><span>客户档案</span></div>
         <div class="kv-grid evidence-kv-grid">
           ${fieldRow('行业', a.industry)}
           ${fieldRow('主要目标', a.main_goal)}
@@ -863,7 +948,7 @@ function renderCustomerSnapshot(a){
         ${hasBenchmark(a.benchmark) ? `<div class="pain-box"><span>对标账号备注</span><p>${esc([a.benchmark.notes, a.benchmark.sample_content].filter(Boolean).join('｜'))}</p></div>` : ''}
       </section>
       <section class="evidence-column evidence-v" id="evidence-v">
-        <div class="evidence-label"><b>V</b><span>系统诊断依据</span></div>
+        <div class="evidence-label"><b>判断</b><span>系统判断</span></div>
         <div class="kv-grid evidence-kv-grid">
           ${diagnosisRows.map(([label, value]) => fieldRow(label, value)).join('')}
         </div>
@@ -871,8 +956,8 @@ function renderCustomerSnapshot(a){
         <div class="pain-box"><span>风险提醒</span><p>${esc(d.risk_warning || '未生成风险提醒')}</p></div>
       </section>
     </div>
-    <details class="evidence-r-panel" id="evidence-r" open>
-      <summary><span><b>R</b> 内容复盘依据</span><em>最新反馈 + 自动周复盘，默认只显示最近5条</em></summary>
+    <details class="evidence-r-panel" id="evidence-r">
+      <summary><span><b>内容复盘依据</b></span><em>最新反馈 + 自动周复盘，默认只显示最近5条</em></summary>
       ${renderFeedbackEvidenceRows()}
     </details>
   </div>`;
@@ -900,7 +985,7 @@ function renderAccountSetup(setup){
 }
 
 function renderDiagnosis(d){
-  if(!d){ $('#latestDiagnosis').innerHTML='<div class="empty">填写左侧 5 个问题后，这里会生成内容方向、7天发布计划和发布后要看的关键数据。</div>'; return; }
+  if(!d){ $('#latestDiagnosis').innerHTML='<div class="empty">提交后会生成当前问题、本周建议、7天内容计划和发布后回填提醒。</div>'; return; }
   const platformRecommendations = parsePlatformRecommendations(d.platform_recommendations);
   const platformModule = platformRecommendations ? `<div class="warning">
     <div class="small">平台发布建议</div>
@@ -911,20 +996,30 @@ function renderDiagnosis(d){
     ${renderPlatformGroup('暂不建议', platformRecommendations.avoid)}
   </div>` : '';
   const benchmarkModule = renderBenchmarkReference(d.benchmark_reference);
-  const extraModules = `${renderAccountSetup(d.account_setup)}${platformModule}`;
-  $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card compact-diagnosis">
-    <div class="small">${esc(d.version_label || VERSION_LABEL)}</div>
-    <div class="score-row">
-      <div class="score"><span>策略清晰度</span><strong>${d.strategy_score ?? d.score}</strong><em>/100</em></div>
-      <div class="score"><span>动态闭环分</span><strong>${dynamicLoopScore()}</strong><em>/100</em></div>
-      <span class="badge">${esc(d.stage)}</span>
+  const extraModules = `${benchmarkModule}${renderAccountSetup(d.account_setup)}${platformModule}`;
+  $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card compact-diagnosis customer-result">
+    <div class="result-block">
+      <div class="small">当前最大问题</div>
+      <div class="big-action">${esc(d.priority_problem)}</div>
+      <p>${esc(d.insight)}</p>
     </div>
-    <div><div class="small">当前最大问题</div><div class="big-action">${esc(d.priority_problem)}</div></div>
-    <div><div class="small">核心诊断</div><p>${esc(d.insight)}</p></div>
-    <div><div class="small">下一步</div><p><strong>${esc(d.next_step || d.weekly_action)}</strong></p></div>
-    ${benchmarkModule}
+    <div class="result-block">
+      <div class="small">本周建议</div>
+      <p><strong>${esc(d.next_step || d.weekly_action)}</strong></p>
+    </div>
+    <div class="result-block">
+      <div class="small">7天内容计划</div>
+      <p>下方已生成 7 条内容选题，先从前三条开始执行。</p>
+      <button class="secondary" type="button" onclick="scrollToSection('#planSection')">查看7天计划</button>
+    </div>
+    <div class="result-block">
+      <div class="small">发布后回填提醒</div>
+      <p>内容发出去后，在计划卡片里点“发布后回填”，补链接和数据。</p>
+    </div>
     <details class="diagnosis-more">
-      <summary>审核依据</summary>
+      <summary>查看补充依据</summary>
+      <div class="warning"><div class="small">版本</div><p>${esc(d.version_label || VERSION_LABEL)}</p></div>
+      <div class="warning"><div class="small">评分</div><p>策略清晰度 ${esc(d.strategy_score ?? d.score)}/100；数据回填后才看复盘分。</p></div>
       <div class="warning"><div class="small">评分说明</div><p>${esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。')}</p></div>
       ${extraModules}
       <div><div class="small">本周动作</div><p><strong>${esc(d.weekly_action)}</strong></p></div>
@@ -949,12 +1044,12 @@ function renderPlans(plans){
   const firstOpen = plans.find((p)=>!(p.status === '已发布' || p.publish_link || hasFeedbackForPlan(p.id)));
   const feedbackByPlan = (id) => clientState.feedback.find((f)=>Number(f.content_plan_id) === Number(id));
   if (summaryEl) {
-    summaryEl.innerHTML = plans.slice(0, 5).map((p)=>{
+    summaryEl.innerHTML = plans.slice(0, 3).map((p)=>{
       const meta = planUiMeta(p, firstOpen?.id);
       const f = feedbackByPlan(p.id);
       const stats = f ? `<div class="experiment-stats"><span>曝光 <b>${compactNumber(f.views)}</b></span><span>收藏 <b>${num(f.favorites)}</b></span><span>咨询 <b>${num(f.consultations)}</b></span></div>` : `<div class="experiment-stats"><span>日期 <b>${esc(p.planned_date || '待定')}</b></span></div>`;
       return `<article class="experiment-card ${meta.className}">
-        <div><div class="experiment-title">#${p.id} ${esc(p.topic)}</div><div class="experiment-meta"><span class="war-tag">${esc(p.platform)}</span><span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span><span class="war-tag">${esc(p.target_metric || '待观察')}</span></div><p>${esc(p.angle || '')}</p></div>
+        <div><div class="experiment-title">#${p.id} ${esc(p.topic)}</div><div class="experiment-meta"><span class="war-tag">${esc(p.platform)}</span><span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span><span class="war-tag">${esc(p.target_metric || '待观察')}</span></div><details class="experiment-detail"><summary>查看角度</summary><p>${esc(p.angle || '')}</p></details></div>
         <div class="experiment-side">${stats}<button class="small-btn" type="button" onclick="prefillFeedback(${Number(p.id)})">${esc(meta.action)}</button></div>
       </article>`;
     }).join('') || '<div class="empty">暂无计划，先提交一次快速体检。</div>';
@@ -977,8 +1072,9 @@ function renderPlans(plans){
 
 function renderFeedback(items){
   const sorted = (items || []).slice().sort((a,b)=>String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  $('#feedbackList').innerHTML = sorted.map(f=>`<div class="list-item">
-    <strong>计划 #${f.content_plan_id}</strong> · <span class="badge">${esc(f.feedback_stage || '未标注')}</span> · 查看/曝光 ${f.views} · 点赞 ${f.likes} · 收藏 ${f.favorites} · 评论 ${f.comments} · 咨询 ${f.consultations}
+  $('#feedbackList').innerHTML = sorted.map(f=>`<div class="list-item feedback-record-card">
+    <div class="feedback-record-head"><strong>计划 #${f.content_plan_id}</strong><span class="badge">${esc(f.feedback_stage || '未标注')}</span></div>
+    <div class="feedback-record-metrics"><span>曝光｜查看 ${f.views}</span><span>互动｜点赞 ${f.likes}</span><span>互动｜评论 ${f.comments}</span><span>互动｜收藏/分享 ${Number(f.favorites || 0) + Number(f.shares || 0)}</span><span>转化｜私信/咨询 ${f.consultations}</span></div>
     ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : '<div class="warning">缺少发布链接：本条不算完整闭环</div>'}
     <div class="small">${esc(f.notes || '无备注')} · ${esc(f.created_at)}</div>
   </div>`).join('') || '<div class="empty">暂无记录。保存至少1条发布反馈后，系统会自动更新看板和周复盘。</div>';
@@ -1077,6 +1173,32 @@ function prefillFeedback(id){
 }
 window.prefillFeedback = prefillFeedback;
 
+function selectProblem(value){
+  const input = $('#assessmentForm')?.querySelector('[name=biggest_problem]');
+  if (!input) return;
+  input.value = value;
+  document.querySelectorAll('[data-problem-option]').forEach((button) => {
+    const selected = button.dataset.problemOption === value;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+}
+window.selectProblem = selectProblem;
+
+function clearProblemSelection(){
+  const input = $('#assessmentForm')?.querySelector('[name=biggest_problem]');
+  if (input) input.value = '';
+  document.querySelectorAll('[data-problem-option]').forEach((button) => {
+    button.classList.remove('is-selected');
+    button.setAttribute('aria-pressed', 'false');
+  });
+}
+
+document.querySelectorAll('[data-problem-option]').forEach((button) => {
+  button.setAttribute('aria-pressed', 'false');
+  button.addEventListener('click', () => selectProblem(button.dataset.problemOption));
+});
+
 function createLocalReview(){
   const rows = latestFeedbackRows().map((feedback) => ({
     ...feedback,
@@ -1123,6 +1245,7 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   await withBusy(e.submitter, '生成中...', async () => {
     const payload = formData(e.target);
+    if (!String(payload.biggest_problem || '').trim()) throw new Error('请选择当前最大问题，再生成内容建议。');
     if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
     delete payload.posting_frequency_detail;
     payload.benchmark = normalizeBenchmark(payload);
@@ -1141,8 +1264,11 @@ $('#assessmentForm').addEventListener('submit', async (e)=>{
     });
     saveLocal();
     e.target.reset();
-    toast('诊断已生成');
+    clearProblemSelection();
+    internalWorkbenchVisible = false;
+    toast('内容增长建议已生成');
     renderAllFromClient();
+    scrollToSection('#latestDiagnosis');
   });
 });
 
@@ -1170,6 +1296,7 @@ $('#feedbackForm').addEventListener('submit', async (e)=>{
     if (feedback.publish_link) plan.publish_link = feedback.publish_link;
     clientState.feedback = [feedback, ...clientState.feedback.filter((item) => !(Number(item.content_plan_id) === Number(data.content_plan_id) && String(item.feedback_stage || 'T+24') === String(feedback.feedback_stage)))];
     clientState.review = createLocalReview();
+    isCreatingNewProject = false;
     saveLocal();
     renderAllFromClient();
     e.target.reset();
@@ -1189,11 +1316,8 @@ $('#reviewBtn').addEventListener('click', async ()=>{
       .catch(() => toast('本地复盘已保存；云端临时接口同步失败'));
   });
 });
-$('#sampleBtn').addEventListener('click', async () => {
-  await withBusy($('#sampleBtn'), '载入中...', async () => loadContentDecisionSample());
-});
-
-$('#refreshBtn').addEventListener('click', () => {
-  resetForNewCustomer();
+const refreshBtn = $('#refreshBtn');
+if (refreshBtn) refreshBtn.addEventListener('click', () => {
+  clearAllLocalData();
 });
 loadAll().catch(err=>toast(err.message));
