@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.7.0';
-const VERSION_LABEL = 'v1.7.0 · 首访填写体验修复版';
+const APP_VERSION = '1.7.1';
+const VERSION_LABEL = 'v1.7.1 · 视觉回滚 + 信息架构保留版';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
