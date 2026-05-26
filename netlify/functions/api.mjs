@@ -122,6 +122,36 @@ const painLabel = (pain = '', problem = '') => {
   if (hasAny(text, ['流量', '曝光', '播放'])) return '内容曝光不足';
   return pain || problem || '当前核心痛点';
 };
+const compactTopicWords = (text = '') => String(text || '')
+  .replace(/https?:\/\/\S+/g, ' ')
+  .replace(/[，。；;、｜|/]+/g, ' ')
+  .split(/\s+/)
+  .map((item) => item.trim())
+  .filter(Boolean);
+const serviceTopicFor = (industry = '', offer = '') => {
+  const text = `${industry} ${offer}`;
+  if (hasAny(text, ['满月照', '周岁照', '亲子纪实', '儿童摄影', '亲子摄影'])) return { service: '儿童摄影', scene: '拍满月照', owner: '儿童摄影作品' };
+  if (hasAny(text, ['口腔', '牙齿', '矫正', '正畸', '种植牙'])) return { service: '口腔项目', scene: '做牙齿矫正/种植牙前', owner: '口腔科普内容' };
+  if (hasAny(text, ['美甲', '美睫', '美容', '皮肤管理', '医美'])) return { service: '美业服务', scene: '到店前', owner: '美业案例内容' };
+  if (hasAny(text, ['教育', '培训', '课程', '教培', '体验课'])) return { service: '课程/体验课', scene: '报名前', owner: '课程内容' };
+  if (hasAny(text, ['餐饮', '餐厅', '咖啡', '茶饮', '火锅', '烘焙'])) return { service: '到店消费', scene: '选店前', owner: '门店内容' };
+  const words = compactTopicWords(industry);
+  const service = words.find((word) => word.length <= 10 && !hasAny(word, ['本地', '广州', '上海', '北京', '深圳', '高端', '主打'])) || '服务项目';
+  return { service, scene: `选择${service}前`, owner: `${service}内容` };
+};
+const naturalPlanTitles = ({ audience, industry, offer, painShort, goal }) => {
+  const service = serviceTopicFor(industry, offer);
+  const reader = hasAny(audience, ['宝妈']) ? '宝妈' : audience;
+  return [
+    `${reader}${service.scene}，最容易踩的3个坑`,
+    `为什么你发了${service.owner}，还是没人咨询？`,
+    `${reader}选${service.service}，最在意的不是价格`,
+    `客户迟迟不咨询，通常卡在这3个顾虑`,
+    `${service.service}到底适不适合你？先看这几个信号`,
+    `负责人亲自讲：我们怎么帮客户判断${service.service}`,
+    `本周客户问得最多的1个${service.service}问题`,
+  ].map((title) => title.replace(/目标客户|服务项目/g, (word) => word === '目标客户' ? '客户' : service.service));
+};
 const normalizeBenchmark = (payload = {}) => {
   const source = payload.benchmark && typeof payload.benchmark === 'object' ? payload.benchmark : payload;
   const accountText = clean(source, 'benchmark_accounts').split(/[\n\r,，、]+/);
@@ -349,17 +379,18 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
   const isMeta = isMetaMarketingAccount({ industry, main_goal: goal, offer });
   if (!isMeta) {
     const directCta = `想要「${goal}」，可以私信了解「${offer}」。`;
+    const titles = naturalPlanTitles({ audience, industry, offer, painShort, goal });
     const items = [
-      [`${audience}最关心的3个${industry}问题`, `痛点共鸣：围绕「${painShort}」说清具体困扰`, '短视频/图文', directCta, '咨询数', '需要人工润色', '适合补充真实客户问题或本地案例后发布'],
-      [`一个真实场景：${audience}如何判断是否需要${offer}`, '案例信任：讲清前后变化、过程和判断标准', '短视频', `可以通过主页咨询「${offer}」的适配情况。`, '私信数', '需要人工润色', '需要替换成真实案例，避免空泛承诺'],
-      [`${audience}在选择${offer}前最容易忽略什么？`, '避坑科普：降低客户决策风险，建立专业信任', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏数', '可直接进入草稿', '结构完整，发布前补充门店/服务细节即可'],
-      [`为什么有「${painShort}」的人，迟迟没有行动？`, `阻力拆解：把「${painShort}」转成可理解、可咨询的问题`, '图文/短视频', directCta, '评论数', '需要人工润色', '适合测试痛点表达是否准确'],
-      [`${offer}到底能帮${audience}解决什么？`, '价值说明：用客户语言解释交付结果和适合人群', '图文', directCta, '咨询数', '可直接进入草稿', '主题清楚，适合承接咨询'],
-      [`${industry}负责人亲自说：我们如何服务${audience}`, '人设信任：展示专业判断、流程和真实态度', '短视频', `有「${painShort}」类似问题，可以直接私信你的情况。`, '互动数', '需要人工润色', '建议加入负责人出镜或真实服务过程'],
-      [`本周${audience}问得最多的1个问题`, 'FAQ：把咨询问题反向变成内容，沉淀下周选题', '短视频/图文', `还有关于「${offer}」的问题，可以私信具体情况。`, '评论数', '仅为策略方向', '必须结合真实私信/咨询后再发布'],
+      [titles[0], `痛点共鸣：围绕「${painShort}」说清具体困扰`, '短视频/图文', directCta, '咨询数', '需要人工润色', '适合补充真实客户问题或本地案例后发布'],
+      [titles[1], '案例信任：讲清前后变化、过程和判断标准', '短视频', `可以通过主页咨询「${offer}」的适配情况。`, '私信数', '需要人工润色', '需要替换成真实案例，避免空泛承诺'],
+      [titles[2], '避坑科普：降低客户决策风险，建立专业信任', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏数', '可直接进入草稿', '结构完整，发布前补充门店/服务细节即可'],
+      [titles[3], `阻力拆解：把「${painShort}」转成可理解、可咨询的问题`, '图文/短视频', directCta, '评论数', '需要人工润色', '适合测试痛点表达是否准确'],
+      [titles[4], '价值说明：用客户语言解释交付结果和适合人群', '图文', directCta, '咨询数', '可直接进入草稿', '主题清楚，适合承接咨询'],
+      [titles[5], '人设信任：展示专业判断、流程和真实态度', '短视频', `有「${painShort}」类似问题，可以直接私信具体情况。`, '互动数', '需要人工润色', '建议加入负责人出镜或真实服务过程'],
+      [titles[6], 'FAQ：把咨询问题反向变成内容，沉淀下周选题', '短视频/图文', `还有关于「${offer}」的问题，可以私信具体情况。`, '评论数', '仅为策略方向', '必须结合真实私信/咨询后再发布'],
     ];
     if (priority === '曝光不足') {
-      items[0] = [`别再忽略：${audience}遇到「${painShort}」时最容易踩的坑`, '强钩子：用高相关痛点提升打开率', '短视频/图文', directCta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
+      items[0] = [`${audience}遇到「${painShort}」时，最容易忽略什么？`, '强钩子：用高相关痛点提升打开率', '短视频/图文', directCta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
     }
     if (benchmarkTheme) {
       items[0] = [`${audience}为什么会关注「${benchmarkTheme}」？`, '对标校准：提炼已验证痛点，转译为本客户场景，不照抄原文', '图文/短视频', directCta, '收藏数', '需要人工润色', '来自对标账号主题结构，发布前需替换成本客户案例'];

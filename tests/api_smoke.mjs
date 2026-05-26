@@ -80,7 +80,7 @@ assert(appJs.includes("[name=publish_link]") && appJs.includes('linkInput?.focus
 assert(appJs.includes('existingFeedback?.publish_link || plan?.publish_link'), 'prefillFeedback should prefill existing publish links');
 assert(appJs.includes('scrollIntoView'), 'prefillFeedback should scroll to the feedback form area');
 assert(appJs.includes('is-highlighted'), 'prefillFeedback should highlight the feedback area');
-assert(appJs.includes('已定位到计划 #'), 'prefillFeedback should show a business toast after locating the form');
+assert(appJs.includes('已选择计划 #'), 'prefillFeedback should show a business toast after locating the form');
 assert(appJs.includes('function hasRestorableState'), 'app should detect restorable local state before showing the first form again');
 assert(appJs.includes('function resetForNewCustomer'), 'war-room should keep a reset/new customer entry');
 assert(appJs.includes('customerDisplayName') && !appJs.includes("a.company_name || '未命名客户'"), 'app should not render 未命名客户 as the customer title');
@@ -131,6 +131,17 @@ const noCompanyName = await submitAssessment({
 });
 assert(noCompanyName.assessment.company_name === '', 'empty company_name should stay empty instead of becoming 未命名客户');
 assert(!JSON.stringify(noCompanyName).includes('未命名客户'), 'no-company output should not include 未命名客户');
+
+const photo = await submitAssessment({
+  industry: '广州本地高端儿童摄影工作室，主打满月照、周岁照和亲子纪实拍摄',
+  main_goal: '通过小红书内容获得宝妈咨询和到店预约',
+  target_customer: '一二线城市新手妈妈、重视审美和纪念感的家庭',
+  current_channels: '小红书',
+  posting_frequency: '偶尔发布',
+  biggest_problem: '没咨询',
+});
+assert(photo.plans.some((plan) => plan.topic.includes('拍满月照') || plan.topic.includes('儿童摄影作品') || plan.topic.includes('最在意的不是价格')), 'photo plans should generate human-readable content titles');
+assert(!JSON.stringify(photo.plans).includes('最关心的3个广州本地高端儿童摄影工作室'), 'photo plans should not stuff the long industry field into titles');
 
 const beauty = await submitAssessment({
   company_name: '本地美容美甲门店',

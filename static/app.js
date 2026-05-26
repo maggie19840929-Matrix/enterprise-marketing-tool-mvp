@@ -74,6 +74,7 @@ const makeProject = (assessment = {}, existing = null) => existing || {
   created_at: localTimestamp(),
 };
 function hasRestorableState(state = {}){
+  state = state || {};
   const plans = Array.isArray(state.plans) ? state.plans : [];
   const hasProject = Boolean(state.project?.id || cleanDisplayName(state.project?.name));
   const hasCycle = Boolean(state.current_cycle_id);
@@ -899,7 +900,7 @@ function renderAccountSetup(setup){
 }
 
 function renderDiagnosis(d){
-  if(!d){ $('#latestDiagnosis').innerHTML='提交后生成诊断报告、7天计划和回填入口。'; return; }
+  if(!d){ $('#latestDiagnosis').innerHTML='<div class="empty">填写左侧 5 个问题后，这里会生成内容方向、7天发布计划和发布后要看的关键数据。</div>'; return; }
   const platformRecommendations = parsePlatformRecommendations(d.platform_recommendations);
   const platformModule = platformRecommendations ? `<div class="warning">
     <div class="small">平台发布建议</div>
@@ -1070,7 +1071,7 @@ function prefillFeedback(id){
   (workflow || form).scrollIntoView({behavior:'smooth', block:'start'});
   window.setTimeout(()=>{
     linkInput?.focus();
-    toast(`已定位到计划 #${planInput.value}，请粘贴发布链接并保存反馈。`);
+    toast(`已选择计划 #${planInput.value}，请填写发布链接和数据。`);
   }, 260);
   window.setTimeout(()=>workflow?.classList.remove('is-highlighted'), 1900);
 }
