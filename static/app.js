@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.7.1';
-const VERSION_LABEL = 'v1.7.1 · 视觉回滚 + 信息架构保留版';
+const APP_VERSION = '1.7.2';
+const VERSION_LABEL = 'v1.7.2 · CSS 精确回滚版';
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';

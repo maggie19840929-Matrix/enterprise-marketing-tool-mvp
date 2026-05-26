@@ -60,7 +60,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.7.1', `expected app_version 1.7.1, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.7.2', `expected app_version 1.7.2, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -97,7 +97,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
 assert(indexHtml.includes('一份下周内容建议') && !indexHtml.includes('<h2>关键结论</h2>'), 'diagnosis panel should explain outputs, not duplicate the top key conclusion title');
-assert(indexHtml.includes('v1.7.1 · 视觉回滚 + 信息架构保留版'), 'index should show v1.7.1 label');
+assert(indexHtml.includes('v1.7.2 · CSS 精确回滚版'), 'index should show v1.7.2 label');
 assert(indexHtml.includes('帮你找到下一周该发什么内容'), 'hero should expose the first-visit customer promise');
 assert(indexHtml.includes('提交后会生成当前问题、本周建议、7天内容计划和发布后回填提醒'), 'diagnosis empty state should explain next outputs');
 assert(indexHtml.includes('data-problem-option="没咨询"') && !indexHtml.includes('select name="biggest_problem"'), 'biggest problem should use clickable options instead of a select');
