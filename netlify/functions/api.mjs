@@ -1,7 +1,7 @@
 let state;
 
-const APP_VERSION = '1.7.2';
-const VERSION_LABEL = 'v1.7.2 · CSS 精确回滚版';
+const APP_VERSION = '1.7.3';
+const VERSION_LABEL = 'v1.7.3 · 战情室视觉基线恢复版';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
