@@ -3,18 +3,230 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业营销增长驾驶舱 v1.6.9</title>
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css" />
+  <title>企业内容增长助手 · 生成发布计划与效果复盘</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/styles.css?v=1.6.33" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.33" />
 </head>
 <body>
+  <div id="customerApp" class="customer-trial-app">
+    <header class="customer-hero">
+      <div class="customer-hero-copy">
+        <p class="customer-kicker">企业内容增长助手</p>
+        <h1>把你的业务变成可执行的内容增长计划</h1>
+        <p>输入业务、目标和当前卡点，系统生成内容方向、首批选题和 7 天发布计划；发完后记录效果，下一轮继续优化。</p>
+      </div>
+    </header>
+
+    <main class="customer-main">
+      <div class="customer-progress-strip" id="customerProgressStrip" aria-label="操作进度">
+        <div class="cps-item cps-active" data-step="1">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">填写信息</span>
+        </div>
+        <div class="cps-line" aria-hidden="true"></div>
+        <div class="cps-item" data-step="2">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">内容建议</span>
+        </div>
+        <div class="cps-line" aria-hidden="true"></div>
+        <div class="cps-item" data-step="3">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">记录效果</span>
+        </div>
+      </div>
+      <section id="customerFormCard" class="customer-card customer-form-card">
+        <div class="customer-section-head">
+          <p>STEP 1 · 业务信息</p>
+          <h2>先说清楚你的业务和目标</h2>
+          <span>只填关键问题。右侧示例默认收起，需要时再看。</span>
+        </div>
+        <div class="customer-intake-layout">
+          <form id="customerAssessmentForm" class="customer-form" novalidate>
+            <label>你的行业/业务是什么？*
+              <input name="industry" required placeholder="如：篮球销售、美甲店、产康门店；行业较大时，下方补充具体卖什么" />
+            </label>
+            <label>你现在最想达成什么目标？*
+              <input name="main_goal" required placeholder="如：让附近客户咨询套餐 / 提升小红书咨询量" />
+            </label>
+            <label>你的目标客户是谁？*
+              <input name="target_customer" required placeholder="如：附近3公里爱美女性 / 准备留学的学生家长" />
+            </label>
+            <details class="customer-more-fields">
+              <summary>想让建议更准？补充这些信息</summary>
+              <div class="customer-more-grid">
+                <label>主推产品/服务和价格带
+                  <input name="offer" placeholder="如：室外耐磨篮球 89-199 元 / 少儿篮球体验课 99 元 / 盆底肌评估体验 199 元" />
+                </label>
+                <label>客户最常问的问题或顾虑
+                  <textarea name="customer_pain" placeholder="如：水泥地会不会磨坏、买几号球、怕没效果、担心价格贵、不了解流程"></textarea>
+                </label>
+                <label>你现在手里有什么素材？
+                  <textarea name="content_assets" placeholder="如：产品实拍、价格表、客户评价截图、使用场景图、真实案例、门店环境、前后对比"></textarea>
+                </label>
+                <label>最近表现最好的一条内容/对标内容
+                  <textarea name="best_recent_content" placeholder="粘贴标题、链接或简单描述：哪条有人收藏/私信/咨询"></textarea>
+                </label>
+              </div>
+            </details>
+            <fieldset class="customer-choice-group">
+              <legend>你主要想做哪个平台？*</legend>
+              <input type="hidden" name="current_channels" required />
+                <div class="customer-choice-row" data-customer-platforms>
+                <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
+                <button class="customer-choice-chip" type="button" data-value="抖音"><span></span>抖音</button>
+                <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
+                <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
+                <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
+              </div>
+            </fieldset>
+            <fieldset class="customer-choice-group">
+              <legend>你当前最大的内容问题是什么？*</legend>
+              <input type="hidden" name="biggest_problem" required />
+              <div class="customer-problem-grid" data-customer-problems>
+                <button class="customer-choice-chip" type="button" data-value="不知道发什么"><span></span>不知道发什么</button>
+                <button class="customer-choice-chip" type="button" data-value="发了没流量"><span></span>发了没流量</button>
+                <button class="customer-choice-chip" type="button" data-value="有浏览没咨询"><span></span>有浏览没咨询</button>
+                <button class="customer-choice-chip" type="button" data-value="发完没人复盘"><span></span>发了没效果总结</button>
+              </div>
+            </fieldset>
+            <input type="hidden" name="posting_frequency" value="偶尔发布" />
+            <div id="customerFormError" class="customer-message error" role="alert" hidden></div>
+            <button id="customerGenerateBtn" class="customer-primary" type="submit">生成我的内容建议</button>
+          </form>
+
+          <aside class="customer-side">
+          <details id="customerGuide" class="customer-guide-panel">
+            <summary>不知道怎么填？看示例</summary>
+            <div class="customer-guide-copy">
+              <h3>参考一个填写示例</h3>
+            </div>
+            <div class="customer-guide-mock" aria-label="填写示例引导图">
+              <div class="guide-row">
+                <div class="guide-field">
+                  <span>你的行业/业务是什么？</span>
+                  <strong>本地美容美甲门店</strong>
+                </div>
+                <p>写清楚你是做什么的，不只写“门店”。</p>
+              </div>
+              <div class="guide-row">
+                <div class="guide-field">
+                  <span>你现在最想达成什么目标？</span>
+                  <strong>让附近客户咨询美甲套餐</strong>
+                </div>
+                <p>写具体目标，例如咨询、预约、到店、成交。</p>
+              </div>
+              <div class="guide-row">
+                <div class="guide-field">
+                  <span>你的目标客户是谁？</span>
+                  <strong>附近3公里、25-35岁、想做通勤款和节日款美甲的女性</strong>
+                </div>
+                <p>越具体越好：位置、人群、需求都可以写。</p>
+              </div>
+              <div class="guide-row">
+                <div class="guide-field guide-pills">
+                  <span>你主要想做哪个平台？</span>
+                  <strong>小红书</strong>
+                </div>
+                <p>先选你最想重点经营的平台。</p>
+              </div>
+              <div class="guide-row">
+                <div class="guide-field guide-problem">
+                  <span>你当前最大的内容问题是什么？</span>
+                  <strong>有浏览没咨询</strong>
+                </div>
+                <p>选最接近你现在卡住的地方。</p>
+              </div>
+              <div class="guide-action-row">
+                <button type="button" aria-hidden="true" tabindex="-1">生成我的内容建议</button>
+                <p>填完后点击这里，系统会生成建议。</p>
+              </div>
+            </div>
+            <button id="customerGuideDone" class="customer-guide-done" type="button">我知道怎么填了</button>
+          </details>
+
+          <article class="customer-preview-panel" aria-label="你会得到什么">
+            <p class="customer-preview-kicker">填完后你会拿到</p>
+            <ul>
+              <li><strong>内容方向</strong><span>先围绕什么主题发</span></li>
+              <li><strong>首批选题</strong><span>3 个可直接改写使用</span></li>
+              <li><strong>7 天计划</strong><span>每天发什么、按什么顺序发</span></li>
+              <li><strong>首条建议</strong><span>第一条先怎么发</span></li>
+            </ul>
+          </article>
+          </aside>
+        </div>
+      </section>
+
+      <section id="customerResultSection" class="customer-card customer-result-card" hidden>
+        <div class="customer-section-head">
+          <p>STEP 2 · 内容建议已生成</p>
+          <h2>你的专属发布建议</h2>
+          <span>根据你刚填的业务情况生成。选一条先发，不需要全部用完——发完一条后在下方记录效果。</span>
+        </div>
+        <div id="customerResult" class="customer-result"></div>
+
+        <div id="customerPlanBlock" class="customer-plan-block" hidden>
+          <div class="customer-plan-head">
+            <p>7 天发布计划</p>
+            <h3>这 7 天可以这样安排</h3>
+            <span>下面是按顺序排好的 7 条内容方向。先做前 3 条，发完一条再做下一条。</span>
+          </div>
+          <div id="customerPlanList" class="customer-plan-list"></div>
+          <p class="customer-plan-note">发布工作仍然由你或团队人工完成，系统不会替你自动发布。</p>
+        </div>
+
+        <div class="customer-result-actions">
+          <button id="copyCustomerSuggestion" class="customer-secondary" type="button">复制全部建议</button>
+          <button id="customerRegenerateBtn" class="customer-secondary" type="button">修改信息并重新生成</button>
+          <a href="#customerEffectSection" class="customer-inline-link">发完第一条 → 下方记录效果</a>
+        </div>
+        <details class="customer-why">
+          <summary>为什么这样建议</summary>
+          <div id="customerWhyBox"></div>
+        </details>
+      </section>
+
+      <section id="customerEffectSection" class="customer-card customer-effect-card" hidden>
+        <div class="customer-section-head">
+          <p>STEP 3 · 效果记录</p>
+          <h2>发完后，回来填一下</h2>
+          <span>每填一条真实数据，下次系统就能更准地告诉你：是标题要改，还是内容角度要换，还是平台选择需要调整。</span>
+        </div>
+        <form id="customerEffectForm" class="customer-effect-form">
+          <label>发布链接<input name="publish_link" type="url" placeholder="粘贴小红书 / 抖音 / 视频号等已发布链接" /></label>
+          <label>发布日期<input name="published_at" type="date" /></label>
+          <label>浏览 / 曝光<input name="views" type="number" min="0" value="0" /></label>
+          <label>点赞 + 收藏<input name="engagement" type="number" min="0" value="0" /></label>
+          <label>咨询人数<input name="consultations" type="number" min="0" value="0" /></label>
+          <label class="customer-wide">你自己的观察：这条内容哪里有效，哪里没效果？<textarea name="notes" placeholder="例如：有人问价格但没继续预约 / 标题点击不错，但内容看完没人私信"></textarea></label>
+          <button class="customer-primary" type="submit">保存这条记录</button>
+        </form>
+        <div id="customerEffectMessage" class="customer-message success" hidden></div>
+
+        <article id="customerRecordSummary" class="customer-loop-note customer-record-summary" hidden></article>
+        <article id="customerNextAdvice" class="customer-loop-note customer-next-advice" hidden></article>
+
+        <details class="customer-why customer-record-help">
+          <summary>为什么要记录这些数据？</summary>
+          <p>本期只做轻量记录，不做复杂运营跟踪。记录链接、曝光、点赞收藏、咨询人数和一句观察，是为了让系统判断下一条内容应该复制、改角度，还是先扩大曝光样本。</p>
+        </details>
+
+        <h3 class="customer-record-title">已记录的内容</h3>
+        <div id="customerEffectList" class="customer-effect-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="internalApp" hidden>
   <header class="hero">
     <div>
-      <p class="eyebrow">v1.6.9 · 页面降噪与复盘入口收口版</p>
+      <p class="eyebrow version-pill">内测版 · 智能诊断内核</p>
       <h1>企业营销增长驾驶舱</h1>
       <p class="sub">不只发内容，更要知道哪条内容带来客户。</p>
     </div>
     <div class="hero-actions clean-actions">
+      <button id="topReturnProjectBtn" class="secondary top-return-project" type="button" onclick="returnToActiveProject()" hidden>返回当前运营项目</button>
       <details class="more-actions" id="moreActions">
         <summary aria-label="更多数据操作">更多</summary>
         <div class="more-actions-menu" role="menu">
@@ -29,56 +241,52 @@
   <main>
     <section class="panel workbench-panel" id="lifecycleWorkbench"></section>
 
+    <section class="panel anbiao-customer-panel" id="anbiaoCustomerPanel" hidden>
+      <div class="panel-head anbiao-confirm-head">
+        <div>
+          <p class="eyebrow">安标检测 / 发布前脚本确认</p>
+          <h2>本轮内容增长进度</h2>
+          <span>这组数据来自客户发布前审稿，用来决定哪些脚本可发、哪些要改；不是发布后的曝光、点赞、咨询效果数据。</span>
+        </div>
+        <div class="anbiao-head-actions">
+          <a class="secondary" href="https://kcny4x1jqjwx.feishu.cn/base/XK1ubLNLtaZ1m8swQQ5cAILOnhf" target="_blank" rel="noreferrer">查看客户确认表</a>
+          <button class="secondary" type="button" onclick="document.querySelector('#feedbackList')?.scrollIntoView({behavior:'smooth',block:'start'})">发布后填写效果数据</button>
+        </div>
+      </div>
+      <div id="anbiaoCustomerSummary" class="anbiao-summary"></div>
+      <div id="anbiaoCustomerRows" class="anbiao-customer-rows"></div>
+    </section>
+
     <section class="cards metric-section" id="metricCards" hidden></section>
 
     <section class="grid cockpit" id="diagnosisWorkflow">
-      <article class="panel intake-panel">
+      <article class="panel intake-panel internal-new-project-panel">
         <div class="panel-head compact-head">
           <div>
-            <p class="eyebrow">STEP 1 / 先填基础信息</p>
-            <h2>先填 5 个问题</h2>
-            <p class="hint">不需要懂营销术语，按真实情况填写即可。带 * 的是生成建议必填项。</p>
+            <p class="eyebrow">新增项目 / 业务信息</p>
+            <h2>把客户版轻表单收进内测新增项目</h2>
+            <p class="hint">后续客户版和内测版共用同一套输入字段、生成逻辑和反馈闭环；内测版只多展示智能诊断与作战台。</p>
           </div>
         </div>
-        <form id="assessmentForm" class="assessment-form compact-form">
+        <form id="assessmentForm" class="assessment-form compact-form customer-form internal-intake-form">
           <div class="form-section-title wide-field">从这里开始填写</div>
-          <label>你是做什么的？*<input name="industry" required placeholder="例如：口腔门诊 / 美容美甲门店 / 教育培训 / 餐饮门店" /></label>
-          <label>你想通过内容获得什么结果？*<input name="main_goal" required placeholder="例如：获得更多咨询 / 到店预约 / 课程报名" /></label>
-          <label>你的目标客户是谁？<input name="target_customer" placeholder="例如：本地宝妈、家庭客户、商家、门店负责人" /></label>
-          <label>你现在主要发在哪个平台？*<input name="current_channels" required placeholder="例如：小红书 / 抖音 / 视频号 / 朋友圈 / 美团" /></label>
-          <label>当前最大问题是什么？*
-            <select name="biggest_problem" required>
-              <option value="" disabled selected>请选择最接近的一项</option>
-              <option>不知道发什么</option>
-              <option>没流量</option>
-              <option>没咨询</option>
-              <option>发完没人复盘</option>
-            </select>
-          </label>
-          <input type="hidden" name="posting_frequency" value="偶尔发布" />
-          <details class="advanced-fields">
-            <summary>可选补充：有资料再填，没有可直接生成</summary>
-            <div class="advanced-grid">
-              <label>企业名称<input name="company_name" placeholder="可选" /></label>
+          <label>你的行业/业务是什么？*<input name="industry" required placeholder="如：篮球销售、美甲店、产康门店；行业较大时，下方补充具体卖什么" /></label>
+          <label>你现在最想达成什么目标？*<input name="main_goal" required placeholder="如：让附近客户咨询套餐 / 提升小红书咨询量" /></label>
+          <label>你的目标客户是谁？*<input name="target_customer" required placeholder="如：附近3公里爱美女性 / 准备留学的学生家长" /></label>
+
+          <details class="customer-more-fields advanced-fields">
+            <summary>想让建议更准？补充这些信息</summary>
+            <div class="customer-more-grid advanced-grid">
+              <label>主推产品/服务和价格带<input name="offer" placeholder="如：室外耐磨篮球 89-199 元 / 少儿篮球体验课 99 元 / 盆底肌评估体验 199 元" /></label>
+              <label>客户最常问的问题或顾虑<textarea name="customer_pain" placeholder="如：水泥地会不会磨坏、买几号球、怕没效果、担心价格贵、不了解流程"></textarea></label>
+              <label>你现在手里有什么素材？<textarea name="content_assets" placeholder="如：产品实拍、价格表、客户评价截图、使用场景图、真实案例、门店环境、前后对比"></textarea></label>
+              <label>最近表现最好的一条内容/对标内容<textarea name="best_recent_content" placeholder="粘贴标题、链接或简单描述：哪条有人收藏/私信/咨询"></textarea></label>
+              <label>企业名称<input name="company_name" placeholder="可选，用于内部项目命名" /></label>
               <label>联系人<input name="contact" placeholder="可选" /></label>
-              <label>发布频率
-                <select name="posting_frequency_detail">
-                  <option>偶尔发布</option>
-                  <option>每周1条</option>
-                  <option>每周3条</option>
-                  <option>每天稳定发布</option>
-                </select>
-              </label>
-              <label>产品/服务入口<input name="offer" placeholder="例如：预约检查 / 到店体验 / 课程试听 / 方案评估" /></label>
-              <label>现有内容资产<input name="content_assets" placeholder="客户案例、门店照片、服务过程、FAQ" /></label>
-              <label>月预算<input name="monthly_budget" placeholder="例如3000元以内" /></label>
-              <label>决策周期<input name="decision_cycle" placeholder="例如1周/1个月" /></label>
-              <label>最近效果最好的内容<input name="best_recent_content" placeholder="客户案例、产品演示、老板出镜..." /></label>
-              <label>账号定位/昵称倾向<input name="account_preference" placeholder="例如内容决策局 / 企业获客复盘号" /></label>
-              <label class="wide-field">客户核心痛点<textarea name="customer_pain" placeholder="客户为什么会需要你？现在最困扰他的是什么？"></textarea></label>
+              <input type="hidden" name="posting_frequency" value="偶尔发布" />
               <div class="benchmark-block wide-field">
                 <h3>可选：对标账号参考</h3>
-                <p class="hint">如果你有想参考的账号或内容，可以填在这里；没有也不影响生成第一版建议。</p>
+                <p class="hint">如果有想参考的账号或内容，填在这里；没有也不影响生成第一版建议。</p>
                 <div class="advanced-grid">
                   <label>对标平台
                     <select name="benchmark_platform">
@@ -89,12 +297,35 @@
                     </select>
                   </label>
                   <label>对标账号链接或名称<textarea name="benchmark_accounts" placeholder="可填 1-3 个，用换行或逗号分隔"></textarea></label>
-                  <label class="wide-field">你觉得它哪条内容不错？<textarea name="benchmark_sample_content" placeholder="可选：标题、链接、数据摘要；只做主题参考，不照抄原文"></textarea></label>
-                  <label class="wide-field">你想参考它什么？<textarea name="benchmark_notes" placeholder="可选：例如痛点表达、标题结构、信任证据、收藏高的主题"></textarea></label>
+                  <label class="wide-field">你想参考它什么？<textarea name="benchmark_notes" placeholder="例如痛点表达、标题结构、信任证据、收藏高的主题"></textarea></label>
                 </div>
               </div>
             </div>
           </details>
+
+          <fieldset class="customer-choice-group internal-choice-group">
+            <legend>你主要想做哪个平台？*</legend>
+            <input type="hidden" name="current_channels" />
+            <div class="customer-choice-row" data-internal-platforms>
+              <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
+              <button class="customer-choice-chip" type="button" data-value="抖音"><span></span>抖音</button>
+              <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
+              <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
+              <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
+            </div>
+          </fieldset>
+
+          <fieldset class="customer-choice-group internal-choice-group">
+            <legend>你当前最大的内容问题是什么？*</legend>
+            <input type="hidden" name="biggest_problem" />
+            <div class="customer-problem-grid" data-internal-problems>
+              <button class="customer-choice-chip" type="button" data-value="不知道发什么"><span></span>不知道发什么</button>
+              <button class="customer-choice-chip" type="button" data-value="发了没流量"><span></span>发了没流量</button>
+              <button class="customer-choice-chip" type="button" data-value="有浏览没咨询"><span></span>有浏览没咨询</button>
+              <button class="customer-choice-chip" type="button" data-value="发完没人复盘"><span></span>发了没效果总结</button>
+            </div>
+          </fieldset>
+
           <button type="submit">生成我的内容增长建议</button>
         </form>
       </article>
@@ -110,17 +341,12 @@
     <section class="panel compact-plan-panel" id="planSection" hidden>
       <div class="panel-head">
         <h2>7天内容发布计划</h2>
-        <span>默认先看前三条，完整计划可展开。</span>
+        <span>默认先看前三条，完整计划用卡片展开，避免密集表格。</span>
       </div>
       <div id="plansSummary" class="plan-summary empty">生成诊断后显示前三个优先动作。</div>
-      <details class="table-details">
-        <summary>展开完整7天计划表</summary>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>ID/日期</th><th>平台</th><th>内容主题</th><th>角度</th><th>形式</th><th>合规承接</th><th>目标</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody id="plansBody"></tbody>
-          </table>
-        </div>
+      <details class="table-details plan-card-details">
+        <summary>展开完整7天计划</summary>
+        <div id="plansBody" class="full-plan-list"></div>
       </details>
     </section>
 
@@ -134,7 +360,7 @@
         <h2>内容数据回填</h2>
         <p class="hint">从计划卡片进入：查看/曝光是基础，点赞/收藏/评论是互动，私信/咨询才是转化判断。</p>
         <form id="feedbackForm">
-          <label>发布计划ID<input name="content_plan_id" required type="number" placeholder="从发布计划表中选择 ID" /></label>
+          <label>发布计划<input name="content_plan_id" required type="hidden" /><span id="selectedPlanDisplay" class="selected-plan-display">从计划卡片选择</span></label>
           <label>发布链接<input name="publish_link" required type="url" placeholder="粘贴已发布内容链接" /></label>
           <label>反馈时间点
             <select name="feedback_stage" required>
@@ -157,9 +383,12 @@
       </article>
 
       <article class="panel">
-        <div class="panel-head">
-          <h2>周复盘</h2>
-          <button id="reviewBtn" class="secondary">更新复盘</button>
+        <div class="panel-head review-panel-head">
+          <div>
+            <h2>周复盘</h2>
+            <span>先看结论，再展开证据</span>
+          </div>
+          <button id="reviewBtn" class="review-primary-btn" type="button">↻ 更新复盘</button>
         </div>
         <div id="reviewBox" class="empty">保存反馈后，系统会自动生成周复盘。</div>
         <h3>回填记录</h3>
@@ -178,8 +407,9 @@
       </article>
     </section>
   </main>
+  </div>
 
   <div id="toast"></div>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=1.6.33"></script>
 </body>
 </html>

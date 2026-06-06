@@ -1,7 +1,11 @@
 let state;
+let memoryCloudState = null;
 
-const APP_VERSION = '1.6.9';
-const VERSION_LABEL = 'v1.6.9 · 页面降噪与复盘入口收口版';
+const APP_VERSION = '1.6.33';
+const VERSION_LABEL = 'v1.6.33 · 发布前脚本确认信息架构优化版';
+const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
+const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
+const CLOUD_STATE_KEY = 'global-project-store';
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload, null, 2), {
@@ -130,27 +134,172 @@ const compactTopicWords = (text = '') => String(text || '')
   .filter(Boolean);
 const serviceTopicFor = (industry = '', offer = '') => {
   const text = `${industry} ${offer}`;
-  if (hasAny(text, ['满月照', '周岁照', '亲子纪实', '儿童摄影', '亲子摄影'])) return { service: '儿童摄影', scene: '拍满月照', owner: '儿童摄影作品' };
-  if (hasAny(text, ['口腔', '牙齿', '矫正', '正畸', '种植牙'])) return { service: '口腔项目', scene: '做牙齿矫正/种植牙前', owner: '口腔科普内容' };
-  if (hasAny(text, ['美甲', '美睫', '美容', '皮肤管理', '医美'])) return { service: '美业服务', scene: '到店前', owner: '美业案例内容' };
-  if (hasAny(text, ['教育', '培训', '课程', '教培', '体验课'])) return { service: '课程/体验课', scene: '报名前', owner: '课程内容' };
-  if (hasAny(text, ['餐饮', '餐厅', '咖啡', '茶饮', '火锅', '烘焙'])) return { service: '到店消费', scene: '选店前', owner: '门店内容' };
-  const words = compactTopicWords(industry);
-  const service = words.find((word) => word.length <= 10 && !hasAny(word, ['本地', '广州', '上海', '北京', '深圳', '高端', '主打'])) || '服务项目';
-  return { service, scene: `选择${service}前`, owner: `${service}内容` };
+  if (hasAny(text, ['盆底肌', '漏尿', '产后修复', '产康', '骨盆修复'])) return { service: '盆底肌修复', scene: '做产后修复前', owner: '产后修复案例/科普内容', type: 'postpartum' };
+  if (hasAny(text, ['满月照', '周岁照', '亲子纪实', '儿童摄影', '亲子摄影'])) return { service: '儿童摄影', scene: '拍满月照', owner: '儿童摄影作品', type: 'photo' };
+  if (hasAny(text, ['口腔', '牙齿', '矫正', '正畸', '种植牙'])) return { service: '口腔项目', scene: '做牙齿矫正/种植牙前', owner: '口腔科普内容', type: 'dental' };
+  if (hasAny(text, ['美甲', '甲片', '穿戴甲', '手部护理', '美甲套餐'])) return { service: '美甲款式', scene: '做美甲前', owner: '真实客照/款式合集', type: 'nail' };
+  if (hasAny(text, ['饰品', '首饰', '耳饰', '耳环', '项链', '手链', '戒指', '发夹', '配饰', '珠宝', '银饰', '穿搭配件'])) return { service: '饰品款式', scene: '挑选饰品时', owner: '饰品款式/穿搭场景内容', type: 'fashion_accessory' };
+  if (hasAny(text, ['女装', '服装', '穿搭', '包包', '鞋履', '香薰', '礼物', '买手店', '零售', '上新'])) return { service: '商品款式', scene: '挑选商品时', owner: '商品种草/场景搭配内容', type: 'aesthetic_retail' };
+  if (hasAny(text, ['篮球销售', '卖篮球', '篮球售卖', '篮球零售', '篮球专卖', '篮球店', '篮球用品', '篮球器材', '篮球装备', '篮球商品', '训练篮球', '比赛篮球'])) return { service: '篮球商品', scene: '挑选篮球时', owner: '篮球商品/训练场景内容', type: 'basketball_goods' };
+  if (hasAny(text, ['美睫'])) return { service: '美睫效果', scene: '做美睫前', owner: '美睫案例内容', type: 'lash' };
+  if (hasAny(text, ['篮球培训', '篮球训练', '篮球启蒙', '篮球课', '少儿篮球课', '小学生篮球课', '幼儿篮球课', '青少年篮球课', '运球训练', '投篮训练', '体适能', '体能训练', '运动培训', '体育培训', '寒暑假班', '周末班'])) return { service: '少儿篮球体验课', scene: '报名少儿篮球课前', owner: '少儿篮球课堂/体能训练内容', type: 'youth_basketball' };
+  if (hasAny(text, ['美容', '皮肤管理', '医美'])) return { service: '皮肤管理项目', scene: '到店前', owner: '真实案例/过程内容', type: 'beauty' };
+  if (hasAny(text, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规测试', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) return { service: '医疗器械检测/注册/安规认证服务', scene: '做产品注册/检测认证前', owner: '医疗器械合规科普/企业案例内容', type: 'medical_device_compliance' };
+  if (hasAny(text, ['安标', '安全生产标准化', '安全标准化', '安全生产', '验厂', '认证辅导', '合规辅导', '工厂合规'])) return { service: '安全生产标准化辅导', scene: '做安标/验厂/合规准备前', owner: '安标合规科普/企业案例内容', type: 'safety_compliance' };
+  if (hasAny(text, ['教育', '培训', '课程', '教培', '体验课'])) return { service: '课程/体验课', scene: '报名前', owner: '课程内容', type: 'education' };
+  if (hasAny(text, ['餐饮', '餐厅', '咖啡', '茶饮', '火锅', '烘焙'])) return { service: '到店消费', scene: '选店前', owner: '门店内容', type: 'localfood' };
+  const words = compactTopicWords(`${offer} ${industry}`);
+  const service = words.find((word) => word.length <= 10 && !hasAny(word, ['本地', '广州', '上海', '北京', '深圳', '高端', '主打', '获得更多', '咨询', '预约', '客户'])) || '具体服务';
+  return { service, scene: `选择${service}前`, owner: `${service}内容`, type: 'default' };
 };
 const naturalPlanTitles = ({ audience, industry, offer, painShort, goal }) => {
   const service = serviceTopicFor(industry, offer);
   const reader = hasAny(audience, ['宝妈']) ? '宝妈' : audience;
+  if (service.type === 'nail') {
+    return [
+      `${reader}想做显白美甲，先看这几种款式`,
+      `短甲女生适合什么美甲？这几款不挑手型`,
+      `上班通勤也能做的低调美甲合集`,
+      `第一次来店做美甲，最该先确认这3件事`,
+      `约会/拍照前做美甲，别只看图片好不好看`,
+      `${reader}担心美甲翻车？先看真实客照和细节`,
+      `本周客人问得最多的美甲款式问题`,
+    ];
+  }
+  if (service.type === 'youth_basketball') {
+    return [
+      `孩子总玩手机，为什么建议先试一次篮球课`,
+      `6-12岁孩子练篮球，家长最该看这4点`,
+      `篮球课不只是投篮，更是在练体能和专注力`,
+      `附近3公里怎么选靠谱少儿篮球训练机构`,
+      `第一次体验课，家长要观察孩子哪几个变化`,
+      `孩子胆小/零基础/不爱运动，适不适合篮球课`,
+      `周末班和寒暑假班，篮球训练怎么安排更有效`,
+    ];
+  }
+  if (service.type === 'basketball_goods') {
+    return [
+      `学生买篮球，先看清楚室内球还是室外球`,
+      `篮球运动爱好者怎么选一颗耐磨又好控的球`,
+      `第一次买篮球，别只看颜色和价格`,
+      `水泥地打球，篮球最该看这3个参数`,
+      `学生党预算有限，篮球怎么选不容易踩坑`,
+      `训练用球和比赛用球，到底差在哪里`,
+      `本周适合学生和爱好者的篮球款式清单`,
+    ];
+  }
+  if (service.type === 'fashion_accessory') {
+    return [
+      `这几款耳饰，普通穿搭戴上立刻变精致`,
+      `${reader}上班通勤适合戴什么饰品`,
+      `脸圆/脖子短怎么选耳环？这3类更显气质`,
+      `百元内不廉价的饰品，送自己也适合送朋友`,
+      `黑白灰穿搭太素？加一件饰品就有重点`,
+      `第一次买饰品，别只看图片好不好看`,
+      `本周新款里，最适合约会/拍照的3件饰品`,
+    ];
+  }
+  if (service.type === 'aesthetic_retail') {
+    return [
+      `${reader}最近最容易收藏的3种商品风格`,
+      `通勤/约会/拍照都能用的搭配清单`,
+      `第一次下单前，先看材质、尺寸和真实上身效果`,
+      `百元内不显廉价的礼物/自用好物清单`,
+      `同一件单品，怎么搭才更显质感`,
+      `新品上架先别乱买，按这3个场景选`,
+      `本周最适合收藏参考的款式合集`,
+    ];
+  }
+  if (service.type === 'safety_compliance') {
+    return [
+      `企业做安标前，老板最容易忽略的3个准备`,
+      `验厂前才补安全资料，为什么风险会变高`,
+      `安全生产标准化辅导，先看现场还是先补台账`,
+      `中小企业做合规整改，别只盯证书结果`,
+      `安标评审前，负责人要先确认这5类材料`,
+      `工厂安全管理反复扣分，通常卡在这几个细节`,
+      `一次安标辅导到底帮企业解决什么问题`,
+    ];
+  }
   return [
     `${reader}${service.scene}，最容易踩的3个坑`,
-    `为什么你发了${service.owner}，还是没人咨询？`,
+    `${reader}担心${service.service}不合适？先看真实体验和细节`,
     `${reader}选${service.service}，最在意的不是价格`,
-    `客户迟迟不咨询，通常卡在这3个顾虑`,
-    `${service.service}到底适不适合你？先看这几个信号`,
-    `负责人亲自讲：我们怎么帮客户判断${service.service}`,
-    `本周客户问得最多的1个${service.service}问题`,
+    `第一次了解${service.service}，这3个顾虑很正常`,
+    `${service.service}值不值得选？先看过程、价格和案例`,
+    `${reader}到店前，可以先问清楚这5件事`,
+    `关于${service.service}，大家最常问的1个问题`,
   ].map((title) => title.replace(/目标客户|服务项目/g, (word) => word === '目标客户' ? '客户' : service.service));
+};
+
+const customerPlanRowsFor = ({ titles, service, offer }) => {
+  if (service.type === 'nail') {
+    return [
+      [titles[0], '款式种草：用真实客照展示显白、显手细和上手效果', '图文/短视频', '喜欢哪一款可以截图私信，先看手型和肤色再推荐。', '收藏/私信', '可直接进入草稿', '适合放真实客照、色号和到店预约入口'],
+      [titles[1], '手型适配：解决短甲、肉手、通勤不方便的实际顾虑', '图文', '保存这条，到店前选2-3个参考款。', '收藏数', '可直接进入草稿', '适合做款式合集，避免空泛讲服务'],
+      [titles[2], '场景合集：围绕上班、约会、拍照、节日前换款展示选择', '图文/短视频', '想做低调款，可以私信发手部照片和预算。', '私信/咨询', '可直接进入草稿', '符合美甲店到店决策场景'],
+      [titles[3], '到店决策：讲清价格区间、耗时、卸甲、消毒和预约流程', '图文', '第一次来店可以先私信想做的风格和可预约时间。', '咨询数', '需要人工润色', '发布前补充门店真实流程和价位'],
+      [titles[4], '效果避坑：说明图片款和实际上手效果为什么会不同', '短视频/图文', '拿不准适合哪种风格，可以发参考图先判断。', '收藏/私信', '需要人工润色', '适合降低翻车顾虑'],
+      [titles[5], '信任建立：展示真实客照、细节近拍、边缘处理和持久度', '短视频', '想看同款更多细节，可以私信预约试色。', '私信数', '可直接进入草稿', '建议加入真实手部细节，不要只放网图'],
+      [titles[6], 'FAQ：把客人常问的价格、持久度、卸甲和款式选择做成内容', '图文/短视频', '还有想问的款式/价格，可以私信具体情况。', '咨询数', '仅为策略方向', '需要结合真实咨询问题后再发布'],
+    ];
+  }
+  if (service.type === 'youth_basketball') {
+    return [
+      [titles[0], '家长焦虑切入：先回应孩子运动不足、沉迷手机、体能下降和社交少，再引出低门槛体验课', '图文/短视频', '想知道孩子适不适合篮球课，可以先预约一次体验课，观察兴趣、体能和课堂参与度。', '收藏/私信', '可直接进入草稿', '必须写给家长，不写机构运营问题；禁止夸大长高/升学效果'],
+      [titles[1], '选择标准：讲清年龄分班、教练资质、安全保护、训练强度和课后反馈', '图文', '保存这条，带孩子试听前可以对照看机构、教练和课堂反馈。', '收藏数', '可直接进入草稿', '适合做家长决策清单，承接同城搜索'],
+      [titles[2], '价值解释：把篮球训练从“学投篮”转成体能、协调性、专注力、规则感和团队协作', '短视频/图文', '如果孩子平时不爱运动，可以先从低强度体验课开始。', '私信/咨询', '可直接进入草稿', '发布前补真实课堂片段、运球/投篮/热身训练画面'],
+      [titles[3], '同城选择：围绕距离、接送、班型、试听体验、安全感和孩子适应度降低决策成本', '图文', '附近家长可以私信孩子年龄、基础和可上课时间，先判断适合哪个班型。', '咨询数', '需要人工润色', '适合本地3公里获客；不要写成泛教育课程模板'],
+      [titles[4], '体验课观察：告诉家长第一次课重点看孩子兴趣、出汗量、听指令、互动和教练反馈', '图文/短视频', '第一次体验后，我们会根据孩子状态给训练建议和班型建议。', '咨询数', '可直接进入草稿', '适合承接体验课预约，建议加入真实试听片段'],
+      [titles[5], '适配人群：回应胆小、零基础、不爱运动、怕跟不上、怕受伤的家庭顾虑', '图文', '不确定孩子能不能适应，可以先从一次体验课看反应。', '私信数', '需要人工润色', '重点降低报名阻力，避免承诺立刻长高/变强'],
+      [titles[6], '节点营销：结合周末班、寒暑假班和新学期体能需求，给家长低压力训练安排', '图文/短视频', '想了解周末班或假期班，可以私信孩子年龄、篮球基础和可训练时间。', '咨询数', '仅为策略方向', '需结合真实班型、名额、场馆位置和上课时间发布'],
+    ];
+  }
+  if (service.type === 'basketball_goods') {
+    return [
+      [titles[0], '购买决策：先把篮球使用场地讲清楚，区分室内木地板、塑胶场和水泥地', '图文/短视频', '想买篮球可以私信使用场地、预算和年龄，我们帮你缩小选择。', '曝光/私信', '可直接进入草稿', '必须围绕篮球商品，不写篮球课/体验课/相关服务'],
+      [titles[1], '产品种草：围绕耐磨、手感、控球、弹性和防滑做真实对比', '图文/短视频', '保存这条，买篮球前可以按手感和场地对照选。', '收藏数', '可直接进入草稿', '适合学生和篮球爱好者搜索收藏'],
+      [titles[2], '避坑清单：讲清尺寸、材质、重量、气压、品牌溢价和售后问题', '图文', '不确定买几号球，可以私信身高年龄和主要打球场地。', '收藏/私信', '可直接进入草稿', '承接下单前咨询，不写服务流程'],
+      [titles[3], '场景选择：水泥地训练重点讲耐磨和防滑，不要只讲颜值', '短视频/图文', '经常在室外打球，可以私信预算和使用频率推荐款式。', '私信/订单', '需要人工润色', '建议补真实球面、弹跳和户外使用素材'],
+      [titles[4], '预算分层：学生党按价格段推荐入门、训练和进阶款', '图文', '想看同预算更多篮球，可以私信预算区间和打球场景。', '私信/订单', '可直接进入草稿', '适合带动曝光到询单'],
+      [titles[5], '功能对比：解释训练球、比赛球、室内球、室外球的差异', '图文/短视频', '不知道选训练还是比赛用球，可以私信具体用途。', '咨询数', '仅为策略方向', '需结合真实 SKU、价格和库存'],
+      [titles[6], '上新/清单：用学生、爱好者、送礼、训练等场景组织商品推荐', '图文/短视频', '喜欢哪一款可以私信编号/截图确认价格和库存。', '私信/订单', '可直接进入草稿', '商品销售类要指向询价/下单/库存，不指向预约体验课'],
+    ];
+  }
+  if (service.type === 'fashion_accessory') {
+    return [
+      [titles[0], '款式种草：用真实佩戴图展示显脸小、显气质和上身效果', '图文/短视频', '喜欢哪一款可以私信编号/截图，先看风格和预算再推荐。', '曝光/收藏', '可直接进入草稿', '必须围绕饰品款式，不写服务流程'],
+      [titles[1], '场景搭配：围绕通勤、约会、拍照、日常出门展示佩戴选择', '图文', '保存这条，搭配衣服前可以对照选款。', '收藏数', '可直接进入草稿', '适合小红书饰品种草'],
+      [titles[2], '人群适配：解决脸型、脖子长度、肤色和风格选择困难', '图文/短视频', '拿不准适合哪类耳饰，可以私信照片/风格偏好先判断。', '收藏/私信', '需要人工润色', '发布前补真实佩戴对比图'],
+      [titles[3], '价格与送礼：用百元内/不廉价/送自己送朋友降低下单门槛', '图文', '想看同价位更多款式，可以私信预算和使用场景。', '私信/订单', '可直接进入草稿', '承接曝光到询单，不写预约服务'],
+      [titles[4], '穿搭教学：展示同一套衣服加饰品前后的精致度差异', '短视频/图文', '保存搭配思路，想要同款可以私信款式编号。', '收藏/私信', '需要人工润色', '适合用对比图提高收藏'],
+      [titles[5], '购买避坑：讲清图片色差、材质、尺寸、过敏、保养和退换注意', '图文', '下单前不确定材质或尺寸，可以先私信确认。', '收藏/咨询', '仅为策略方向', '需结合真实商品信息'],
+      [titles[6], '上新转化：用本周新款、约会/拍照/节日场景推动询单', '图文/短视频', '喜欢新款可以私信编号/截图确认库存和价格。', '私信/订单', '可直接进入草稿', '适合带动新品曝光和订单'],
+    ];
+  }
+  if (service.type === 'aesthetic_retail') {
+    return [
+      [titles[0], '商品种草：突出风格、真实使用场景和上手/上身效果', '图文/短视频', '喜欢哪一款可以私信编号/截图了解库存和价格。', '曝光/收藏', '可直接进入草稿', '商品类业务禁止套服务流程模板'],
+      [titles[1], '场景清单：把商品放进通勤、约会、拍照、送礼等真实使用场景', '图文', '保存这条，购买前可以按场景选。', '收藏数', '可直接进入草稿', '适合做小红书种草'],
+      [titles[2], '下单决策：讲清材质、尺寸、价格、适合人群和真实效果', '图文/短视频', '下单前不确定，可以私信具体需求。', '咨询/私信', '需要人工润色', '发布前补真实商品参数'],
+      [titles[3], '礼物/自用：用预算和关系场景降低选择成本', '图文', '想送礼可以私信用途和预算，帮你缩小选择。', '私信/订单', '可直接进入草稿', '承接订单转化'],
+      [titles[4], '搭配教学：展示一件商品在不同穿搭/空间/场景下的效果', '短视频/图文', '喜欢这个搭配可以私信同款或相似款。', '收藏/私信', '需要人工润色', '适合提高收藏'],
+      [titles[5], '新品选择：把上新从“看看新品”变成“按场景选新品”', '图文/短视频', '想看新款库存和价格，可以私信编号。', '私信/订单', '可直接进入草稿', '适合上新节点'],
+      [titles[6], 'FAQ：把客户常问的材质、尺寸、价格、发货、退换做成内容', '图文', '还有其他下单问题，可以私信具体款式。', '咨询数', '仅为策略方向', '需结合真实售前问题'],
+    ];
+  }
+  const serviceName = service.service || offer || '服务';
+  const visitCta = `想了解${serviceName}，可以私信具体情况或预约咨询。`;
+  const saveCta = `保存这条，选择${serviceName}前可以对照看。`;
+  return [
+    [titles[0], '场景痛点：用终端顾客正在经历的问题开头，不写老板经营困扰', '图文/短视频', visitCta, '收藏/私信', '需要人工润色', '只允许写目标客户的需求、顾虑和使用场景'],
+    [titles[1], '信任建立：展示真实案例、过程细节、前后变化和客户反馈', '短视频/图文', `想看更多${serviceName}案例，可以从主页或私信了解。`, '私信数', '需要人工润色', '发布前替换成本客户真实案例'],
+    [titles[2], '选择避坑：讲清价格、流程、效果边界和常见误区', '图文', saveCta, '收藏数', '可直接进入草稿', '面向购买/到店/报名决策，不面向老板复盘'],
+    [titles[3], '首次体验：降低第一次咨询、到店、试听或购买前的心理门槛', '图文/短视频', `第一次了解${serviceName}，可以先私信问流程和适配情况。`, '咨询数', '需要人工润色', '适合承接新客咨询'],
+    [titles[4], '效果说明：用客户看得懂的话说明适合人群、交付结果和注意事项', '图文', visitCta, '咨询数', '可直接进入草稿', '主题清楚，适合承接转化'],
+    [titles[5], '过程透明：展示环境、流程、服务人员、材料或方法，降低不信任', '短视频', `拿不准能不能做，可以先私信具体情况。`, '互动/私信', '需要人工润色', '建议加入真实过程素材'],
+    [titles[6], 'FAQ：把目标客户常问的价格、周期、效果、流程做成内容', '短视频/图文', `还有关于${serviceName}的问题，可以私信具体情况。`, '咨询数', '仅为策略方向', '必须结合真实咨询问题后再发布'],
+  ];
 };
 const normalizeBenchmark = (payload = {}) => {
   const source = payload.benchmark && typeof payload.benchmark === 'object' ? payload.benchmark : payload;
@@ -216,7 +365,10 @@ const softCta = (offer = '', pain = '') => {
   if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，可以私信具体情况，从一张内容反馈表开始。';
   return `如果你也遇到「${pain || '类似问题'}」，可以私信具体情况，先判断问题卡在哪里。`;
 };
-const isMetaMarketingAccount = (assessment) => hasAny([assessment.industry, assessment.offer, assessment.main_goal].filter(Boolean).join(' '), ['企业内容增长', '线上获客', 'AI营销复盘', '营销增长', '内容获客']);
+const isMetaMarketingAccount = (assessment) => {
+  const text = [assessment.industry, assessment.offer, assessment.company_name, assessment.account_preference].filter(Boolean).join(' ');
+  return hasAny(text, ['内容决策局', '企业内容增长', '企业获客', 'AI营销复盘', '营销增长决策', '内容获客工具']);
+};
 const addPlatform = (bucket, platform, reason) => {
   if (!bucket.some((item) => item.platform === platform)) bucket.push({ platform, reason });
 };
@@ -327,6 +479,42 @@ const recommendPlatforms = (assessment) => {
     addPlatform(support, '美团/大众点评', '适合承接到店意图，重点优化套餐、评价和门店页转化。');
     addPlatform(support, '视频号', '适合微信生态内做案例沉淀和熟人信任。');
     addPlatform(avoid, 'B站', '本地到店转化链路较长，不建议作为第一主阵地。');
+  } else if (hasAny(accountText, ['篮球销售', '卖篮球', '篮球售卖', '篮球零售', '篮球专卖', '篮球店', '篮球用品', '篮球器材', '篮球装备', '篮球商品', '训练篮球', '比赛篮球'])) {
+    addPlatform(primary, '小红书', '适合做篮球选购避坑、学生党预算、场地适配和搜索收藏。');
+    addPlatform(primary, '抖音', '适合用短视频展示篮球手感、弹跳、防滑、耐磨和实拍测评。');
+    addPlatform(primary, '朋友圈/私域', '适合库存、价格、团购、学生社群和老客复购承接。');
+    addPlatform(support, '视频号', '适合微信生态内做产品测评、使用场景和私域转化。');
+    addPlatform(support, '淘宝/微信小店', '适合作为下单承接入口，不替代内容种草。');
+    addPlatform(avoid, '美团/大众点评', '篮球商品销售不以到店评价为主，除非有强线下门店和同城取货。');
+    addPlatform(avoid, 'B站', '测评内容可长期沉淀，但不适合作为第一轮拿订单主渠道。');
+  } else if (hasAny(accountText, ['饰品', '首饰', '耳饰', '耳环', '项链', '手链', '戒指', '发夹', '配饰', '珠宝', '银饰', '穿搭配件', '女装', '服装', '包包', '鞋履', '买手店', '香薰', '礼物', '零售', '上新'])) {
+    addPlatform(primary, '小红书', '适合做款式种草、穿搭场景、礼物清单和搜索收藏。');
+    addPlatform(primary, '抖音', '适合用短视频展示佩戴/上身效果、上新和场景搭配，放大曝光。');
+    addPlatform(primary, '朋友圈/私域', '适合新品上架、老客复购、询价和订单承接。');
+    addPlatform(support, '视频号', '适合沉淀品牌审美、上新讲解和私域转化。');
+    addPlatform(support, '淘宝/微信小店', '适合作为下单承接入口，不替代内容种草。');
+    addPlatform(avoid, '美团/大众点评', '商品零售不以到店评价为主，除非有强线下门店场景。');
+    addPlatform(avoid, 'B站', '内容生产成本高，不适合作为第一轮曝光拿订单主渠道。');
+  } else if (hasAny(accountText, ['篮球', '少儿篮球', '小学生篮球', '幼儿篮球', '青少年篮球', '篮球培训', '篮球训练', '篮球启蒙', '篮球课', '运球', '投篮', '体适能', '体能训练', '运动培训', '体育培训', '寒暑假班', '周末班'])) {
+    addPlatform(primary, '小红书', '适合承接家长主动搜索、同城训练避坑、体验课决策和收藏清单。');
+    addPlatform(primary, '视频号', '适合微信生态家长转化、教练出镜讲解、课堂片段和熟人推荐。');
+    addPlatform(primary, '朋友圈/私域', '适合跟进体验课、班型名额、家长反馈和转介绍报名。');
+    addPlatform(support, '抖音', '适合放大同城曝光和课堂氛围，但需要稳定短视频素材和安全合规表达。');
+    addPlatform(support, '美团/大众点评', '如有线下门店/场馆，可承接同城搜索、评价和体验课团购。');
+    addPlatform(avoid, 'B站', '适合长期教学资产，不适合短期体验课预约主渠道。');
+  } else if (hasAny(accountText, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规测试', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) {
+    addPlatform(primary, '视频号', '适合在微信生态内沉淀专业信任，承接企业负责人、注册负责人和质量负责人的熟人转介绍咨询。');
+    addPlatform(primary, '公众号', '适合沉淀医疗器械注册/检测/认证的长周期信任内容和搜索型资料。');
+    addPlatform(primary, '朋友圈/私域', '适合跟进企业线索、展示案例节点和承接一对一咨询转化。');
+    addPlatform(support, '小红书', '可后置测试搜索型避坑内容，但不作为第一轮B2B线索主阵地。');
+    addPlatform(support, '抖音', '可用于案例拆解和合规风险短视频，但需控制专业准确性。');
+    addPlatform(avoid, '美团/大众点评', '医疗器械检测/注册/安规认证不是到店消费，不适合作为主发布平台。');
+  } else if (hasAny(accountText, ['安标', '安全生产标准化', '安全标准化', '安全生产', '验厂', '认证辅导', '合规辅导', '工厂合规'])) {
+    addPlatform(primary, '抖音', '适合用短视频讲清安标/验厂/合规风险、整改过程和企业负责人关心的真实案例。');
+    addPlatform(primary, '视频号', '适合微信生态内沉淀专业信任，承接企业负责人和熟人转介绍咨询。');
+    addPlatform(primary, '朋友圈/私域', '适合跟进企业线索、展示整改案例和承接咨询转化。');
+    addPlatform(support, '小红书', '可作为搜索型知识沉淀后置测试，不作为P03安标第一轮主平台。');
+    addPlatform(avoid, '美团/大众点评', '安标合规辅导不是到店消费，不适合作为主发布平台。');
   } else if (hasAny(accountText, ['餐饮', '饭店', '餐厅', '咖啡', '茶饮', '火锅', '烧烤', '烘焙', '甜品', '小吃'])) {
     addPlatform(primary, '抖音', '适合用同城短视频放大菜品、环境、活动和到店氛围。');
     addPlatform(primary, '小红书', '适合做同城探店、收藏清单、场景种草和菜单决策内容。');
@@ -348,7 +536,7 @@ const recommendPlatforms = (assessment) => {
     addPlatform(avoid, 'B站', '本地短期获客效率较低，不建议作为第一主阵地。');
   } else {
     current.slice(0, 3).forEach((platform) => addPlatform(primary, platform, '这是当前已有平台，1.0先用它低成本测试内容反馈。'));
-    if (primary.length < 3) addPlatform(primary, '小红书', '适合测试用户痛点、案例和搜索型内容反馈。');
+    if (!current.length && primary.length < 3) addPlatform(primary, '小红书', '适合测试用户痛点、案例和搜索型内容反馈。');
     addPlatform(support, '朋友圈/私域', '适合承接信任、复购和轻咨询转化。');
     addPlatform(support, '视频号', '适合沉淀微信生态信任和私域承接。');
     addPlatform(support, '美团/大众点评', '如果属于到店服务，可作为搜索评价和转化承接平台。');
@@ -371,48 +559,143 @@ const planPlatforms = (recommendations, fallbackChannels) => {
   return primary.length ? primary : (platformsFor(fallbackChannels).length ? platformsFor(fallbackChannels) : ['小红书']);
 };
 
+const inferBusinessContext = (assessment = {}) => {
+  const text = [
+    assessment.industry,
+    assessment.main_goal,
+    assessment.offer,
+    assessment.target_customer,
+    assessment.customer_pain,
+    assessment.content_assets,
+    assessment.best_recent_content,
+  ].filter(Boolean).join(' ');
+  const service = serviceTopicFor(text, assessment.offer || '');
+  const target = shortAudience(assessment.target_customer || '目标客户');
+  const isGoods = ['basketball_goods', 'fashion_accessory', 'aesthetic_retail'].includes(service.type);
+  const isLocalService = ['nail', 'lash', 'beauty', 'postpartum', 'photo', 'dental', 'localfood'].includes(service.type);
+  const isTraining = ['youth_basketball', 'education'].includes(service.type);
+  const isComplianceService = ['medical_device_compliance', 'safety_compliance'].includes(service.type);
+  const isMeta = isMetaMarketingAccount(assessment);
+  const missingInfo = [];
+  if (!assessment.offer) missingInfo.push('主推产品/服务或价格带');
+  if (!assessment.target_customer) missingInfo.push('目标客户');
+  if (!assessment.customer_pain) missingInfo.push('客户最常问的问题/顾虑');
+  if (!assessment.content_assets && !assessment.best_recent_content) missingInfo.push('现有素材或近期表现最好内容');
+
+  let businessType = '专业服务/本地服务';
+  let offerType = '服务/咨询';
+  let decisionScene = `${target}在选择${service.service}前需要降低风险感`;
+  let conversionAction = '私信具体情况 / 主页咨询 / 预约';
+  let contentTask = '用痛点、案例、流程透明和FAQ建立信任';
+
+  if (isGoods) {
+    businessType = '商品零售/产品销售';
+    offerType = '商品/SKU';
+    decisionScene = `${target}下单前比较款式、价格、材质、使用场景和真实效果`;
+    conversionAction = '私信询价 / 确认库存 / 下单';
+    contentTask = '用选购避坑、场景清单、参数对比和上新种草推动询单';
+  } else if (isTraining) {
+    businessType = '教育培训/体验课';
+    offerType = '课程/体验课';
+    decisionScene = `${target}报名前会比较安全、师资、班型、效果边界和孩子适应度`;
+    conversionAction = '预约体验课 / 私信年龄基础和上课时间';
+    contentTask = '用家长顾虑、课堂片段、训练价值和体验课观察降低报名阻力';
+  } else if (isLocalService) {
+    businessType = '本地到店服务';
+    offerType = '到店项目/预约服务';
+    decisionScene = `${target}到店前关注价格、效果、过程、卫生/专业度和真实案例`;
+    conversionAction = '预约到店 / 私信预算和时间';
+    contentTask = '用真实案例、过程透明、价格边界和本地场景承接预约';
+  } else if (isComplianceService) {
+    businessType = service.type === 'medical_device_compliance' ? 'B2B医疗器械合规服务' : 'B2B企业合规服务';
+    offerType = '检测/认证/注册/合规咨询服务';
+    decisionScene = `${target}选择${service.service}前会优先确认资质、流程节点、风险边界、案例可信度和交付周期`;
+    conversionAction = '预约初步评估 / 提交产品或企业基础信息 / 进入方案沟通';
+    contentTask = '用资质流程、风险避坑、节点清单和真实案例建立B2B专业信任';
+  }
+  if (isMeta) {
+    businessType = '企业营销增长工具';
+    offerType = '诊断/策略/复盘系统';
+    decisionScene = '老板/企业主判断内容是否真的带来客户，而不是只看点赞曝光';
+    conversionAction = '提交业务信息 / 记录内容效果 / 进入复盘';
+    contentTask = '用方法论、案例拆解和数据复盘证明增长判断能力';
+  }
+
+  const bottleneck = priorityFor(assessment.biggest_problem || '');
+  const riskGates = [];
+  if (service.type === 'basketball_goods') riskGates.push('禁止写成篮球培训、体验课、教练、班型或到店服务流程');
+  if (service.type === 'youth_basketball') riskGates.push('必须写给家长，禁止写成篮球商品下单或器材销售');
+  if (service.type === 'medical_device_compliance') riskGates.push('必须写给企业决策/注册/质量负责人，禁止写成C端种草、到店预约或泛营销焦虑');
+  if (isGoods) riskGates.push('商品零售类内容必须指向款式/参数/场景/询价/订单，不能套服务预约模板');
+  if (!isMeta) riskGates.push('内容必须写给客户的目标客户，不能写老板经营焦虑或工具复盘话术');
+
+  const confidence = Math.max(0.42, Math.min(0.92, 0.48 + (assessment.offer ? 0.12 : 0) + (assessment.target_customer ? 0.12 : 0) + (assessment.customer_pain ? 0.10 : 0) + (assessment.content_assets ? 0.06 : 0) + (assessment.best_recent_content ? 0.04 : 0)));
+  return {
+    module: 'internal_smart_diagnosis_kernel',
+    business_type: businessType,
+    category: service.service,
+    offer_type: offerType,
+    primary_offer: assessment.offer || service.service,
+    target_customer: assessment.target_customer || target,
+    customer_decision_scene: decisionScene,
+    conversion_action: conversionAction,
+    content_task: contentTask,
+    growth_bottleneck: bottleneck,
+    missing_info: missingInfo,
+    risk_gates: riskGates,
+    confidence,
+  };
+};
+
+const applyInternalSmartDiagnosis = (diagnosis, assessment) => {
+  const ctx = inferBusinessContext(assessment);
+  diagnosis.smart_context = ctx;
+  diagnosis.score_note = `内测智能诊断：先识别业务类型/交易链路/客户决策场景，再生成策略；置信度 ${Math.round(ctx.confidence * 100)}%。`;
+  diagnosis.insight = `系统判断这不是单纯的“${assessment.industry || '行业'}模板”，而是「${ctx.business_type}」场景：${ctx.customer_decision_scene}。当前核心瓶颈是「${ctx.growth_bottleneck}」，内容任务应转向：${ctx.content_task}。`;
+  diagnosis.weekly_action = `本周按「${ctx.category}」的真实成交链路设计 7 条小样本内容：先覆盖决策顾虑，再验证哪类内容能带来「${ctx.conversion_action}」。`;
+  diagnosis.next_step = ctx.missing_info.length
+    ? `先补齐「${ctx.missing_info.slice(0, 3).join('、')}」，再把内容计划细化到具体产品/服务和价格带。`
+    : `直接进入 7 天内容实验：每条内容都绑定一个顾虑、一个素材证据和一个转化动作「${ctx.conversion_action}」。`;
+  diagnosis.risk_warning = ctx.risk_gates.join('；') || '不要按泛行业模板输出，必须基于客户目标客户的购买/预约决策生成内容。';
+  return diagnosis;
+};
+
 const planTemplates = (priority, industry, goal, target, offer, pain, problem = '', benchmarkReference = null) => {
   const audience = shortAudience(target);
   const painShort = painLabel(pain, problem);
+  const serviceSource = [industry, pain, problem].filter(Boolean).join(' ');
   const benchmarkTheme = benchmarkReference?.recent_topics?.[0]?.replace(`${audience}对「`, '').replace('」类问题有明确兴趣', '');
   const cta = softCta(offer, painShort);
-  const isMeta = isMetaMarketingAccount({ industry, main_goal: goal, offer });
+  const isMeta = isMetaMarketingAccount({ industry: serviceSource, main_goal: goal, offer });
   if (!isMeta) {
-    const directCta = `想要「${goal}」，可以私信了解「${offer}」。`;
-    const titles = naturalPlanTitles({ audience, industry, offer, painShort, goal });
-    const items = [
-      [titles[0], `痛点共鸣：围绕「${painShort}」说清具体困扰`, '短视频/图文', directCta, '咨询数', '需要人工润色', '适合补充真实客户问题或本地案例后发布'],
-      [titles[1], '案例信任：讲清前后变化、过程和判断标准', '短视频', `可以通过主页咨询「${offer}」的适配情况。`, '私信数', '需要人工润色', '需要替换成真实案例，避免空泛承诺'],
-      [titles[2], '避坑科普：降低客户决策风险，建立专业信任', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏数', '可直接进入草稿', '结构完整，发布前补充门店/服务细节即可'],
-      [titles[3], `阻力拆解：把「${painShort}」转成可理解、可咨询的问题`, '图文/短视频', directCta, '评论数', '需要人工润色', '适合测试痛点表达是否准确'],
-      [titles[4], '价值说明：用客户语言解释交付结果和适合人群', '图文', directCta, '咨询数', '可直接进入草稿', '主题清楚，适合承接咨询'],
-      [titles[5], '人设信任：展示专业判断、流程和真实态度', '短视频', `有「${painShort}」类似问题，可以直接私信具体情况。`, '互动数', '需要人工润色', '建议加入负责人出镜或真实服务过程'],
-      [titles[6], 'FAQ：把咨询问题反向变成内容，沉淀下周选题', '短视频/图文', `还有关于「${offer}」的问题，可以私信具体情况。`, '评论数', '仅为策略方向', '必须结合真实私信/咨询后再发布'],
-    ];
+    const titles = naturalPlanTitles({ audience, industry: serviceSource, offer, painShort, goal });
+    const service = serviceTopicFor(serviceSource, offer);
+    const items = customerPlanRowsFor({ titles, service, offer });
     if (priority === '曝光不足') {
-      items[0] = [`${audience}遇到「${painShort}」时，最容易忽略什么？`, '强钩子：用高相关痛点提升打开率', '短视频/图文', directCta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
+      if (service.type === 'basketball_goods') items[0] = [titles[0], '打开率测试：用学生/爱好者买篮球时正在犹豫的场地、手感、耐磨和预算问题做标题', '图文/短视频', items[0][3], '曝光/收藏', '需要人工润色', '必须出现篮球商品、场地或选购参数'];
+      else items[0] = [titles[0], '打开率测试：用目标客户正在搜索/犹豫的问题做标题，不写内容曝光问题', '图文/短视频', items[0][3], '曝光/收藏', '需要人工润色', '只优化给终端客户看的第一眼表达'];
     }
     if (benchmarkTheme) {
-      items[0] = [`${audience}为什么会关注「${benchmarkTheme}」？`, '对标校准：提炼已验证痛点，转译为本客户场景，不照抄原文', '图文/短视频', directCta, '收藏数', '需要人工润色', '来自对标账号主题结构，发布前需替换成本客户案例'];
-      items[1] = [`从对标爆款看：选择${offer}前先确认3件事`, '标题结构迁移：把高互动问题改写成服务决策清单', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏/私信', '需要人工润色', '只借鉴结构，不复制标题和素材'];
+      items[0] = [`${audience}为什么会关注「${benchmarkTheme}」？`, '对标校准：提炼终端顾客已验证的真实疑问，转译为本客户服务场景', '图文/短视频', items[0][3], '收藏/私信', '需要人工润色', '只借鉴结构，不复制标题和素材'];
+      items[1] = [`选择${offer}前，先看清这3个真实问题`, '选择清单：把高互动问题改写成目标客户的购买/到店/报名决策清单', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏/私信', '需要人工润色', '不写老板复盘，不写内容运营问题'];
     }
     return items;
   }
   const items = [
-    [`发了很多内容，为什么还是没人咨询？`, `痛点诊断：围绕「${painShort}」拆出内容与获客断点`, '图文', cta, '收藏/评论', '需要人工润色', '策略方向可用，发布前需补充真实案例或老板经验'],
-    [`AI写文案很快，为什么带不来客户？`, '误区拆解：区分内容产出和获客转化', '图文', cta, '收藏数', '需要人工润色', '适合作为方法论选题，避免写成AI工具教程'],
+    [`企业主发内容没咨询，通常不是内容太少`, `痛点诊断：围绕「${painShort}」拆出内容与获客断点`, '图文', cta, '收藏/评论', '需要人工润色', '策略方向可用，发布前需补充真实案例或老板经验'],
+    [`老板用AI写文案前，先想清楚这3个获客问题`, '误区拆解：区分内容产出和获客转化', '图文', cta, '收藏数', '需要人工润色', '适合作为方法论选题，避免写成AI工具教程'],
     [`一条内容有没有获客价值，不是看点赞`, '复盘方法：用收藏、评论、私信判断需求信号', '图文', '发布后记录浏览、收藏、私信、咨询四个数据，再决定下一条怎么改。', '收藏/私信', '可直接进入草稿', '主题清晰，可用于测试复盘能力'],
-    [`企业账号别只发产品，先发客户问题`, `选题转译：把「${painShort}」改写成客户看得懂的问题`, '图文/短视频', cta, '评论数', '需要人工润色', '需要补充具体行业例子'],
-    [`老板没时间做运营，怎么做每周内容复盘？`, '低成本流程：发布-回填-复盘-下条调整', '图文', '需要复盘表时，可以私信具体情况。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
-    [`为什么爆款不等于能成交？`, '指标校准：曝光、互动、咨询分层看', '短视频/图文', '不要只问能不能火，先问能不能带来客户信号。', '评论/收藏', '需要人工润色', '适合做认知内容'],
-    [`本周内容测试复盘：哪个问题带来了真实反馈？`, '复盘公开：把7天反馈转成下周选题依据', '图文', '如果你也想知道内容怎么复盘，可以私信你现在最卡的点。', '评论/关注', '仅为策略方向', '必须等真实数据回填后再发布'],
+    [`企业账号别只发产品，先回答客户正在犹豫什么`, `选题转译：把「${painShort}」改写成客户看得懂的问题`, '图文/短视频', cta, '评论数', '需要人工润色', '需要补充具体行业例子'],
+    [`老板没时间做运营，也能先复盘这4个数`, '低成本流程：发布-回填-复盘-下条调整', '图文', '需要复盘表时，可以私信具体情况。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
+    [`为什么内容火了，客户还是不来问？`, '指标校准：曝光、互动、咨询分层看', '短视频/图文', '不要只问能不能火，先问能不能带来客户信号。', '评论/收藏', '需要人工润色', '适合做认知内容'],
+    [`本周哪条内容最接近真实客户需求？`, '复盘公开：把7天反馈转成下周选题依据', '图文', '如果你也想知道内容怎么复盘，可以私信你现在最卡的点。', '评论/关注', '仅为策略方向', '必须等真实数据回填后再发布'],
   ];
   if (priority === '曝光不足') {
     items[0] = [`${audience}内容没人看，先检查标题有没有说中痛点`, `强钩子：把「${painShort}」放到标题和封面第一眼`, '图文', cta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
   }
   if (benchmarkTheme) {
-    items[0] = [`为什么「${benchmarkTheme}」这类问题更容易被收藏？`, '对标校准：拆出已验证痛点，再转译成企业内容获客场景', '图文', cta, '收藏数', '需要人工润色', '只迁移主题和结构，不照抄原文'];
-    items[1] = [`从对标账号看，企业主最吃哪种标题结构？`, '结构拆解：痛点直问、避坑清单、案例复盘三类标题', '图文', cta, '收藏/私信', '可直接进入草稿', '适合做第一轮选题校准'];
+    items[0] = [`企业主为什么会关注「${benchmarkTheme}」？`, '对标校准：拆出已验证痛点，再转译成企业内容获客场景', '图文', cta, '收藏数', '需要人工润色', '只迁移主题和结构，不照抄原文'];
+    items[1] = [`老板做内容前，先确认这3个获客问题`, '结构拆解：痛点直问、避坑清单、案例复盘三类标题', '图文', cta, '收藏/私信', '可直接进入草稿', '适合做第一轮选题校准'];
   }
   return items;
 };
@@ -440,6 +723,9 @@ const createAssessment = (payload) => {
     account_preference: clean(payload, 'account_preference'),
     benchmark: normalizeBenchmark(payload),
     contact: clean(payload, 'contact'),
+    client_mode: clean(payload, 'client_mode') || clean(payload, '_mode'),
+    source: clean(payload, 'source') || clean(payload, 'client_mode') || clean(payload, '_mode') || 'api_assessment',
+    app_version: APP_VERSION,
     created_at: nowIso(),
   };
   state.assessments.unshift(assessment);
@@ -501,12 +787,72 @@ const generateDiagnosis = (assessmentId) => {
     diagnosis.risk_warning = '无回填就无法优化，系统会把“未回填”视为未闭环。';
   }
 
+  if (['internal_test', 'internal_regenerate', 'internal_version'].includes(assessment.client_mode || assessment.source)) {
+    applyInternalSmartDiagnosis(diagnosis, assessment);
+  }
+
   state.diagnoses.unshift(diagnosis);
   state.current_diagnosis_id = diagnosis.id;
   return diagnosis;
 };
 
-const createContentPlan = (diagnosisId) => {
+const contentPlanPrompt = (assessment, diagnosis) => {
+  const platforms = planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).join(' / ');
+  return `你是企业营销增长顾问。请基于客户输入生成7条适合「${platforms}」的内容选题。
+要求：
+1. 只写给客户的目标客户，不写给老板/运营者；
+2. 标题短、具体、可发布，不要泛化模板；
+3. 禁止评论区/留言关键词引导；
+4. 如果客户选择的是抖音，优先给短视频开头钩子、场景/案例/口播方向，不要默认输出小红书标签或小红书种草话术；
+5. 每条必须包含 topic, angle, content_type, cta, target_metric, publish_quality, quality_note；
+6. 只返回 JSON 数组，不要解释。
+客户输入：${JSON.stringify({assessment, diagnosis}, null, 2)}`;
+};
+
+const normalizeLlmPlanRows = (rows) => Array.isArray(rows) ? rows.slice(0, 7).map((item) => [
+  String(item.topic || '').trim(),
+  String(item.angle || '').trim(),
+  String(item.content_type || '图文/短视频').trim(),
+  String(item.cta || '引导客户私信具体情况或预约咨询。').trim(),
+  String(item.target_metric || '收藏/私信').trim(),
+  String(item.publish_quality || '需要人工润色').trim(),
+  String(item.quality_note || 'Opus生成，发布前补充客户真实素材。').trim(),
+]).filter((row) => row[0] && row[1]) : [];
+
+const generateOpusPlanRows = async (assessment, diagnosis) => {
+  if (!REQUESTED_CONTENT_MODEL.includes('claude') && !REQUESTED_CONTENT_MODEL.includes('opus')) {
+    return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: false, failure_reason: '' } };
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: 'ANTHROPIC_API_KEY missing' } };
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: REQUESTED_CONTENT_MODEL,
+        max_tokens: 2400,
+        temperature: 0.4,
+        messages: [{ role: 'user', content: contentPlanPrompt(assessment, diagnosis) }],
+      }),
+    });
+    if (!res.ok) throw new Error(`anthropic_http_${res.status}`);
+    const data = await res.json();
+    const text = data?.content?.map((part) => part.text || '').join('\n').trim() || '';
+    const jsonText = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
+    const rows = normalizeLlmPlanRows(JSON.parse(jsonText));
+    if (rows.length < 7) throw new Error(`opus_returned_${rows.length}_plans`);
+    return { rows, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: REQUESTED_CONTENT_MODEL, provider: 'anthropic', fallback: false } };
+  } catch (error) {
+    return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: error.message || 'opus_generation_failed' } };
+  }
+};
+
+const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   const diagnosis = state.diagnoses.find((item) => item.id === diagnosisId);
   if (!diagnosis) throw new Error('诊断记录不存在');
   const assessment = state.assessments.find((item) => item.id === diagnosis.assessment_id);
@@ -514,12 +860,15 @@ const createContentPlan = (diagnosisId) => {
   const goal = assessment?.main_goal || '获得更多有效咨询';
   const target = assessment?.target_customer || '目标客户';
   const offer = assessment?.offer || '一次免费诊断';
-  const pain = assessment?.customer_pain || assessment?.biggest_problem || '当前核心痛点';
+  const pain = [assessment?.customer_pain, assessment?.content_assets].filter(Boolean).join('；') || assessment?.biggest_problem || '当前核心痛点';
   const problem = assessment?.biggest_problem || '';
   const platforms = planPlatforms(diagnosis.platform_recommendations, assessment?.current_channels);
   // 不再在生成新诊断时清空反馈/复盘。serverless 内存不是可信数据库，
   // 但至少避免新诊断把同一实例中的历史反馈直接抹掉。
-  const plans = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference).map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
+  const sourceRows = modelRows?.length ? modelRows : planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference);
+  const generation = modelMeta || { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: 'opus_not_requested' };
+  diagnosis.content_generation = generation;
+  const plans = sourceRows.map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
     id: state.next.plan++,
     diagnosis_id: diagnosisId,
     planned_date: todayIso(index),
@@ -531,6 +880,10 @@ const createContentPlan = (diagnosisId) => {
     target_metric,
     publish_quality,
     quality_note,
+    requested_model: generation.requested_model,
+    actual_model: generation.actual_model,
+    provider: generation.provider,
+    fallback: generation.fallback,
     owner: '客户负责人',
     status: '待发布',
     publish_link: '',
@@ -661,6 +1014,75 @@ const ensureState = () => {
   if (!state) seed();
 };
 
+const normalizeCloudProjectStore = (payload = {}) => {
+  const raw = payload?.project_store || payload;
+  const projects = Array.isArray(raw?.projects) ? raw.projects : [];
+  const normalizedProjects = projects
+    .filter((item) => item && item.id && item.state && item.state.diagnosis && Array.isArray(item.state.plans))
+    .map((item) => ({
+      ...item,
+      updated_at: item.updated_at || item.state?.saved_at || nowIso(),
+    }))
+    .slice(0, 80);
+  return {
+    activeProjectId: raw?.activeProjectId || normalizedProjects[0]?.id || null,
+    lastActiveProjectId: raw?.lastActiveProjectId || null,
+    projects: normalizedProjects,
+    cloud_saved_at: raw?.cloud_saved_at || null,
+  };
+};
+
+const cloudEnvelope = (projectStore = null, meta = {}) => ({
+  app_version: APP_VERSION,
+  version_label: VERSION_LABEL,
+  saved_at: nowIso(),
+  project_store: normalizeCloudProjectStore(projectStore || {projects: []}),
+  ...meta,
+});
+
+const cloudStore = async () => {
+  try {
+    const mod = await import('@netlify/blobs');
+    const getStore = mod.getStore || mod.default?.getStore;
+    return getStore ? getStore(CLOUD_STATE_STORE) : null;
+  } catch {
+    return null;
+  }
+};
+
+const readCloudState = async () => {
+  const store = await cloudStore();
+  if (store) {
+    const data = await store.get(CLOUD_STATE_KEY, { type: 'json' }).catch(() => null);
+    if (data) return {...data, storage: 'netlify-blobs'};
+  }
+  if (!memoryCloudState) memoryCloudState = cloudEnvelope({projects: []}, {storage: 'memory-fallback'});
+  return {...memoryCloudState, storage: 'memory-fallback'};
+};
+
+const writeCloudState = async (payload = {}) => {
+  const current = await readCloudState();
+  const incoming = normalizeCloudProjectStore(payload.project_store || payload);
+  const byId = new Map();
+  (current.project_store?.projects || []).forEach((item) => byId.set(String(item.id), item));
+  incoming.projects.forEach((item) => {
+    const existing = byId.get(String(item.id));
+    if (!existing || String(item.updated_at || '') >= String(existing.updated_at || '')) byId.set(String(item.id), item);
+  });
+  const merged = cloudEnvelope({
+    activeProjectId: incoming.activeProjectId || current.project_store?.activeProjectId || incoming.projects[0]?.id || null,
+    lastActiveProjectId: incoming.lastActiveProjectId || current.project_store?.lastActiveProjectId || null,
+    projects: [...byId.values()].sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || ''))),
+  });
+  const store = await cloudStore();
+  if (store) {
+    await store.setJSON(CLOUD_STATE_KEY, merged);
+    return {...merged, storage: 'netlify-blobs'};
+  }
+  memoryCloudState = {...merged, storage: 'memory-fallback'};
+  return memoryCloudState;
+};
+
 export default async (request) => {
   ensureState();
   const url = new URL(request.url);
@@ -672,6 +1094,7 @@ export default async (request) => {
   try {
     if (request.method === 'GET') {
       if (path === '/health') return json({ ok: true, runtime: 'netlify-function', version: APP_VERSION, version_label: VERSION_LABEL });
+      if (path === '/state') return json(await readCloudState());
       if (path === '/dashboard') return json(dashboard());
       if (path === '/assessments') return json(state.assessments);
       if (path === '/diagnoses') return json(state.diagnoses);
@@ -685,8 +1108,12 @@ export default async (request) => {
       const assessment_id = createAssessment(payload);
       const assessment = state.assessments.find((item) => item.id === assessment_id);
       const diagnosis = generateDiagnosis(assessment_id);
-      const plans = createContentPlan(diagnosis.id);
+      const generated = await generateOpusPlanRows(assessment, diagnosis);
+      const plans = createContentPlan(diagnosis.id, generated.rows, generated.meta);
       return json({ assessment_id, assessment, diagnosis, plans }, 201);
+    }
+    if (request.method === 'POST' && path === '/state') {
+      return json(await writeCloudState(payload), 201);
     }
     if (request.method === 'POST' && path === '/feedback') {
       const plan_id = Number(payload.content_plan_id);

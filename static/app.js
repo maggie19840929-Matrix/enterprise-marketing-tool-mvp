@@ -1,10 +1,18 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.6.9';
-const VERSION_LABEL = 'v1.6.9 · 页面降噪与复盘入口收口版';
+const APP_VERSION = '1.6.33';
+const VERSION_LABEL = 'v1.6.33 · 发布前脚本确认信息架构优化版';
+window.APP_VERSION = APP_VERSION;
+window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
 const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
+const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
+const isInternalMode = () => {
+  const path = String(location.pathname || '').replace(/\/+$/, '');
+  const params = new URLSearchParams(location.search || '');
+  return path === '/internal' || params.get('mode') === 'internal';
+};
 const CONTENT_DECISION_SAMPLE = {
   company_name: '内容决策局',
   industry: '企业内容增长 / 线上获客 / AI营销复盘',
@@ -24,7 +32,7 @@ const CONTENT_DECISION_SAMPLE = {
     platform: '小红书',
     accounts: ['https://example.com/benchmark-account'],
     notes: '参考企业增长类账号：标题多用真实问题、避坑、复盘方法，收藏和私信反馈较高。',
-    sample_content: '代表内容：发了很多内容为什么还是没人咨询？数据摘要：收藏高于点赞，私信集中问复盘表。',
+    sample_content: '代表内容：企业主发内容没咨询，通常不是内容太少。数据摘要：收藏高于点赞，私信集中问复盘表。',
   },
   contact: '企业营销工具测试样例',
 };
@@ -38,10 +46,32 @@ const blankClientState = () => ({
   plans: [],
   feedback: [],
   review: null,
+  intake_history: [],
+  diagnosis_history: [],
+  active_diagnosis_id: null,
+  source: '',
+  environment: '',
+  app_version: APP_VERSION,
 });
 
 let clientState = blankClientState();
-let projectStore = {activeProjectId: null, projects: []};
+let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
+
+const ANBIAO_CUSTOMER_SOURCE_URL = 'https://kcny4x1jqjwx.feishu.cn/base/XK1ubLNLtaZ1m8swQQ5cAILOnhf';
+const ANBIAO_CUSTOMER_ROWS = [
+  {id:'V01', title:'医疗器械注册送检，为什么经常被要求补检？', feedback:'核心原因在于送检前准备与法规标准要求之间存在缺口：标准更新滞后、产品变更未同步验证、资料不完整、样品不典型、机构与企业认知差异。', score:5},
+  {id:'V02', title:'送检前，客户最好提前准备哪些资料？', feedback:'标题是送检前资料准备，但脚本更偏检测费用和周期所需信息。', score:4},
+  {id:'V03', title:'安规、EMC、环境试验分别在测什么？', feedback:'内容较简单，可改为更专业知识点，比如环境试验与包装运输试验的区别。', score:1},
+  {id:'V04', title:'不是产品硬件过了，检测就一定顺利', feedback:'暂无客户反馈。', score:2},
+  {id:'V05', title:'检测不合格，第一步不是盲目重测', feedback:'暂无客户反馈。', score:3},
+  {id:'V06', title:'标准更新后，老产品为什么也要关注检测？', feedback:'暂无客户反馈。', score:5},
+  {id:'V07', title:'客户投标前急需检测报告，我们如何加急处理？', feedback:'暂无客户反馈。', score:1},
+  {id:'V08', title:'选择检测机构，不只看价格，还要看什么？', feedback:'暂无客户反馈。', score:4},
+  {id:'V09', title:'医疗器械检测周期，为什么不能只问“几天出报告”？', feedback:'暂无客户反馈。', score:4},
+  {id:'V10', title:'医疗器械送检样品，为什么不能随便寄一个就测？', feedback:'暂无客户反馈。', score:3},
+  {id:'V11', title:'检测报告能不能直接用于注册，关键看这几点', feedback:'暂无客户反馈。', score:4},
+  {id:'V12', title:'企业第一次做医疗器械检测，最容易忽略的三件事', feedback:'客户补充了更专业的中段：说明书声称与技术要求/样品实物不一致；送检样品不是最终设计定型版；选错检测机构或检测项目。', score:2},
+];
 
 const api = async (url, opts={}) => {
   const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
@@ -98,6 +128,12 @@ const normalizeState = (state = {}) => {
     plans: withMeta(state.plans),
     feedback: withMeta(state.feedback),
     review: state.review || null,
+    intake_history: Array.isArray(state.intake_history) ? state.intake_history : (assessment ? [assessment] : []),
+    diagnosis_history: Array.isArray(state.diagnosis_history) ? state.diagnosis_history : (state.diagnosis ? [state.diagnosis] : []),
+    active_diagnosis_id: state.active_diagnosis_id || state.diagnosis?.id || null,
+    source: state.source || assessment?.source || '',
+    environment: state.environment || '',
+    app_version: state.app_version || APP_VERSION,
     saved_at: state.saved_at || localTimestamp(),
   };
 };
@@ -204,25 +240,119 @@ function projectSummaryFromState(state = clientState){
     state: normalized,
   };
 }
+const canonicalProjectName = (item = {}) => String(item.name || item.state?.project?.name || item.state?.assessment?.company_name || '')
+  .replace(/\s+/g, '')
+  .replace(/作战台$/g, '')
+  .trim();
+function normalizeProjectItem(item = {}){
+  const state = normalizeState(item.state || {});
+  const name = customerDisplayName(state.assessment, state.project) || item.name || '我的内容增长作战台';
+  return {
+    ...item,
+    id: item.id || state.project?.id,
+    name,
+    stage: state.project_stage || inferProjectStage(state),
+    state,
+    updated_at: item.updated_at || state.saved_at || localTimestamp(),
+  };
+}
+function preferProjectItem(candidate, existing){
+  if (!existing) return candidate;
+  const candidateWeight = stateWeight(candidate.state);
+  const existingWeight = stateWeight(existing.state);
+  if (candidateWeight !== existingWeight) return candidateWeight > existingWeight ? candidate : existing;
+  const candidateStage = candidate.state?.project_stage || candidate.stage || '';
+  const existingStage = existing.state?.project_stage || existing.stage || '';
+  if (candidateStage !== existingStage) {
+    if (candidateStage === '运营中') return candidate;
+    if (existingStage === '运营中') return existing;
+  }
+  return String(candidate.updated_at || '') >= String(existing.updated_at || '') ? candidate : existing;
+}
 function loadProjectStore(){
   try {
     const parsed = JSON.parse(safeStorage.getItem(PROJECTS_KEY) || 'null');
     if (parsed && Array.isArray(parsed.projects)) {
       projectStore = {
         activeProjectId: parsed.activeProjectId || parsed.projects[0]?.id || null,
-        projects: parsed.projects.map((item)=>({
-          ...item,
-          state: normalizeState(item.state || {}),
-        })).filter((item)=>item.id && hasRestorableState(item.state)),
+        lastActiveProjectId: parsed.lastActiveProjectId || null,
+        projects: parsed.projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state)),
       };
     }
   } catch {
-    projectStore = {activeProjectId: null, projects: []};
+    projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
   }
   return projectStore;
 }
 function saveProjectStore(){
   return safeStorage.setItem(PROJECTS_KEY, JSON.stringify(projectStore));
+}
+function normalizeProjectStoreShape(store = {}){
+  const projects = Array.isArray(store.projects) ? store.projects : [];
+  return {
+    activeProjectId: store.activeProjectId || projects[0]?.id || null,
+    lastActiveProjectId: store.lastActiveProjectId || null,
+    projects: projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state)),
+  };
+}
+function mergeProjectStores(localStore = projectStore, cloudStore = {}){
+  const local = normalizeProjectStoreShape(localStore);
+  const cloud = normalizeProjectStoreShape(cloudStore);
+  const byId = new Map();
+  [...local.projects, ...cloud.projects].forEach((item)=>{
+    const key = String(item.id);
+    byId.set(key, preferProjectItem(item, byId.get(key)));
+  });
+  const byName = new Map();
+  [...byId.values()].forEach((item)=>{
+    const key = canonicalProjectName(item) || String(item.id);
+    byName.set(key, preferProjectItem(item, byName.get(key)));
+  });
+  const projects = [...byName.values()].sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+  const resolveProjectId = (wantedId) => {
+    if (!wantedId) return null;
+    const direct = projects.find((item)=>String(item.id) === String(wantedId));
+    if (direct) return direct.id;
+    const source = [...local.projects, ...cloud.projects].find((item)=>String(item.id) === String(wantedId));
+    const nameKey = canonicalProjectName(source);
+    return nameKey ? projects.find((item)=>canonicalProjectName(item) === nameKey)?.id || null : null;
+  };
+  projectStore = {
+    activeProjectId: resolveProjectId(local.activeProjectId) || resolveProjectId(cloud.activeProjectId) || projects[0]?.id || null,
+    lastActiveProjectId: resolveProjectId(local.lastActiveProjectId) || resolveProjectId(cloud.lastActiveProjectId) || null,
+    projects,
+  };
+  saveProjectStore();
+  return projectStore;
+}
+let cloudSyncTimer = null;
+async function pullCloudProjectStore({silent = true} = {}){
+  try {
+    const result = await api('/api/state');
+    if (result?.project_store?.projects) {
+      mergeProjectStores(projectStore, result.project_store);
+      if (!silent) toast(`已同步云端项目：${projectStore.projects.length} 个`);
+      return true;
+    }
+  } catch (error) {
+    if (!silent) toast('云端项目同步失败，本机数据仍可用');
+  }
+  return false;
+}
+async function pushCloudProjectStore({silent = true} = {}){
+  try {
+    loadProjectStore();
+    await api('/api/state', {method:'POST', body: JSON.stringify({project_store: projectStore})});
+    if (!silent) toast('已同步到云端，手机和电脑刷新后可见');
+    return true;
+  } catch (error) {
+    if (!silent) toast('本地已保存；云端同步失败，跨设备暂不可见');
+  }
+  return false;
+}
+function scheduleCloudSync(){
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(()=>pushCloudProjectStore({silent:true}), 250);
 }
 function upsertCurrentProjectState(){
   if (!hasRestorableState(clientState)) return false;
@@ -239,8 +369,108 @@ function upsertCurrentProjectState(){
 const saveLocal = () => {
   clientState.saved_at = localTimestamp();
   upsertCurrentProjectState();
-  return safeStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
+  const saved = safeStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
+  scheduleCloudSync();
+  return saved;
 };
+
+function buildVersionedProjectState(result = {}, payload = {}, source = 'customer_public', existingState = null, reason = '首次诊断'){
+  const existing = existingState || blankClientState();
+  const assessment = {
+    ...(result.assessment || payload),
+    source,
+    submitted_by: source === 'customer_public' ? '客户' : '内部人员',
+    app_version: APP_VERSION,
+    created_at: (result.assessment || payload).created_at || localTimestamp(),
+  };
+  const project = existing.project || makeProject({...assessment, project_id: assessment.project_id || `project-${Date.now()}`});
+  project.name = customerDisplayName(assessment, project);
+  const previousDiagnoses = Array.isArray(existing.diagnosis_history) ? existing.diagnosis_history : (existing.diagnosis ? [existing.diagnosis] : []);
+  const diagnosisVersion = previousDiagnoses.length + 1;
+  const diagnosis = {
+    ...(result.diagnosis || {}),
+    diagnosis_version: diagnosisVersion,
+    reason_for_regeneration: reason,
+    is_active: true,
+    app_version: APP_VERSION,
+    version_label: VERSION_LABEL,
+  };
+  const archived = previousDiagnoses.map((item)=>({...item, is_active: false}));
+  const intakeHistory = [
+    {...assessment, intake_version: (Array.isArray(existing.intake_history) ? existing.intake_history.length : 0) + 1},
+    ...(Array.isArray(existing.intake_history) ? existing.intake_history : []),
+  ].slice(0, 30);
+  return normalizeState({
+    project,
+    project_stage: '待启动',
+    current_cycle_id: existing.current_cycle_id || 'cycle-1',
+    assessment,
+    diagnosis,
+    plans: result.plans || [],
+    feedback: Array.isArray(existing.feedback) ? existing.feedback : [],
+    review: null,
+    intake_history: intakeHistory,
+    diagnosis_history: [diagnosis, ...archived].slice(0, 30),
+    active_diagnosis_id: diagnosis.id || existing.active_diagnosis_id || null,
+    source,
+    environment: source === 'customer_public' ? 'customer_version' : 'internal_version',
+    app_version: APP_VERSION,
+    saved_at: localTimestamp(),
+  });
+}
+
+function fillCustomerFormFromAssessment(assessment = {}){
+  const form = $('#customerAssessmentForm');
+  if (!form) return;
+  ['industry','main_goal','target_customer','offer','customer_pain','content_assets','best_recent_content','current_channels','biggest_problem'].forEach((key)=>{
+    const input = form.querySelector(`[name="${key}"]`);
+    if (input) input.value = assessment[key] || '';
+  });
+  form.querySelectorAll('.customer-choice-chip').forEach((btn)=>{
+    const selected = [assessment.current_channels, assessment.biggest_problem].filter(Boolean).includes(btn.dataset.value);
+    btn.classList.toggle('is-selected', selected);
+    btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+}
+
+function setCustomerFormCollapsed(collapsed){
+  const formCard = $('#customerFormCard');
+  if (!formCard) return;
+  formCard.hidden = Boolean(collapsed);
+  formCard.setAttribute('aria-hidden', collapsed ? 'true' : 'false');
+}
+
+function renderCustomerGeneratedState(saved = {}, options = {}){
+  const assessment = saved.assessment || clientState.assessment;
+  const diagnosis = saved.diagnosis || clientState.diagnosis;
+  const plans = Array.isArray(saved.plans) ? saved.plans : clientState.plans;
+  if (!assessment || !diagnosis) return false;
+  if (saved.project_id && clientState.project) clientState.project.id = saved.project_id;
+  if (Array.isArray(saved.diagnosis_history)) clientState.diagnosis_history = saved.diagnosis_history;
+  $('#customerResult').innerHTML = buildCustomerSuggestion(assessment, diagnosis, plans || []);
+  const planList = $('#customerPlanList');
+  const planBlock = $('#customerPlanBlock');
+  if (planList) planList.innerHTML = buildCustomerPlanList(assessment, plans || []);
+  if (planBlock) planBlock.hidden = !(plans && plans.length);
+  const whyBox = $('#customerWhyBox');
+  if (whyBox) whyBox.innerHTML = `<p>这份建议主要根据你的业务「${esc(customerText(assessment.industry))}」、目标客户「${esc(customerText(assessment.target_customer || '未填写'))}」、平台「${esc(customerText(assessment.current_channels))}」和当前问题「${esc(customerText(assessment.biggest_problem))}」生成。${clientState.diagnosis_history?.length > 1 ? `已保留 ${clientState.diagnosis_history.length} 版诊断记录，当前生效 v${clientState.diagnosis?.diagnosis_version || 1}。` : ''}</p>`;
+  $('#customerResultSection').hidden = false;
+  $('#customerEffectSection').hidden = false;
+  setCustomerFormCollapsed(true);
+  updateCustomerProgress((Array.isArray(saved.records) && saved.records.length) ? 3 : 2);
+  if (options.focus) window.setTimeout(() => $('#customerResultSection')?.scrollIntoView({behavior:'smooth', block:'start'}), 80);
+  return true;
+}
+
+function editCustomerAssessment(){
+  const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  fillCustomerFormFromAssessment(current.assessment || clientState.assessment || {});
+  setCustomerFormCollapsed(false);
+  updateCustomerProgress(1);
+  $('#customerFormCard')?.scrollIntoView({behavior:'smooth', block:'start'});
+  toast('已带回上次填写内容，修改后可重新生成。');
+}
+window.editCustomerAssessment = editCustomerAssessment;
 const loadLocal = () => {
   loadProjectStore();
   const active = projectStore.projects.find((item)=>String(item.id) === String(projectStore.activeProjectId)) || projectStore.projects[0];
@@ -274,6 +504,7 @@ function switchProject(projectId){
   loadProjectStore();
   const project = projectStore.projects.find((item)=>String(item.id) === String(projectId));
   if (!project) { toast('未找到该项目'); return; }
+  projectStore.lastActiveProjectId = projectStore.activeProjectId || project.id;
   projectStore.activeProjectId = project.id;
   clientState = normalizeState(project.state);
   saveProjectStore();
@@ -283,6 +514,8 @@ function switchProject(projectId){
 }
 window.switchProject = switchProject;
 function startNewProject(){
+  loadProjectStore();
+  if (projectStore.activeProjectId) projectStore.lastActiveProjectId = projectStore.activeProjectId;
   clientState = blankClientState();
   projectStore.activeProjectId = null;
   saveProjectStore();
@@ -294,6 +527,29 @@ function startNewProject(){
   toast('已进入新项目填写，不影响已保存项目。');
 }
 window.startNewProject = startNewProject;
+function returnToActiveProject(){
+  loadProjectStore();
+  const targetId = projectStore.lastActiveProjectId || projectStore.projects[0]?.id;
+  if (!targetId) { toast('暂无可返回的运营项目'); return; }
+  switchProject(targetId);
+  toast('已返回当前运营中的项目。');
+}
+window.returnToActiveProject = returnToActiveProject;
+function activeReturnTarget(){
+  loadProjectStore();
+  if (clientState.diagnosis || !projectStore.projects.length) return null;
+  return projectStore.projects.find((item)=>String(item.id) === String(projectStore.lastActiveProjectId)) || projectStore.projects[0] || null;
+}
+function renderTopReturnProjectAction(){
+  const btn = $('#topReturnProjectBtn');
+  if (!btn) return;
+  const target = activeReturnTarget();
+  btn.hidden = !target;
+  if (target) btn.textContent = `返回：${cleanDisplayName(target.name || '当前运营项目')}`;
+}
+function renderReturnToProjectAction(){
+  return '';
+}
 const toNonNegative = (value) => Math.max(0, Number(value || 0));
 const withBusy = async (button, busyText, task) => {
   const originalText = button?.textContent;
@@ -357,13 +613,13 @@ function localSampleDiagnosis(){
 }
 function localSamplePlans(){
   const topics = [
-    ['一条内容有没有获客价值，不是看点赞', '用收藏、评论、咨询三类信号判断内容是否值得复制', '图文/短视频', '引导主页查看复盘表', '收藏+咨询'],
-    ['老板没时间做运营，先做每周内容复盘', '把复杂运营动作压缩成每周一次看板判断', '图文', '引导领取内容复盘表', '收藏'],
-    ['发了很多内容为什么还是没人咨询', '拆解内容没有承接到服务入口的常见断点', '短视频', '引导主页咨询诊断', '咨询'],
-    ['别再只问AI写什么，先问客户为什么买', '把选题从工具输出拉回客户真实痛点', '图文', '引导做一次诊断', '评论+收藏'],
-    ['企业账号第一周别追爆款', '先做低成本小样本验证，避免一开始重投入', '图文', '引导保存检查清单', '收藏'],
-    ['内容复盘表怎么填才有用', '展示发布链接、T+24/T+72/T+7、咨询信号字段', '图文', '引导主页查看模板', '收藏+私信'],
-    ['下周选题不是拍脑袋，是复制胜出主题', '用本周数据决定复制、降权和重测方向', '短视频', '引导预约复盘', '咨询'],
+    ['企业主发内容没咨询，通常不是内容太少', '先帮老板判断内容有没有说中客户正在犹豫的问题', '图文/短视频', '引导主页查看内容复盘表', '收藏+咨询'],
+    ['老板用AI写文案前，先想清楚这3个获客问题', '把AI工具使用拉回客户是谁、顾虑是什么、为什么现在要问', '图文', '引导领取内容复盘表', '收藏'],
+    ['一条内容有没有获客价值，不是看点赞', '用收藏、评论、咨询三类信号判断内容是否值得复制', '短视频', '引导主页咨询诊断', '咨询'],
+    ['企业账号别只发产品，先回答客户正在犹豫什么', '把服务介绍转成客户下单前会问的真实问题', '图文', '引导做一次诊断', '评论+收藏'],
+    ['老板没时间做运营，也能先复盘这4个数', '用曝光、互动、收藏、咨询判断下一条怎么改', '图文', '引导保存检查清单', '收藏'],
+    ['为什么内容火了，客户还是不来问？', '拆解流量到咨询之间缺少的信任和承接', '图文', '引导主页查看模板', '收藏+私信'],
+    ['本周哪条内容最接近真实客户需求？', '用本周数据决定复制、降权和重测方向', '短视频', '引导预约复盘', '咨询'],
   ];
   return topics.map(([topic, angle, content_type, cta, target_metric], index) => ({
     id: index + 1,
@@ -432,6 +688,8 @@ async function loadAll(){
     renderAllFromClient();
     return;
   }
+  loadProjectStore();
+  await pullCloudProjectStore({silent:true});
   const local = loadLocal();
   if (hasRestorableState(local)) {
     clientState = {...clientState, ...local};
@@ -476,6 +734,540 @@ function localDateIso(date = new Date()){
   const parts = new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(date).reduce((acc, p)=>{acc[p.type]=p.value; return acc;}, {});
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
+
+let customerSuggestionText = '';
+
+function setAppShell(){
+  const internal = isInternalMode();
+  const customerApp = $('#customerApp');
+  const internalApp = $('#internalApp');
+  if (customerApp) customerApp.hidden = internal;
+  if (internalApp) internalApp.hidden = !internal;
+  document.body.classList.toggle('customer-mode', !internal);
+  document.body.classList.toggle('internal-mode', internal);
+}
+
+function customerText(value){
+  return String(value || '')
+    .replace(/周复盘/g, '下次优化建议')
+    .replace(/发完没人复盘/g, '发完后没人总结效果')
+    .replace(/复盘/g, '优化')
+    .replace(/回填/g, '记录效果')
+    .replace(/闭环率/g, '效果记录')
+    .replace(/闭环/g, '持续优化')
+    .replace(/作战台/g, '工作页')
+    .replace(/判断依据/g, '为什么这样建议')
+    .replace(/Matrix/g, '')
+    .replace(/数据飞轮/g, '数据积累')
+    .replace(/小老板/g, '老板/企业主/商家')
+    .replace(/v1\.\d+(?:\.\d+)*/g, '')
+    .trim();
+}
+
+function updateCustomerProgress(step){
+  const strip = $('#customerProgressStrip');
+  if (!strip) return;
+  strip.querySelectorAll('.cps-item').forEach((item) => {
+    const n = Number(item.dataset.step);
+    item.classList.toggle('cps-done', n < step);
+    item.classList.toggle('cps-active', n === step);
+  });
+}
+
+function customerPickShort(text, fallback){
+  const items = String(text || '').split(/[、,，/]/).map((item)=>item.trim()).filter(Boolean);
+  return items[0] || fallback;
+}
+
+function customerFriendlyError(error){
+  const raw = String(error?.message || '');
+  if (raw.includes('缺少必填字段')) return '刚刚生成失败了，请检查必填信息是否填写完整。';
+  return '刚刚生成失败了，请稍后再试一次，或检查信息是否填写完整。';
+}
+
+function setCustomerMessage(id, message){
+  const el = $(id);
+  if (!el) return;
+  el.textContent = message;
+  el.hidden = !message;
+}
+
+function customerNeedsOfferDetail(payload = {}){
+  const industry = customerText(payload.industry || '');
+  const offer = customerText(payload.offer || '');
+  if (offer) return false;
+  const text = `${industry} ${customerText(payload.main_goal || '')}`;
+  const broadBusiness = /^(篮球|运动|体育|零售|服装|美业|教育|培训|本地生活|餐饮|摄影|装修|家居|母婴|健康|企业服务)$/.test(industry);
+  const broadKeyword = /篮球|运动|体育|零售|服装|美业|教育|培训|本地生活|母婴|健康|企业服务/.test(industry);
+  const alreadySpecific = /销售|售卖|卖|用品|器材|装备|商品|课程|培训|体验课|门店|餐厅|美甲|美睫|口腔|产康|摄影|装修|咨询|软件|工具/.test(text);
+  return broadBusiness || (broadKeyword && !alreadySpecific);
+}
+
+function customerRequired(payload){
+  if (!payload.industry) return '请先填写你的行业/业务。';
+  if (!payload.main_goal) return '请先填写你现在最想达成的目标。';
+  if (!payload.target_customer) return '请先填写你的目标客户。';
+  if (customerNeedsOfferDetail(payload)) return '你的行业比较宽，请在“想让建议更准”里补充主推产品/服务和价格带，例如：室外耐磨篮球 89-199 元，避免系统把商品误判成服务。';
+  if (!payload.current_channels) return '请选择你主要想做的平台。';
+  if (!payload.biggest_problem) return '请选择当前最大的内容问题。';
+  return '';
+}
+
+function initChoiceGroup(groupSelector, formSelector, inputName){
+  const group = document.querySelector(groupSelector);
+  const input = $(`${formSelector} [name="${inputName}"]`);
+  if (!group || !input || group.dataset.choiceReady === '1') return;
+  group.dataset.choiceReady = '1';
+  const applyChoice = (button) => {
+    if (!button) return;
+    group.querySelectorAll('button[data-value]').forEach((item) => {
+      const selected = item === button;
+      item.classList.toggle('is-selected', selected);
+      item.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+    input.value = button.dataset.value || '';
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+    input.dispatchEvent(new Event('change', {bubbles:true}));
+  };
+  group.__applyChoice = applyChoice;
+  group.querySelectorAll('button[data-value]').forEach((button) => {
+    button.setAttribute('aria-pressed', button.classList.contains('is-selected') ? 'true' : 'false');
+    const handleButtonChoice = (event) => {
+      event.preventDefault();
+      applyChoice(button);
+    };
+    button.onclick = handleButtonChoice;
+    button.onpointerdown = handleButtonChoice;
+    button.onpointerup = handleButtonChoice;
+    button.onmousedown = handleButtonChoice;
+    button.ontouchstart = handleButtonChoice;
+  });
+  const handleChoiceEvent = (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button || !group.contains(button)) return;
+    event.preventDefault();
+    applyChoice(button);
+  };
+  group.addEventListener('pointerdown', handleChoiceEvent);
+  group.addEventListener('pointerup', handleChoiceEvent);
+  group.addEventListener('mousedown', handleChoiceEvent);
+  group.addEventListener('touchstart', handleChoiceEvent);
+  group.addEventListener('click', handleChoiceEvent);
+}
+
+function initChoiceWriteFallback(){
+  if (document.body.dataset.choiceWriteFallbackReady === '1') return;
+  document.body.dataset.choiceWriteFallbackReady = '1';
+  document.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('button[data-value]');
+    if (!button) return;
+    const group = button.closest('[data-customer-platforms],[data-customer-problems],[data-internal-platforms],[data-internal-problems]');
+    if (!group) return;
+    const form = button.closest('form');
+    const inputName = group.matches('[data-customer-platforms],[data-internal-platforms]') ? 'current_channels' : 'biggest_problem';
+    const input = form?.querySelector(`[name="${inputName}"]`);
+    if (!input) return;
+    if (typeof group.__applyChoice === 'function') {
+      group.__applyChoice(button);
+      return;
+    }
+    group.querySelectorAll('button[data-value]').forEach((item) => {
+      const selected = item === button;
+      item.classList.toggle('is-selected', selected);
+      item.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+    input.value = button.dataset.value || '';
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+    input.dispatchEvent(new Event('change', {bubbles:true}));
+  }, true);
+}
+
+function syncChoiceGroupsBeforeSubmit(pairs, formSelector){
+  pairs.forEach(([groupSelector, inputName]) => {
+    const group = document.querySelector(groupSelector);
+    const input = $(`${formSelector} [name="${inputName}"]`);
+    const selected = group?.querySelector('button.is-selected[data-value]');
+    if (input && !input.value && selected?.dataset.value) input.value = selected.dataset.value;
+  });
+}
+
+function initCustomerChoices(groupSelector, inputName){
+  initChoiceWriteFallback();
+  initChoiceGroup(groupSelector, '#customerAssessmentForm', inputName);
+}
+
+function syncCustomerChoicesBeforeSubmit(){
+  syncChoiceGroupsBeforeSubmit([
+    ['[data-customer-platforms]', 'current_channels'],
+    ['[data-customer-problems]', 'biggest_problem'],
+  ], '#customerAssessmentForm');
+}
+
+function initInternalChoices(){
+  initChoiceWriteFallback();
+  initChoiceGroup('[data-internal-platforms]', '#assessmentForm', 'current_channels');
+  initChoiceGroup('[data-internal-problems]', '#assessmentForm', 'biggest_problem');
+}
+
+function syncInternalChoicesBeforeSubmit(){
+  syncChoiceGroupsBeforeSubmit([
+    ['[data-internal-platforms]', 'current_channels'],
+    ['[data-internal-problems]', 'biggest_problem'],
+  ], '#assessmentForm');
+}
+
+function customerFallbackPlans(payload){
+  const audience = customerPickShort(payload.target_customer, '目标客户');
+  const platform = payload.current_channels || '小红书';
+  const offer = customerText(payload.offer || customerOfferFromGoal(payload.main_goal, payload.industry));
+  const text = `${payload.industry || ''} ${payload.offer || ''} ${payload.main_goal || ''} ${payload.customer_pain || ''} ${payload.content_assets || ''}`;
+  if (/美甲|甲片|穿戴甲|手部护理/.test(text)) {
+    return [
+      {platform, topic: `${audience}想做显白美甲，先看这几种款式`, angle:'用真实客照、手型和肤色适配吸引到店预约', content_type:'图文/短视频', cta:'引导客户私信预约或发手部照片咨询适合款式'},
+      {platform, topic:'短甲女生适合什么美甲？这几款不挑手型', angle:'解决怕显手短、怕夸张、怕上班不方便的顾虑', content_type:'图文', cta:'引导客户保存款式，到店前选2-3个参考'},
+      {platform, topic:'上班通勤也能做的低调美甲合集', angle:'围绕通勤、约会、拍照、节日前换款场景展示款式', content_type:'短视频/图文', cta:'引导客户预约到店试色或咨询价格套餐'},
+    ];
+  }
+  if (/篮球销售|卖篮球|篮球售卖|篮球零售|篮球专卖|篮球店|篮球用品|篮球器材|篮球装备|篮球商品|训练篮球|比赛篮球/.test(text)) {
+    return [
+      {platform, topic:'学生买篮球，先看清楚室内球还是室外球', angle:'购买决策：按使用场地、耐磨、手感和预算讲清怎么选篮球', content_type:'图文/短视频', cta:'想买篮球可以私信使用场地、预算和年龄，先帮你缩小选择'},
+      {platform, topic:'篮球运动爱好者怎么选一颗耐磨又好控的球', angle:'产品种草：展示篮球实拍、弹跳、防滑、控球和户外耐磨表现', content_type:'短视频/图文', cta:'保存这条，买篮球前按场地和手感对照选'},
+      {platform, topic:'第一次买篮球，别只看颜色和价格', angle:'选择避坑：讲清几号球、材质、气压、重量和适合人群', content_type:'图文', cta:'不确定买几号球，可以私信身高年龄和主要打球场地'},
+    ];
+  }
+  return [
+    {platform, topic: `${audience}选择${offer}前，最容易忽略什么？`, angle:'讲清目标客户真实顾虑、服务流程和选择前要注意的细节', content_type:'图文', cta:'引导客户查看主页或私信具体情况'},
+    {platform, topic: `${audience}第一次了解${offer}，先问清这3件事`, angle:'用真实问答降低购买、到店、试听或预约前的决策成本', content_type:'图文', cta:'引导客户保存清单'},
+    {platform, topic: `${offer}值不值得选？先看过程、价格和案例`, angle:'把服务过程、案例和价格顾虑讲清楚', content_type:'短视频/图文', cta:'引导客户咨询具体需求'},
+  ];
+}
+
+function buildCustomerSuggestion(payload, diagnosis, plans){
+  const safePlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, 3);
+  const problem = customerText(payload.biggest_problem);
+  const audience = customerText(payload.target_customer || '你的目标客户');
+  const business = customerText(payload.industry || '你的业务');
+  const goal = customerText(payload.main_goal || '获得更多咨询');
+  const platform = customerText(payload.current_channels || safePlans[0]?.platform || '小红书');
+  const firstPlan = safePlans[0] || customerFallbackPlans(payload)[0];
+  const topics = safePlans.map((plan, index) => `<li><strong>${index + 1}. ${esc(customerText(plan.topic))}</strong><span>${esc(customerText(plan.angle || '用客户听得懂的话讲清服务价值'))}</span></li>`).join('');
+  const contentDirection = customerText(diagnosis?.weekly_action || `先围绕「${audience}」最关心的问题，连续测试 3 条内容，看看哪一类最容易带来咨询。`);
+  const firstSteps = [
+    `平台：${platform}`,
+    `选题：${customerText(firstPlan.topic)}`,
+    `表达角度：${customerText(firstPlan.angle || '先讲客户顾虑，再给判断方法')}`,
+    `形式：${customerText(firstPlan.content_type || '图文/短视频')}`,
+    `结尾：${customerText(firstPlan.cta || '引导客户私信具体情况或查看主页咨询')}`,
+  ];
+  customerSuggestionText = [
+    `业务：${business}`,
+    `目标：${goal}`,
+    `当前问题：${problem}`,
+    `建议方向：${contentDirection}`,
+    '可以马上用的3个选题：',
+    ...safePlans.map((plan, index)=>`${index + 1}. ${customerText(plan.topic)} - ${customerText(plan.angle || '')}`),
+    '第一条内容怎么发：',
+    ...firstSteps,
+    '发布后记录：发布链接、浏览/曝光、点赞收藏、咨询人数和自己的感受。',
+  ].join('\n');
+  return `
+    <article class="customer-advice-block">
+      <span>1</span>
+      <div><h3>你现在最需要解决的问题</h3><p>${esc(problem)}。先不要急着多发，先把内容和「${esc(goal)}」连起来。</p></div>
+    </article>
+    <article class="customer-advice-block">
+      <span>2</span>
+      <div><h3>建议优先发的内容方向</h3><p>${esc(contentDirection)}</p></div>
+    </article>
+    <article class="customer-advice-block">
+      <span>3</span>
+      <div><h3>可以马上用的 3 个选题</h3><ol class="customer-topic-list">${topics}</ol></div>
+    </article>
+    <article class="customer-advice-block">
+      <span>4</span>
+      <div><h3>第一条内容怎么发</h3><ul>${firstSteps.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></div>
+    </article>
+    <article class="customer-advice-block">
+      <span>5</span>
+      <div><h3>发布后如何记录效果，方便下次优化</h3><p>发布后记录链接、浏览/曝光、点赞收藏、咨询人数和你的观察。下次就能判断：是标题要改，还是内容角度要换。</p></div>
+    </article>`;
+}
+
+function buildCustomerPlanList(payload, plans){
+  const safePlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, 7);
+  return safePlans.map((plan, index) => {
+    const day = `第 ${index + 1} 天`;
+    const platform = customerText(plan.platform || payload.current_channels || '小红书');
+    const contentType = customerText(plan.content_type || '图文/短视频');
+    const topic = customerText(plan.topic || '');
+    const angle = customerText(plan.angle || '用客户听得懂的话说清服务价值');
+    const cta = customerText(plan.cta || '引导客户私信具体情况或主页咨询');
+    return `<article class="customer-plan-item">
+      <div class="plan-day"><strong>D${index + 1}</strong><span>${esc(day)}</span></div>
+      <div class="plan-body">
+        <p class="plan-topic">${esc(topic)}</p>
+        <p class="plan-cta">${esc(angle)}</p>
+        <div class="plan-meta"><span>${esc(platform)}</span><span>${esc(contentType)}</span></div>
+        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">结尾引导：</strong>${esc(cta)}</p>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+function renderCustomerEffects(){
+  const box = $('#customerEffectList');
+  if (!box) return;
+  const saved = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  const records = Array.isArray(saved.records) ? saved.records : [];
+  if (!records.length) {
+    box.innerHTML = '<div class="customer-record empty">还没有记录。发完第一条内容后，填一次链接和关键数据即可。</div>';
+    return;
+  }
+  box.innerHTML = records.slice(0, 5).map((item)=>`<div class="customer-record">
+    <strong>${esc(item.published_at || item.created_at || '已记录')}</strong>
+    <span>浏览/曝光 ${esc(item.views || 0)} · 点赞收藏 ${esc(item.engagement || 0)} · 咨询 ${esc(item.consultations || 0)}</span>
+    ${item.publish_link ? `<a href="${esc(item.publish_link)}" target="_blank" rel="noreferrer">查看发布链接</a>` : ''}
+    <p>${esc(item.notes || '未填写观察')}</p>
+  </div>`).join('');
+}
+
+function customerRecordNumbers(record = {}){
+  return {
+    views: Number(record.views || 0),
+    engagement: Number(record.engagement || 0),
+    consultations: Number(record.consultations || 0),
+  };
+}
+
+function rateLabel(part, total){
+  const t = Number(total || 0);
+  if (!t) return '样本不足';
+  return `${((Number(part || 0) / t) * 100).toFixed(Number(part || 0) ? 1 : 0)}%`;
+}
+
+function customerRecordLevel({views, engagement, consultations}){
+  if (consultations > 0) return {label:'已有咨询信号', desc:'优先复制同类主题，再补充案例、过程、价格或周期问题。'};
+  if (views >= 800 && engagement >= 30) return {label:'有兴趣但承接弱', desc:'下一条重点补信任证据和明确咨询理由，不要只换标题。'};
+  if (views >= 800) return {label:'有曝光但互动弱', desc:'标题能带来浏览，但内容没有让客户觉得“和我有关”。'};
+  return {label:'样本偏小', desc:'先优化标题、封面和开头钩子，把曝光样本做大。'};
+}
+
+function renderCustomerRecordSummary(saved = {}){
+  const box = $('#customerRecordSummary');
+  if (!box) return;
+  const records = Array.isArray(saved.records) ? saved.records : [];
+  const latest = records[0];
+  if (!latest) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  const nums = customerRecordNumbers(latest);
+  const level = customerRecordLevel(nums);
+  box.hidden = false;
+  box.innerHTML = `<p class="customer-loop-kicker">本条内容结果</p>
+    <h3>${esc(level.label)}</h3>
+    <div class="customer-result-metrics">
+      <span>曝光 <strong>${esc(nums.views)}</strong></span>
+      <span>点赞收藏 <strong>${esc(nums.engagement)}</strong></span>
+      <span>咨询 <strong>${esc(nums.consultations)}</strong></span>
+      <span>互动率 <strong>${esc(rateLabel(nums.engagement, nums.views))}</strong></span>
+      <span>咨询率 <strong>${esc(rateLabel(nums.consultations, nums.views))}</strong></span>
+    </div>
+    <p>${esc(level.desc)}</p>`;
+}
+
+function buildCustomerNextAdvice(saved = {}, record = {}){
+  const assessment = saved.assessment || {};
+  const diagnosis = saved.diagnosis || {};
+  const plans = Array.isArray(saved.plans) ? saved.plans : [];
+  const {views, engagement, consultations} = customerRecordNumbers(record);
+  const offer = customerText(assessment.offer || customerOfferFromGoal(assessment.main_goal, assessment.industry));
+  const rawAudience = customerText(assessment.target_customer || '目标客户');
+  const audience = /宝妈|产后/.test(rawAudience) ? '宝妈' : rawAudience.replace(/[，,、].*$/, '').slice(0, 18) || '目标客户';
+  const goal = customerText(assessment.main_goal || '获得更多咨询');
+  const problem = customerText(assessment.biggest_problem || diagnosis.priority_problem || '当前问题');
+  const firstTopic = customerText(plans[0]?.topic || `${audience}最关心的${offer}问题`);
+  const nextTopicBase = offer && offer !== '相关服务' ? offer : firstTopic;
+  let judgment = '样本已开始回流，下一条先不要换平台，优先根据这条内容的数据改表达角度。';
+  let nextTopic = `${audience}为什么迟迟不咨询${nextTopicBase}？先看这3个顾虑`;
+  let action = `下一条继续围绕「${nextTopicBase}」发，但把开头改成客户真实顾虑，结尾承接到「${goal}」。`;
+  if (consultations > 0) {
+    judgment = `这条内容已经带来 ${consultations} 个咨询，说明选题方向有效，下一步不是推倒重来，而是复制同类角度。`;
+    nextTopic = `咨询过的人最常问：${nextTopicBase}到底适不适合我？`;
+    action = `复制「${firstTopic}」的痛点结构，下一条补充案例/过程/价格或周期疑问，并保留主页咨询或私信入口。`;
+  } else if (views >= 800 && engagement >= 30) {
+    judgment = '这条内容有曝光和收藏/点赞，但还没有咨询，说明“感兴趣”到“愿意问”之间缺少信任或承接。';
+    nextTopic = `${audience}收藏了但不咨询，通常卡在${nextTopicBase}的哪3个顾虑？`;
+    action = '下一条重点回答价格、效果、周期、适合人群这类决策问题，结尾不要只说欢迎咨询，要给一个具体咨询理由。';
+  } else if (views >= 800) {
+    judgment = `曝光不低但互动和咨询弱，说明标题/封面可能吸引到了人，但正文没有把「${problem}」讲到客户心里。`;
+    nextTopic = `${audience}遇到「${problem}」时，最容易误解哪件事？`;
+    action = '下一条减少服务介绍，改成“客户误区/真实问题/避坑清单”，先提高收藏和私信意愿。';
+  } else {
+    judgment = '当前曝光样本还偏小，暂时不能判断内容方向失败，先优化标题、封面和开头钩子。';
+    nextTopic = `${audience}看到这个标题，会不会立刻想到自己？`;
+    action = `下一条把标题第一句话改得更具体：人群 + 痛点 + ${nextTopicBase}，先把曝光样本做大。`;
+  }
+  return {judgment, nextTopic, action};
+}
+
+function renderCustomerNextAdvice(saved = {}){
+  const box = $('#customerNextAdvice');
+  if (!box) return;
+  const records = Array.isArray(saved.records) ? saved.records : [];
+  const latest = records[0];
+  if (!latest) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  const advice = buildCustomerNextAdvice(saved, latest);
+  box.hidden = false;
+  box.innerHTML = `<p class="customer-loop-kicker">系统根据刚记录的数据给出的下一步</p>
+    <h3>下一条内容建议：${esc(advice.nextTopic)}</h3>
+    <p><strong>判断：</strong>${esc(advice.judgment)}</p>
+    <p><strong>动作：</strong>${esc(advice.action)}</p>`;
+}
+
+function saveCustomerTrialState(update){
+  const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  safeStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify({...current, ...update, updated_at: localTimestamp()}));
+}
+
+function initCustomerGuide(){
+  const guide = $('#customerGuide');
+  if (!guide) return;
+  if (window.matchMedia?.('(max-width: 900px)').matches) guide.open = false;
+  $('#customerGuideDone')?.addEventListener('click', () => {
+    guide.open = false;
+    const firstInput = $('#customerAssessmentForm [name="industry"]');
+    firstInput?.scrollIntoView({behavior:'smooth', block:'center'});
+    window.setTimeout(() => firstInput?.focus(), 180);
+  });
+}
+
+function customerOfferFromGoal(goal, industry){
+  const text = customerText(`${goal || ''} ${industry || ''}`);
+  const explicitMatch = text.match(/(?:咨询|预约|了解|报名|购买)([^，。；;、\s]{2,18})/);
+  if (explicitMatch?.[1]) return explicitMatch[1];
+  if (/盆底肌|漏尿|产后修复|产康/.test(text)) return '盆底肌修复';
+  const consultMatch = text.match(/咨询([^，。/、\s]{2,16})/);
+  if (consultMatch?.[1]) return consultMatch[1];
+  if (/美甲/.test(text)) return '美甲套餐';
+  if (/篮球销售|卖篮球|篮球售卖|篮球零售|篮球专卖|篮球店|篮球用品|篮球器材|篮球装备|篮球商品|训练篮球|比赛篮球/.test(text)) return '篮球商品';
+  if (/饰品|首饰|耳饰|耳环|项链|手链|戒指|发夹|配饰|珠宝|银饰/.test(text)) return '饰品款式';
+  if (/女装|服装|穿搭|包包|鞋履|香薰|礼物|买手店|零售|上新/.test(text)) return '商品款式';
+  if (/篮球|少儿篮球|小学生篮球|幼儿篮球|青少年篮球|篮球培训|篮球训练|篮球启蒙|篮球课|运球|投篮|体适能|体能训练|运动培训|体育培训|寒暑假班|周末班/.test(text)) return '少儿篮球体验课';
+  if (/美容|医美|产康/.test(text)) return '到店服务';
+  if (/装修/.test(text)) return '装修方案';
+  if (/留学|教育|培训/.test(text)) return '咨询方案';
+  return '相关服务';
+}
+
+async function copyCustomerSuggestion(){
+  if (!customerSuggestionText) return toast('请先生成内容建议');
+  try {
+    await navigator.clipboard.writeText(customerSuggestionText);
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = customerSuggestionText;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+  toast('已复制，可以粘贴使用');
+}
+
+function initCustomerTrial(){
+  initCustomerChoices('[data-customer-platforms]', 'current_channels');
+  initCustomerChoices('[data-customer-problems]', 'biggest_problem');
+  initCustomerGuide();
+  renderCustomerEffects();
+  const savedCustomerState = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
+    renderCustomerGeneratedState(savedCustomerState);
+  }
+  renderCustomerRecordSummary(savedCustomerState);
+  renderCustomerNextAdvice(savedCustomerState);
+  $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
+  $('#customerRegenerateBtn')?.addEventListener('click', editCustomerAssessment);
+  $('#customerAssessmentForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorBox = '#customerFormError';
+    setCustomerMessage(errorBox, '');
+    syncCustomerChoicesBeforeSubmit();
+    const rawForm = formData(e.target);
+    const payload = {
+      ...rawForm,
+      posting_frequency: '偶尔发布',
+      offer: rawForm.offer || customerOfferFromGoal(rawForm.main_goal, rawForm.industry),
+      customer_pain: rawForm.customer_pain || rawForm.biggest_problem || '',
+    };
+    Object.keys(payload).forEach((key) => { payload[key] = String(payload[key] || '').trim(); });
+    const validation = customerRequired(payload);
+    if (validation) {
+      setCustomerMessage(errorBox, validation);
+      return;
+    }
+    await withBusy($('#customerGenerateBtn'), '正在生成建议...', async () => {
+      try {
+        const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
+        const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
+        clientState = buildVersionedProjectState(result, payload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
+        saveLocal();
+        const diagnosis = clientState.diagnosis || {};
+        const plans = clientState.plans || [];
+        const generatedState = {assessment: clientState.assessment || payload, diagnosis, plans, suggestion: customerSuggestionText, project_id: clientState.project?.id, diagnosis_history: clientState.diagnosis_history};
+        saveCustomerTrialState(generatedState);
+        renderCustomerGeneratedState(generatedState, {focus: true});
+      } catch (error) {
+        setCustomerMessage(errorBox, customerFriendlyError(error));
+      }
+    });
+  });
+  $('#customerEffectForm')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+    const records = Array.isArray(current.records) ? current.records : [];
+    const record = {...formData(e.target), created_at: localTimestamp()};
+    const nextState = {...current, records: [record, ...records], updated_at: localTimestamp()};
+    safeStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(nextState));
+    if (clientState.plans?.length) {
+      const firstPlan = clientState.plans[0];
+      const feedback = {
+        id: Date.now(),
+        project_id: clientState.project?.id || current.project_id || 'customer-project',
+        cycle_id: clientState.current_cycle_id || 'cycle-1',
+        content_plan_id: firstPlan.id,
+        publish_link: record.publish_link || '',
+        feedback_stage: 'T+24',
+        views: toNonNegative(record.views),
+        likes: toNonNegative(record.engagement),
+        comments: 0,
+        favorites: 0,
+        shares: 0,
+        consultations: toNonNegative(record.consultations),
+        notes: record.notes || '',
+        created_at: record.created_at,
+      };
+      firstPlan.status = record.publish_link ? '已发布' : firstPlan.status;
+      if (record.publish_link) firstPlan.publish_link = record.publish_link;
+      clientState.feedback = [feedback, ...clientState.feedback.filter((item)=>!(Number(item.content_plan_id) === Number(firstPlan.id) && String(item.feedback_stage || 'T+24') === 'T+24'))];
+      clientState.review = createLocalReview();
+      saveLocal();
+    }
+    e.target.reset();
+    const advice = buildCustomerNextAdvice(nextState, record);
+    setCustomerMessage('#customerEffectMessage', `已记录这条内容。根据这条数据，下一条建议先发：「${advice.nextTopic}」。`);
+    renderCustomerEffects();
+    renderCustomerRecordSummary(nextState);
+    renderCustomerNextAdvice(nextState);
+    updateCustomerProgress(3);
+  });
+}
+
 function dynamicLoopScore(){
   const total = clientState.plans.length;
   const published = clientState.plans.filter((p)=>p.status === '已发布' && p.publish_link).length;
@@ -638,7 +1430,7 @@ function clearAllLocalData(){
   safeStorage.removeItem(STORAGE_KEY);
   safeStorage.removeItem(PROJECTS_KEY);
   safeStorage.setItem(DEMO_DISABLED_KEY, '1');
-  projectStore = {activeProjectId: null, projects: []};
+  projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
   clientState = blankClientState();
   renderAllFromClient();
   closeMoreActions();
@@ -686,10 +1478,10 @@ function renderLifecycleWorkbench(){
   const todayAction = clientState.project_stage === '未诊断'
     ? '先完成一次增长诊断，生成第一轮内容实验计划'
     : clientState.project_stage === '待启动'
-      ? `发布 #${firstOpen?.id || 1} 内容，并回填发布链接`
+      ? `发布 #${firstOpen ? planDisplayNumber(firstOpen) : 1} 内容，并回填发布链接`
       : clientState.project_stage === '复盘期'
         ? '确认下一轮复制什么、停止什么、重测什么'
-        : (unfilled ? `回填 #${firstNeedFeedback?.id || ''} 内容的 T+72 数据` : d.next_suggestion);
+        : (unfilled ? `回填 #${firstNeedFeedback ? planDisplayNumber(firstNeedFeedback) : ''} 内容的 T+72 数据` : d.next_suggestion);
   const todayReason = unfilled
     ? '已发布内容缺少反馈，当前无法判断是否继续复制该方向。'
     : (hasRealFeedback ? '已有真实反馈，优先把判断转成下一轮动作。' : '还没有真实反馈，先完成发布和回填，避免只看计划不看结果。');
@@ -697,8 +1489,13 @@ function renderLifecycleWorkbench(){
   const todayEvidence = evidenceBadge(todayEvidenceAnchor);
   const decisionEvidenceAnchor = winner ? 'evidence-r' : 'evidence-v';
   const decisionEvidence = evidenceBadge(decisionEvidenceAnchor);
+  const flow = getPrimaryFlow();
+  const primaryAction = `<button class="war-btn primary" type="button" onclick="runPrimaryFlow()">${esc(flow.label)}</button>`;
   const projectSwitcher = renderProjectSwitcher();
-  const winningText = winner ? `#${esc(winner.plan?.id || winner.feedback.content_plan_id)} ${esc(winner.plan?.topic || '已回填内容')}` : '暂无胜出内容，先发布并回填';
+  const historyCount = clientState.diagnosis_history?.length || (clientState.diagnosis ? 1 : 0);
+  const sourceLabel = clientState.source === 'customer_public' ? '客户提交' : (clientState.source ? '内部/测试' : '本地项目');
+  const versionTag = `<span class="war-tag">${sourceLabel}</span><span class="war-tag">诊断 v${esc(clientState.diagnosis?.diagnosis_version || historyCount || 1)} / 历史 ${historyCount}</span>`;
+  const winningText = winner ? `#${esc(planDisplayNumber(winner.plan?.id || winner.feedback.content_plan_id))} ${esc(winner.plan?.topic || '已回填内容')}` : '暂无胜出内容，先发布并回填';
   const decisionText = winner
     ? `“${esc(winner.plan?.topic || '最高咨询内容')}”方向值得继续观察`
     : '还不能判断胜出方向，缺少真实反馈样本';
@@ -707,9 +1504,10 @@ function renderLifecycleWorkbench(){
   const reviewTag = `<span class="war-tag purple">${esc(cycleText)}</span>`;
   const hypothesis = `<span class="war-tag">假设：${esc(clientState.diagnosis?.priority_problem || clientState.assessment?.biggest_problem || '内容能否带来咨询')}</span>`;
   el.innerHTML = `<div class="war-room-shell">
-    <div class="war-nav"><div class="war-brand"><span class="war-mark"></span><strong>${esc(projectName)}</strong></div>${projectSwitcher}<div class="war-tabs"><button class="active" type="button" onclick="scrollToSection('#lifecycleWorkbench')">作战台</button><button type="button" onclick="scrollToSection('#planSection')">计划/回填</button><button type="button" onclick="startNewProject()">新增项目</button></div><div class="war-cycle">${esc(cycleText)}</div></div>
+    <div class="war-nav"><div class="war-brand"><span class="war-mark"></span><strong>${esc(projectName)}</strong></div>${projectSwitcher}<div class="war-tabs"><button class="active" type="button" onclick="scrollToSection('#lifecycleWorkbench')">作战台</button><button type="button" onclick="scrollToSection('#planSection')">计划/回填</button><button type="button" onclick="regenerateCurrentDiagnosis()">重新诊断</button><button type="button" onclick="startNewProject()">新增项目</button></div><div class="war-cycle">${versionTag}</div></div>
     <section class="war-status-hero">
       <div><h2>${esc(cycleText)} · ${esc(meta.label)}</h2><div class="war-meta">${stageTag}${reviewTag}${hypothesis}</div></div>
+      <div class="war-actions">${primaryAction}<button class="war-btn" type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth', block:'start'})">查看计划</button><button class="war-btn" type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth', block:'start'})">周复盘</button></div>
     </section>
     <section class="war-main-row">
       <article class="war-card war-todo"><div class="war-card-head"><span>今日动作 · P1</span><span class="war-tag orange">${unfilled ? '待处理' : '下一步'}</span></div><h3>${esc(todayAction)}</h3><p>${esc(todayReason)}</p><div class="war-inline-actions">${todayEvidence}</div></article>
@@ -736,9 +1534,105 @@ function startNextCycle(){
 window.showDiagnosisWorkflow = showDiagnosisWorkflow;
 window.startNextCycle = startNextCycle;
 
+function isAnbiaoCustomerProject(){
+  const text = [
+    clientState.project?.name,
+    clientState.assessment?.company_name,
+    clientState.assessment?.industry,
+    clientState.assessment?.offer,
+    clientState.assessment?.target_customer,
+  ].filter(Boolean).join(' ');
+  // 项目专属客户反馈样本必须用明确项目/客户语义触发，禁止用“轻工业”“检测”等宽泛行业词，避免安标检测数据串到其他作战台。
+  return /安标检测|安标|医疗器械注册|医疗器械送检|注册送检/.test(text);
+}
+
+function hasExplicitCustomerFeedback(row){
+  return Boolean(row.feedback && row.feedback !== '暂无客户反馈。');
+}
+
+function scriptConfirmStatus(row){
+  if (!hasExplicitCustomerFeedback(row)) return {key:'pending', label:'待客户确认', tone:'muted', action:'等待客户确认后再进发布排期'};
+  const score = Number(row.score || 0);
+  if (score >= 4) return {key:'ready', label:'可优先发布', tone:'green', action:'加入本周发布计划'};
+  if (score <= 2) return {key:'rewrite', label:'需优化后再发', tone:'red', action:'重写/补专业信息'};
+  return {key:'review', label:'需二次确认', tone:'orange', action:'小改后再确认'};
+}
+
+function renderAnbiaoCustomerData(){
+  const panel = $('#anbiaoCustomerPanel');
+  const summary = $('#anbiaoCustomerSummary');
+  const rowsEl = $('#anbiaoCustomerRows');
+  if (!panel || !summary || !rowsEl) return;
+  if (!isInternalMode() || !isAnbiaoCustomerProject()) {
+    panel.hidden = true;
+    summary.innerHTML = '';
+    rowsEl.innerHTML = '';
+    return;
+  }
+  panel.hidden = false;
+  const rows = ANBIAO_CUSTOMER_ROWS.map((row)=>({...row, status: scriptConfirmStatus(row)}));
+  const total = rows.length;
+  const confirmed = rows.filter((row)=>hasExplicitCustomerFeedback(row));
+  const ready = rows.filter((row)=>row.status.key === 'ready');
+  const rewrite = rows.filter((row)=>row.status.key === 'rewrite');
+  const pending = rows.filter((row)=>row.status.key === 'pending');
+  const confirmedAvg = confirmed.length
+    ? (confirmed.reduce((sum,row)=>sum + Number(row.score || 0), 0) / confirmed.length).toFixed(1)
+    : '—';
+
+  const summaryCards = [
+    ['当前阶段', '发布前确认', '客户审稿，不是平台效果'],
+    ['候选脚本', total, '待筛选进入发布计划'],
+    ['客户已确认', confirmed.length, `确认分均值 ${confirmedAvg}`],
+    ['建议可发', ready.length, '先进入本周发布排期'],
+    ['需重写', rewrite.length, '发布前先修内容质量'],
+    ['待确认', pending.length, '继续催办客户反馈'],
+  ];
+  summary.innerHTML = `
+    <div class="anbiao-stage-map" aria-label="内容增长流程">
+      <div class="active"><strong>1 发布前确认</strong><span>客户打分 / 修改意见 / 可发门禁</span></div>
+      <div><strong>2 发布执行</strong><span>排期 / 平台 / 发布状态</span></div>
+      <div><strong>3 发布后回填</strong><span>曝光 / 互动 / 咨询 / 复盘</span></div>
+    </div>
+    <div class="anbiao-summary-grid">
+      ${summaryCards.map(([label, value, note])=>`<div class="anbiao-summary-card"><span>${esc(label)}</span><strong>${esc(value)}</strong><em>${esc(note)}</em></div>`).join('')}
+    </div>`;
+
+  const renderGroup = (title, subtitle, groupRows, key) => `
+    <section class="anbiao-confirm-group ${key}">
+      <div class="anbiao-group-head"><div><strong>${esc(title)}</strong><span>${esc(subtitle)}</span></div><b>${esc(groupRows.length)} 条</b></div>
+      ${groupRows.length ? groupRows.map((row)=>{
+        const score = Number(row.score || 0);
+        return `<article class="anbiao-row ${esc(row.status.tone)}">
+          <div class="anbiao-row-main">
+            <div class="anbiao-row-title"><span>${esc(row.id)}</span><strong>${esc(row.title)}</strong></div>
+            <p>${esc(row.feedback || '暂无客户反馈。')}</p>
+          </div>
+          <div class="anbiao-row-side">
+            <div class="anbiao-score ${esc(row.status.tone)}"><span>${hasExplicitCustomerFeedback(row) ? '确认分' : '状态'}</span><strong>${hasExplicitCustomerFeedback(row) ? esc(score) : '待'}</strong></div>
+            <small>${esc(row.status.action)}</small>
+          </div>
+        </article>`;
+      }).join('') : '<div class="anbiao-empty">暂无</div>'}
+    </section>`;
+
+  rowsEl.innerHTML = `
+    <div class="anbiao-decision-note">
+      <strong>客户应该先看什么？</strong>
+      <span>先确认“可发 / 需改 / 待确认”三类动作；发布后的真实增长效果，请在下方“发布后回填”里录入。</span>
+    </div>
+    ${renderGroup('可优先发布', '客户已给高分，可进入发布计划', ready, 'ready')}
+    ${renderGroup('需要优化后再发', '客户已指出问题，不能直接发布', rewrite, 'rewrite')}
+    <details class="anbiao-pending-list">
+      <summary>待客户确认脚本（默认折叠，避免干扰增长看板）<b>${pending.length} 条</b></summary>
+      ${renderGroup('待客户确认', '还不是发布后反馈，也不能当作市场效果', pending, 'pending')}
+    </details>`;
+}
+
 function renderAllFromClient(){
   syncProjectStage();
   renderLifecycleWorkbench();
+  renderAnbiaoCustomerData();
   renderWorkflowVisibility();
   renderDashboard(clientDashboard());
   renderCustomerSnapshot(clientState.assessment);
@@ -748,6 +1642,7 @@ function renderAllFromClient(){
   renderFeedback(clientState.feedback);
   renderReview(clientState.review || autoReviewFromFeedback());
   renderReviewEvidencePanel();
+  renderTopReturnProjectAction();
 }
 
 
@@ -808,7 +1703,7 @@ function renderFeedbackEvidenceRows(){
   const rowsHtml = visibleRows.map((f)=>{
     const plan = clientState.plans.find((p)=>Number(p.id) === Number(f.content_plan_id));
     return `<div class="feedback-evidence-row">
-      <div><strong>#${esc(f.content_plan_id)} ${esc(plan?.topic || '已回填内容')}</strong><span>${esc(f.feedback_stage || 'T+24')} · ${esc(f.created_at || '')}</span></div>
+      <div><strong>#${esc(planDisplayNumber(f.content_plan_id))} ${esc(plan?.topic || '已回填内容')}</strong><span>${esc(f.feedback_stage || 'T+24')} · ${esc(f.created_at || '')}</span></div>
       <div class="feedback-evidence-metrics"><span>曝光 ${compactNumber(f.views)}</span><span>互动 ${compactNumber(interactions(f))}</span><span>咨询 ${num(f.consultations)}</span></div>
       <p>${esc(f.notes || '无备注')}</p>
     </div>`;
@@ -817,6 +1712,9 @@ function renderFeedbackEvidenceRows(){
   return `${reviewHtml}<div class="feedback-evidence-list">${rowsHtml}</div>${moreHint}`;
 }
 
+function snapshotItem(label, value){
+  return `<li><span>${esc(label)}</span><strong>${esc(value || '未填写')}</strong></li>`;
+}
 function renderCustomerSnapshot(a){
   const el = $('#clientSnapshot');
   if (!el) return;
@@ -825,48 +1723,54 @@ function renderCustomerSnapshot(a){
     return;
   }
   const d = clientState.diagnosis || {};
+  const clientRows = [
+    ['行业', a.industry],
+    ['目标', a.main_goal],
+    ['目标客户', a.target_customer],
+    ['当前平台', a.current_channels],
+    ['最大问题', a.biggest_problem],
+    ['内容资产', a.content_assets],
+  ];
   const diagnosisRows = [
-    ['当前阶段', d.stage || clientState.project_stage],
+    ['阶段', d.stage || clientState.project_stage],
     ['策略清晰度', d.strategy_score ?? d.score ? `${d.strategy_score ?? d.score}/100` : '未生成'],
-    ['当前最大问题', d.priority_problem],
     ['核心判断', d.insight],
     ['下一步动作', d.next_step || d.weekly_action],
   ];
-  el.innerHTML = `<div class="snapshot-card evidence-split-card">
+  const fullClientRows = [
+    ['产品/服务入口', a.offer],
+    ['发布频率', a.posting_frequency],
+    ['月预算', a.monthly_budget],
+    ['决策周期', a.decision_cycle],
+    ['联系人', a.contact],
+    ['对标账号参考', hasBenchmark(a.benchmark) ? `${a.benchmark.platform || '未标注平台'}｜${(a.benchmark.accounts || []).length} 个账号` : '未填写'],
+  ];
+  el.innerHTML = `<div class="snapshot-card evidence-split-card client-snapshot-readable">
     <div class="snapshot-title">
       <strong>${esc(customerDisplayName(a, clientState.project))}</strong>
       <span>${esc(a.created_at || '本地暂存')}</span>
     </div>
     <div class="evidence-index"><span>诊断依据</span>${evidenceLink('evidence-k','客户输入')}${evidenceLink('evidence-v','系统判断')}</div>
-    <div class="evidence-split-grid">
-      <section class="evidence-column evidence-k" id="evidence-k">
-        <div class="evidence-label"><b>客户输入</b><span>原始信息</span></div>
-        <div class="kv-grid evidence-kv-grid">
-          ${fieldRow('行业', a.industry)}
-          ${fieldRow('主要目标', a.main_goal)}
-          ${fieldRow('目标客户', a.target_customer)}
-          ${fieldRow('产品/服务入口', a.offer)}
-          ${fieldRow('当前平台', a.current_channels)}
-          ${fieldRow('发布频率', a.posting_frequency)}
-          ${fieldRow('最大问题', a.biggest_problem)}
-          ${fieldRow('内容资产', a.content_assets)}
-          ${fieldRow('月预算', a.monthly_budget)}
-          ${fieldRow('决策周期', a.decision_cycle)}
-          ${fieldRow('联系人', a.contact)}
-          ${fieldRow('对标账号参考', hasBenchmark(a.benchmark) ? `${a.benchmark.platform || '未标注平台'}｜${(a.benchmark.accounts || []).length} 个账号` : '未填写')}
-        </div>
-        <div class="pain-box"><span>客户核心痛点</span><p>${esc(a.customer_pain || '未填写')}</p></div>
-        ${hasBenchmark(a.benchmark) ? `<div class="pain-box"><span>对标账号备注</span><p>${esc([a.benchmark.notes, a.benchmark.sample_content].filter(Boolean).join('｜'))}</p></div>` : ''}
+    <div class="client-snapshot-summary">
+      <section class="readable-evidence-card evidence-k" id="evidence-k">
+        <div class="evidence-label"><b>客</b><span>客户输入摘要</span></div>
+        <ul>${clientRows.map(([label, value]) => snapshotItem(label, value)).join('')}</ul>
+        <div class="readable-note"><span>客户核心痛点</span><p>${esc(a.customer_pain || '未填写')}</p></div>
       </section>
-      <section class="evidence-column evidence-v" id="evidence-v">
-        <div class="evidence-label"><b>系统判断</b><span>诊断结论</span></div>
-        <div class="kv-grid evidence-kv-grid">
-          ${diagnosisRows.map(([label, value]) => fieldRow(label, value)).join('')}
-        </div>
-        <div class="pain-box"><span>评分说明</span><p>${esc(d.score_note || '诊断分与闭环分需要由客户输入、发布计划、反馈回填和复盘数据共同支撑。')}</p></div>
-        <div class="pain-box"><span>风险提醒</span><p>${esc(d.risk_warning || '未生成风险提醒')}</p></div>
+      <section class="readable-evidence-card evidence-v" id="evidence-v">
+        <div class="evidence-label"><b>系</b><span>系统诊断摘要</span></div>
+        <ul>${diagnosisRows.map(([label, value]) => snapshotItem(label, value)).join('')}</ul>
+        <div class="readable-note"><span>风险提醒</span><p>${esc(d.risk_warning || '未生成风险提醒')}</p></div>
       </section>
     </div>
+    <details class="snapshot-more-details">
+      <summary>查看完整客户输入</summary>
+      <div class="readable-detail-grid">
+        ${fullClientRows.map(([label, value]) => fieldRow(label, value)).join('')}
+        <div class="pain-box"><span>评分说明</span><p>${esc(d.score_note || '诊断分与闭环分需要由客户输入、发布计划、反馈回填和复盘数据共同支撑。')}</p></div>
+        ${hasBenchmark(a.benchmark) ? `<div class="pain-box"><span>对标账号备注</span><p>${esc([a.benchmark.notes, a.benchmark.sample_content].filter(Boolean).join('｜'))}</p></div>` : ''}
+      </div>
+    </details>
   </div>`;
 }
 
@@ -891,6 +1795,27 @@ function renderAccountSetup(setup){
   </div>`;
 }
 
+function renderSmartDiagnosisModule(context){
+  if (!context) return '';
+  const missing = Array.isArray(context.missing_info) && context.missing_info.length
+    ? `<div class="smart-missing"><span>信息缺口</span><strong>${context.missing_info.map(esc).join(' / ')}</strong></div>`
+    : '<div class="smart-missing ok"><span>信息缺口</span><strong>当前信息足够生成第一轮内容实验</strong></div>';
+  const gates = Array.isArray(context.risk_gates) ? context.risk_gates : [];
+  return `<div class="warning smart-diagnosis-module">
+    <div class="small">内测智能诊断内核</div>
+    <div class="smart-grid">
+      <div><span>业务类型</span><strong>${esc(context.business_type || '未识别')}</strong></div>
+      <div><span>产品/服务判断</span><strong>${esc(context.category || context.primary_offer || '未识别')}</strong></div>
+      <div><span>交易动作</span><strong>${esc(context.conversion_action || '待判断')}</strong></div>
+      <div><span>置信度</span><strong>${Math.round(Number(context.confidence || 0) * 100)}%</strong></div>
+    </div>
+    <p><strong>客户决策场景：</strong>${esc(context.customer_decision_scene || '')}</p>
+    <p><strong>内容任务：</strong>${esc(context.content_task || '')}</p>
+    ${missing}
+    ${gates.length ? `<ul class="smart-risk-gates">${gates.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
 function renderDiagnosis(d){
   if(!d){ $('#latestDiagnosis').innerHTML='<div class="empty">填写左侧 5 个问题后，这里会生成内容方向、7天发布计划和发布后要看的关键数据。</div>'; return; }
   const platformRecommendations = parsePlatformRecommendations(d.platform_recommendations);
@@ -903,7 +1828,8 @@ function renderDiagnosis(d){
     ${renderPlatformGroup('暂不建议', platformRecommendations.avoid)}
   </div>` : '';
   const benchmarkModule = renderBenchmarkReference(d.benchmark_reference);
-  const extraModules = `${renderAccountSetup(d.account_setup)}${platformModule}`;
+  const smartModule = renderSmartDiagnosisModule(d.smart_context);
+  const extraModules = `${smartModule}${renderAccountSetup(d.account_setup)}${platformModule}`;
   $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card compact-diagnosis">
     <div class="small">${esc(d.version_label || VERSION_LABEL)}</div>
     <div class="score-row">
@@ -926,51 +1852,76 @@ function renderDiagnosis(d){
 }
 
 function hasFeedbackForPlan(planId){
-  return clientState.feedback.some((f)=>Number(f.content_plan_id) === Number(planId) && f.publish_link);
+  return clientState.feedback.some((f)=>samePlanId(f.content_plan_id, planId) && f.publish_link);
 }
 function planUiMeta(plan, firstOpenId){
-  const feedback = clientState.feedback.find((f)=>Number(f.content_plan_id) === Number(plan.id));
+  const feedback = clientState.feedback.find((f)=>samePlanId(f.content_plan_id, plan.id));
   if (feedback) return {label:`已回填 ${feedback.feedback_stage || 'T+24'}`, className:'plan-done', action:'查看/补充', tone:'green'};
   if (plan.publish_link || plan.status === '已发布') return {label:'待回填 T+72', className:'plan-next', action:'回填数据', tone:'orange'};
-  if (Number(plan.id) === Number(firstOpenId)) return {label:'今日优先', className:'plan-next', action:'复制/回填', tone:'orange'};
+  if (samePlanId(plan.id, firstOpenId)) return {label:'今日优先', className:'plan-next', action:'复制/回填', tone:'orange'};
   return {label:'待发布', className:'plan-pending', action:'发布后回填', tone:'default'};
+}
+
+function samePlanId(left, right){
+  const a = String(left ?? '').trim();
+  const b = String(right ?? '').trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+}
+
+function planIdValue(planOrId){
+  const id = typeof planOrId === 'object' ? planOrId?.id : planOrId;
+  return String(id ?? '').trim();
+}
+
+function planDisplayNumber(planOrId){
+  const id = planIdValue(planOrId);
+  const index = clientState.plans.findIndex((item)=>samePlanId(item.id, id));
+  return index >= 0 ? index + 1 : (id || '');
 }
 
 function renderPlans(plans){
   const summaryEl = $('#plansSummary');
   const firstOpen = plans.find((p)=>!(p.status === '已发布' || p.publish_link || hasFeedbackForPlan(p.id)));
-  const feedbackByPlan = (id) => clientState.feedback.find((f)=>Number(f.content_plan_id) === Number(id));
+  const feedbackByPlan = (id) => clientState.feedback.find((f)=>samePlanId(f.content_plan_id, id));
   if (summaryEl) {
     summaryEl.innerHTML = plans.slice(0, 3).map((p)=>{
       const meta = planUiMeta(p, firstOpen?.id);
       const f = feedbackByPlan(p.id);
       const stats = f ? `<div class="experiment-stats"><span>曝光 <b>${compactNumber(f.views)}</b></span><span>收藏 <b>${num(f.favorites)}</b></span><span>咨询 <b>${num(f.consultations)}</b></span></div>` : `<div class="experiment-stats"><span>日期 <b>${esc(p.planned_date || '待定')}</b></span></div>`;
       return `<article class="experiment-card ${meta.className}">
-        <div><div class="experiment-title">#${p.id} ${esc(p.topic)}</div><div class="experiment-meta"><span class="war-tag">${esc(p.platform)}</span><span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span></div><details class="experiment-detail"><summary>查看发布角度</summary><p>${esc(p.angle || '')}</p><p class="small">目标：${esc(p.target_metric || '待观察')}</p></details></div>
-        <div class="experiment-side">${stats}<button class="small-btn" type="button" onclick="prefillFeedback(${Number(p.id)})">${esc(meta.action)}</button></div>
+        <div><div class="experiment-title">#${planDisplayNumber(p)} ${esc(p.topic)}</div><div class="experiment-meta"><span class="war-tag">${esc(p.platform)}</span><span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span></div><details class="experiment-detail"><summary>查看发布角度</summary><p>${esc(p.angle || '')}</p><p class="small">目标：${esc(p.target_metric || '待观察')}</p></details></div>
+        <div class="experiment-side">${stats}<button class="small-btn js-prefill-feedback" type="button" data-plan-id="${esc(planIdValue(p))}">${esc(meta.action)}</button></div>
       </article>`;
     }).join('') || '<div class="empty">暂无计划，先提交一次快速体检。</div>';
   }
   $('#plansBody').innerHTML = plans.map(p=>{
     const meta = planUiMeta(p, firstOpen?.id);
-    return `<tr class="${meta.className}">
-      <td><span class="small">#${p.id}</span><br>${esc(p.planned_date)}</td>
-      <td>${esc(p.platform)}</td>
-      <td><strong>${esc(p.topic)}</strong></td>
-      <td>${esc(p.angle)}</td>
-      <td>${esc(p.content_type || '')}</td>
-      <td>${esc(p.cta || '')}<div class="small">${esc(p.publish_quality || '')}${p.quality_note ? '：' + esc(p.quality_note) : ''}</div></td>
-      <td>${esc(p.target_metric)}${p.publish_link ? `<div class="small"><a href="${esc(p.publish_link)}" target="_blank">发布链接已回填</a></div>` : '<div class="small">发布后需回填链接</div>'}</td>
-      <td><span class="status">${meta.label}</span></td>
-      <td><button class="secondary" type="button" onclick="prefillFeedback(${Number(p.id)})">${meta.action}</button></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="9">暂无计划</td></tr>';
+    const quality = [p.publish_quality, p.quality_note].filter(Boolean).join('：');
+    const linkHtml = p.publish_link ? `<a href="${esc(p.publish_link)}" target="_blank">发布链接已回填</a>` : '发布后需回填链接';
+    return `<article class="full-plan-card ${meta.className}">
+      <div class="full-plan-head">
+        <div><span class="plan-index">#${planDisplayNumber(p)}</span><strong>${esc(p.topic)}</strong></div>
+        <span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span>
+      </div>
+      <div class="full-plan-meta"><span>${esc(p.planned_date)}</span><span>${esc(p.platform)}</span><span>${esc(p.content_type || '')}</span></div>
+      <div class="full-plan-body">
+        <section><span>发布角度</span><p>${esc(p.angle)}</p></section>
+        <section><span>合规承接</span><p>${esc(p.cta || '')}</p>${quality ? `<em>${esc(quality)}</em>` : ''}</section>
+        <section><span>观察目标</span><p>${esc(p.target_metric || '')}</p><em>${linkHtml}</em></section>
+      </div>
+      <div class="full-plan-actions"><button class="secondary js-prefill-feedback" type="button" data-plan-id="${esc(planIdValue(p))}">${esc(meta.action)}</button></div>
+    </article>`;
+  }).join('') || '<div class="empty">暂无计划</div>';
 }
 
 function renderFeedback(items){
   const sorted = (items || []).slice().sort((a,b)=>String(b.created_at || '').localeCompare(String(a.created_at || '')));
   $('#feedbackList').innerHTML = sorted.map(f=>`<div class="list-item feedback-record-card">
-    <div class="feedback-record-head"><strong>计划 #${f.content_plan_id}</strong><span class="badge">${esc(f.feedback_stage || '未标注')}</span></div>
+    <div class="feedback-record-head"><strong>计划 #${planDisplayNumber(f.content_plan_id)}</strong><span class="badge">${esc(f.feedback_stage || '未标注')}</span></div>
     <div class="feedback-record-metrics"><span>曝光 ${f.views}</span><span>点赞 ${f.likes}</span><span>收藏 ${f.favorites}</span><span>评论 ${f.comments}</span><span>咨询 ${f.consultations}</span></div>
     ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : '<div class="warning">缺少发布链接：本条不算完整闭环</div>'}
     <div class="small">${esc(f.notes || '无备注')} · ${esc(f.created_at)}</div>
@@ -1033,29 +1984,42 @@ function autoReviewFromFeedback(){
 }
 
 function renderReview(r){
-  if(!r){ $('#reviewBox').innerHTML='暂无回填数据。保存至少1条发布链接和反馈后，这里会自动出现复盘。'; return; }
-  $('#reviewBox').innerHTML = `<div class="review ${r.is_auto ? 'auto-review' : ''}">
-    <div class="small">${r.is_auto ? '自动复盘 · ' : ''}${esc(r.week_start)} 至 ${esc(r.week_end)}</div>
-    <p><strong>发布样本：</strong>${r.total_posts} 条 · <strong>曝光：</strong>${r.total_views} · <strong>互动：</strong>${r.total_interactions} · <strong>咨询：</strong>${r.total_consultations}</p>
-    <p><strong>胜出主题：</strong>${esc(r.winner_topic || '暂无')}</p>
-    <p><strong>当前瓶颈：</strong>${esc(r.bottleneck)}</p>
-    <p class="big-action">${esc((r.next_actions || '').replace('加码「」同类角度', '加码「最高咨询内容」同类角度'))}</p>
+  if(!r){ $('#reviewBox').innerHTML='<div class="review-empty"><span class="review-icon">⏳</span><div><strong>还没有可复盘的数据</strong><p>保存至少 1 条发布链接和反馈后，这里会自动生成周复盘。</p></div></div>'; return; }
+  const action = (r.next_actions || '').replace('加码「」同类角度', '加码「最高咨询内容」同类角度');
+  const interactionRate = num(r.total_views) ? Math.round((num(r.total_interactions) / num(r.total_views)) * 1000) / 10 : 0;
+  const consultRate = num(r.total_views) ? Math.round((num(r.total_consultations) / num(r.total_views)) * 1000) / 10 : 0;
+  $('#reviewBox').innerHTML = `<div class="review-card ${r.is_auto ? 'auto-review' : ''}">
+    <div class="review-topline"><span class="review-icon">📊</span><div><strong>${r.is_auto ? '自动复盘' : '本周复盘'}</strong><span>${esc(r.week_start)} 至 ${esc(r.week_end)}</span></div></div>
+    <div class="review-metric-grid">
+      <div class="review-metric"><span>发布</span><strong>${compactNumber(r.total_posts)}</strong><em>条样本</em></div>
+      <div class="review-metric"><span>曝光</span><strong>${compactNumber(r.total_views)}</strong><em>查看</em></div>
+      <div class="review-metric"><span>互动</span><strong>${compactNumber(r.total_interactions)}</strong><em>${interactionRate}%</em></div>
+      <div class="review-metric hot"><span>咨询</span><strong>${compactNumber(r.total_consultations)}</strong><em>${consultRate}%</em></div>
+    </div>
+    <div class="review-decision-grid">
+      <div class="review-pill"><span>🏆 胜出主题</span><strong>${esc(r.winner_topic || '暂无')}</strong></div>
+      <div class="review-pill"><span>🚧 当前瓶颈</span><strong>${esc(r.bottleneck || '未生成')}</strong></div>
+    </div>
+    <div class="review-next"><span>下一步</span><strong>${esc(action)}</strong></div>
   </div>`;
 }
 
 function prefillFeedback(id){
-  const planId = Number(id);
+  const planId = planIdValue(id);
   const form = $('#feedbackForm');
   const workflow = $('#feedbackWorkflow');
-  const plan = clientState.plans.find((item) => Number(item.id) === Number(planId));
-  const existingFeedback = latestFeedbackRows().find((item) => Number(item.content_plan_id) === Number(planId));
+  const plan = clientState.plans.find((item) => samePlanId(item.id, planId));
+  const existingFeedback = latestFeedbackRows().find((item) => samePlanId(item.content_plan_id, planId));
   const planInput = form?.querySelector('[name=content_plan_id]');
+  const planDisplay = $('#selectedPlanDisplay');
   const linkInput = form?.querySelector('[name=publish_link]');
   const stageInput = form?.querySelector('[name=feedback_stage]');
   const notesInput = form?.querySelector('[name=notes]');
   if (!form || !planInput) return;
   if (workflow) workflow.hidden = false;
-  planInput.value = Number.isFinite(planId) ? String(planId) : String(id || '');
+  planInput.value = planId;
+  const displayNumber = planDisplayNumber(planId);
+  if (planDisplay) planDisplay.textContent = displayNumber ? `计划 #${displayNumber}` : '从计划卡片选择';
   if (linkInput) linkInput.value = existingFeedback?.publish_link || plan?.publish_link || '';
   if (stageInput && existingFeedback?.feedback_stage) stageInput.value = existingFeedback.feedback_stage;
   ['views','likes','comments','favorites','shares','consultations'].forEach((key) => {
@@ -1071,11 +2035,20 @@ function prefillFeedback(id){
   (workflow || form).scrollIntoView({behavior:'smooth', block:'start'});
   window.setTimeout(()=>{
     linkInput?.focus();
-    toast(`已选择计划 #${planInput.value}，请填写发布链接和数据。`);
+    toast(`已选择计划 #${displayNumber || planInput.value}，请填写发布链接和数据。`);
   }, 260);
   window.setTimeout(()=>workflow?.classList.remove('is-highlighted'), 1900);
 }
 window.prefillFeedback = prefillFeedback;
+
+function initPlanFeedbackButtons(){
+  document.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('.js-prefill-feedback[data-plan-id]');
+    if (!button) return;
+    event.preventDefault();
+    prefillFeedback(button.dataset.planId);
+  });
+}
 
 function createLocalReview(){
   const rows = latestFeedbackRows().map((feedback) => ({
@@ -1119,77 +2092,103 @@ function createLocalReview(){
   };
 }
 
-$('#assessmentForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  await withBusy(e.submitter, '生成中...', async () => {
-    const payload = formData(e.target);
-    if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
-    delete payload.posting_frequency_detail;
-    payload.benchmark = normalizeBenchmark(payload);
-    ['benchmark_platform','benchmark_accounts','benchmark_account_1','benchmark_account_2','benchmark_account_3','benchmark_notes','benchmark_sample_content'].forEach((key)=>delete payload[key]);
-    const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
-    const assessment = result.assessment || payload;
-    clientState = normalizeState({
-      project: makeProject({...assessment, project_id: `project-${Date.now()}`}),
-      project_stage: '待启动',
-      current_cycle_id: 'cycle-1',
-      assessment,
-      diagnosis: result.diagnosis,
-      plans: result.plans || [],
-      feedback: [],
-      review: null,
+async function regenerateCurrentDiagnosis(){
+  if (!clientState.assessment) { toast('当前没有客户信息，先提交一次诊断。'); return; }
+  const reason = window.prompt('重新诊断原因', '客户补充信息/内部修正') || '内部重新诊断';
+  await withBusy(null, '重新诊断中...', async () => {
+    const result = await api('/api/assessments', {method:'POST', body: JSON.stringify({...clientState.assessment, client_mode: 'internal_regenerate', source: 'internal_regenerate'})});
+    clientState = buildVersionedProjectState(result, clientState.assessment, clientState.source || 'internal_regenerate', clientState, reason);
+    saveLocal();
+    renderAllFromClient();
+    toast(`已生成诊断 v${clientState.diagnosis?.diagnosis_version || 1}，旧诊断已归档。`);
+  });
+}
+window.regenerateCurrentDiagnosis = regenerateCurrentDiagnosis;
+
+function initInternalApp(){
+  initInternalChoices();
+  $('#assessmentForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    syncInternalChoicesBeforeSubmit();
+    await withBusy(e.submitter, '生成中...', async () => {
+      const payload = formData(e.target);
+      Object.keys(payload).forEach((key) => { payload[key] = String(payload[key] || '').trim(); });
+      const validation = customerRequired(payload);
+      if (validation) throw new Error(validation);
+      payload.client_mode = 'internal_test';
+      payload.source = 'internal_test';
+      if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
+      delete payload.posting_frequency_detail;
+      payload.benchmark = normalizeBenchmark(payload);
+      ['benchmark_platform','benchmark_accounts','benchmark_account_1','benchmark_account_2','benchmark_account_3','benchmark_notes','benchmark_sample_content'].forEach((key)=>delete payload[key]);
+      const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
+      const assessment = result.assessment || payload;
+      clientState = buildVersionedProjectState(result, assessment, 'internal_test', null, '内部首次诊断');
+      saveLocal();
+      e.target.reset();
+      toast('诊断已生成');
+      renderAllFromClient();
     });
-    saveLocal();
-    e.target.reset();
-    toast('诊断已生成');
-    renderAllFromClient();
   });
-});
 
-$('#feedbackForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  await withBusy(e.submitter, '保存中...', async () => {
-    const data = formData(e.target);
-    if (!String(data.content_plan_id || '').trim()) throw new Error('请先选择或填写发布计划ID，再保存反馈。');
-    ['content_plan_id','views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=toNonNegative(data[k]));
-    data.publish_link = String(data.publish_link || '').trim();
-    if (!data.publish_link) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
-    const plan = clientState.plans.find((item) => Number(item.id) === Number(data.content_plan_id));
-    if (!plan) throw new Error('发布计划ID不存在，请先生成计划');
-    const feedback = {
-      id: Date.now(),
-      project_id: clientState.project?.id || 'default-project',
-      cycle_id: clientState.current_cycle_id || 'cycle-1',
-      ...data,
-      feedback_stage: data.feedback_stage || 'T+24',
-      created_at: localTimestamp(),
-    };
-    plan.status = '已发布';
-    plan.project_id = plan.project_id || clientState.project?.id || 'default-project';
-    plan.cycle_id = plan.cycle_id || clientState.current_cycle_id || 'cycle-1';
-    if (feedback.publish_link) plan.publish_link = feedback.publish_link;
-    clientState.feedback = [feedback, ...clientState.feedback.filter((item) => !(Number(item.content_plan_id) === Number(data.content_plan_id) && String(item.feedback_stage || 'T+24') === String(feedback.feedback_stage)))];
-    clientState.review = createLocalReview();
-    saveLocal();
-    renderAllFromClient();
-    e.target.reset();
-    toast('反馈已保存，看板和复盘已更新。');
-    api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
-      .catch(() => toast('本地已保存；云端临时接口同步失败，不影响本浏览器查看'));
+  $('#feedbackForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    await withBusy(e.submitter, '保存中...', async () => {
+      const data = formData(e.target);
+      if (!String(data.content_plan_id || '').trim()) throw new Error('请先从内容计划卡片选择一条计划，再保存反馈。');
+      data.content_plan_id = String(data.content_plan_id || '').trim();
+      ['views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=toNonNegative(data[k]));
+      data.publish_link = String(data.publish_link || '').trim();
+      if (!data.publish_link) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
+      const plan = clientState.plans.find((item) => samePlanId(item.id, data.content_plan_id));
+      if (!plan) throw new Error('发布计划ID不存在，请先生成计划');
+      const feedback = {
+        id: Date.now(),
+        project_id: clientState.project?.id || 'default-project',
+        cycle_id: clientState.current_cycle_id || 'cycle-1',
+        ...data,
+        feedback_stage: data.feedback_stage || 'T+24',
+        created_at: localTimestamp(),
+      };
+      plan.status = '已发布';
+      plan.project_id = plan.project_id || clientState.project?.id || 'default-project';
+      plan.cycle_id = plan.cycle_id || clientState.current_cycle_id || 'cycle-1';
+      if (feedback.publish_link) plan.publish_link = feedback.publish_link;
+      clientState.feedback = [feedback, ...clientState.feedback.filter((item) => !(samePlanId(item.content_plan_id, data.content_plan_id) && String(item.feedback_stage || 'T+24') === String(feedback.feedback_stage)))];
+      clientState.review = createLocalReview();
+      syncProjectStage();
+      saveLocal();
+      renderAllFromClient();
+      e.target.reset();
+      const planDisplay = $('#selectedPlanDisplay');
+      if (planDisplay) planDisplay.textContent = '从计划卡片选择';
+      toast('反馈已保存，看板和复盘已更新。');
+      api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
+        .catch(() => toast('本地已保存；云端临时接口同步失败，不影响本浏览器查看'));
+    });
   });
-});
 
-$('#reviewBtn').addEventListener('click', async ()=>{
-  await withBusy($('#reviewBtn'), '生成中...', async () => {
-    clientState.review = createLocalReview();
-    saveLocal();
-    renderAllFromClient();
-    toast('周复盘已更新');
-    api('/api/reviews', {method:'POST', body: JSON.stringify({})})
-      .catch(() => toast('本地复盘已保存；云端临时接口同步失败'));
+  $('#reviewBtn')?.addEventListener('click', async ()=>{
+    await withBusy($('#reviewBtn'), '生成中...', async () => {
+      clientState.review = createLocalReview();
+      syncProjectStage();
+      saveLocal();
+      renderAllFromClient();
+      toast('周复盘已更新');
+      api('/api/reviews', {method:'POST', body: JSON.stringify({})})
+        .catch(() => toast('本地复盘已保存；云端临时接口同步失败'));
+    });
   });
-});
-$('#refreshBtn').addEventListener('click', () => {
-  resetForNewCustomer();
-});
-loadAll().catch(err=>toast(err.message));
+  $('#refreshBtn')?.addEventListener('click', () => {
+    resetForNewCustomer();
+  });
+  loadAll().catch(err=>toast(err.message));
+}
+
+setAppShell();
+initPlanFeedbackButtons();
+if (isInternalMode()) {
+  initInternalApp();
+} else {
+  initCustomerTrial();
+}
