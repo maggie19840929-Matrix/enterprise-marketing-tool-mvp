@@ -1,8 +1,8 @@
 let state;
 let memoryCloudState = null;
 
-const APP_VERSION = '1.6.33';
-const VERSION_LABEL = 'v1.6.33 · 发布前脚本确认信息架构优化版';
+const APP_VERSION = '1.6.36';
+const VERSION_LABEL = 'v1.6.36 · AI项目入口校正版';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
@@ -1014,19 +1014,59 @@ const ensureState = () => {
   if (!state) seed();
 };
 
+const canonicalCloudProjectName = (item = {}) => {
+  const sourceText = [
+    item.name,
+    item.state?.project?.name,
+    item.state?.assessment?.company_name,
+    item.state?.assessment?.industry,
+    item.state?.diagnosis?.summary,
+  ].filter(Boolean).join(' ');
+  if (/安标|安规|医疗器械|注册送检|EMC/i.test(sourceText)) return '安标检测';
+  return String(item.name || item.state?.project?.name || item.state?.assessment?.company_name || '')
+    .replace(/\s+/g, '')
+    .replace(/作战台$/g, '')
+    .trim();
+};
+
+const cloudProjectCompleteness = (item = {}) => {
+  const state = item.state || {};
+  return [
+    Array.isArray(state.plans) ? state.plans.length : 0,
+    Array.isArray(state.feedback) ? state.feedback.length * 3 : 0,
+    state.review ? 20 : 0,
+    state.project_stage === '复盘期' || item.stage === '复盘期' ? 10 : 0,
+    item.source === 'internal_seed' || state.source === 'internal_seed' ? -30 : 0,
+  ].reduce((sum, value) => sum + value, 0);
+};
+
 const normalizeCloudProjectStore = (payload = {}) => {
   const raw = payload?.project_store || payload;
   const projects = Array.isArray(raw?.projects) ? raw.projects : [];
-  const normalizedProjects = projects
+  const byName = new Map();
+  projects
     .filter((item) => item && item.id && item.state && item.state.diagnosis && Array.isArray(item.state.plans))
     .map((item) => ({
       ...item,
       updated_at: item.updated_at || item.state?.saved_at || nowIso(),
     }))
+    .forEach((item) => {
+      const key = canonicalCloudProjectName(item) || String(item.id);
+      const existing = byName.get(key);
+      const preferIncoming = !existing
+        || cloudProjectCompleteness(item) > cloudProjectCompleteness(existing)
+        || (cloudProjectCompleteness(item) === cloudProjectCompleteness(existing)
+          && String(item.updated_at || '') >= String(existing.updated_at || ''));
+      if (preferIncoming) byName.set(key, item);
+    });
+  const normalizedProjects = [...byName.values()]
+    .sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
     .slice(0, 80);
+  const activeExists = normalizedProjects.some((item) => item.id === raw?.activeProjectId);
+  const lastExists = normalizedProjects.some((item) => item.id === raw?.lastActiveProjectId);
   return {
-    activeProjectId: raw?.activeProjectId || normalizedProjects[0]?.id || null,
-    lastActiveProjectId: raw?.lastActiveProjectId || null,
+    activeProjectId: activeExists ? raw.activeProjectId : (normalizedProjects[0]?.id || null),
+    lastActiveProjectId: lastExists ? raw.lastActiveProjectId : null,
     projects: normalizedProjects,
     cloud_saved_at: raw?.cloud_saved_at || null,
   };
@@ -1054,7 +1094,7 @@ const readCloudState = async () => {
   const store = await cloudStore();
   if (store) {
     const data = await store.get(CLOUD_STATE_KEY, { type: 'json' }).catch(() => null);
-    if (data) return {...data, storage: 'netlify-blobs'};
+    if (data) return {...cloudEnvelope(data.project_store || data, {storage: 'netlify-blobs'}), storage: 'netlify-blobs'};
   }
   if (!memoryCloudState) memoryCloudState = cloudEnvelope({projects: []}, {storage: 'memory-fallback'});
   return {...memoryCloudState, storage: 'memory-fallback'};

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>企业内容增长助手 · 生成发布计划与效果复盘</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.33" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.33" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.34" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.34" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -241,41 +241,41 @@
   <main>
     <section class="panel workbench-panel" id="lifecycleWorkbench"></section>
 
-    <section class="panel anbiao-customer-panel" id="anbiaoCustomerPanel" hidden>
-      <div class="panel-head anbiao-confirm-head">
-        <div>
-          <p class="eyebrow">安标检测 / 发布前脚本确认</p>
-          <h2>本轮内容增长进度</h2>
-          <span>这组数据来自客户发布前审稿，用来决定哪些脚本可发、哪些要改；不是发布后的曝光、点赞、咨询效果数据。</span>
-        </div>
-        <div class="anbiao-head-actions">
-          <a class="secondary" href="https://kcny4x1jqjwx.feishu.cn/base/XK1ubLNLtaZ1m8swQQ5cAILOnhf" target="_blank" rel="noreferrer">查看客户确认表</a>
-          <button class="secondary" type="button" onclick="document.querySelector('#feedbackList')?.scrollIntoView({behavior:'smooth',block:'start'})">发布后填写效果数据</button>
-        </div>
-      </div>
-      <div id="anbiaoCustomerSummary" class="anbiao-summary"></div>
-      <div id="anbiaoCustomerRows" class="anbiao-customer-rows"></div>
-    </section>
-
     <section class="cards metric-section" id="metricCards" hidden></section>
 
     <section class="grid cockpit" id="diagnosisWorkflow">
       <article class="panel intake-panel internal-new-project-panel">
         <div class="panel-head compact-head">
           <div>
-            <p class="eyebrow">新增项目 / 业务信息</p>
-            <h2>把客户版轻表单收进内测新增项目</h2>
-            <p class="hint">后续客户版和内测版共用同一套输入字段、生成逻辑和反馈闭环；内测版只多展示智能诊断与作战台。</p>
+            <p class="eyebrow">新增项目 / AI采集</p>
+            <h2>先说业务，系统再追问</h2>
+            <p class="hint">不用先填表。把客户业务、目标、客群、产品和现有素材用一段话告诉系统；系统会先提取关键信息，不足的再补问。</p>
           </div>
         </div>
-        <form id="assessmentForm" class="assessment-form compact-form customer-form internal-intake-form">
-          <div class="form-section-title wide-field">从这里开始填写</div>
-          <label>你的行业/业务是什么？*<input name="industry" required placeholder="如：篮球销售、美甲店、产康门店；行业较大时，下方补充具体卖什么" /></label>
-          <label>你现在最想达成什么目标？*<input name="main_goal" required placeholder="如：让附近客户咨询套餐 / 提升小红书咨询量" /></label>
-          <label>你的目标客户是谁？*<input name="target_customer" required placeholder="如：附近3公里爱美女性 / 准备留学的学生家长" /></label>
+        <form id="assessmentForm" class="assessment-form compact-form customer-form internal-intake-form ai-intake-form" novalidate>
+          <div class="ai-brief-card wide-field">
+            <div class="ai-brief-head">
+              <span>AI项目助手</span>
+              <strong>一句话/一段话创建项目</strong>
+            </div>
+            <textarea id="aiProjectBrief" name="ai_project_brief" placeholder="例：我们是做医疗器械安标检测的，主要客户是准备注册送检的器械企业。现在想用小红书让客户咨询送检资料和补检问题，手里有检测流程、常见问题、客户案例和发布链接。"></textarea>
+            <div class="ai-brief-actions">
+              <button class="war-btn" type="button" id="aiExtractBtn">先提取信息</button>
+              <span id="aiExtractStatus">可直接生成；信息不够时系统会提示补充。</span>
+            </div>
+          </div>
+
+          <details class="customer-more-fields advanced-fields internal-structured-fields">
+            <summary>查看/手动修正系统提取的信息</summary>
+            <div class="customer-more-grid advanced-grid">
+              <label>你的行业/业务是什么？*<input name="industry" required placeholder="如：篮球销售、美甲店、产康门店；行业较大时，下方补充具体卖什么" /></label>
+              <label>你现在最想达成什么目标？*<input name="main_goal" required placeholder="如：让附近客户咨询套餐 / 提升小红书咨询量" /></label>
+              <label>你的目标客户是谁？*<input name="target_customer" required placeholder="如：附近3公里爱美女性 / 准备留学的学生家长" /></label>
+            </div>
+          </details>
 
           <details class="customer-more-fields advanced-fields">
-            <summary>想让建议更准？补充这些信息</summary>
+            <summary>补充更多业务细节，让建议更准</summary>
             <div class="customer-more-grid advanced-grid">
               <label>主推产品/服务和价格带<input name="offer" placeholder="如：室外耐磨篮球 89-199 元 / 少儿篮球体验课 99 元 / 盆底肌评估体验 199 元" /></label>
               <label>客户最常问的问题或顾虑<textarea name="customer_pain" placeholder="如：水泥地会不会磨坏、买几号球、怕没效果、担心价格贵、不了解流程"></textarea></label>
@@ -410,6 +410,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.33"></script>
+  <script src="/app.js?v=1.6.35"></script>
 </body>
 </html>

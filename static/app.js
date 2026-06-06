@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.6.33';
-const VERSION_LABEL = 'v1.6.33 · 发布前脚本确认信息架构优化版';
+const APP_VERSION = '1.6.36';
+const VERSION_LABEL = 'v1.6.36 · AI项目入口校正版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -56,22 +56,6 @@ const blankClientState = () => ({
 
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
-
-const ANBIAO_CUSTOMER_SOURCE_URL = 'https://kcny4x1jqjwx.feishu.cn/base/XK1ubLNLtaZ1m8swQQ5cAILOnhf';
-const ANBIAO_CUSTOMER_ROWS = [
-  {id:'V01', title:'医疗器械注册送检，为什么经常被要求补检？', feedback:'核心原因在于送检前准备与法规标准要求之间存在缺口：标准更新滞后、产品变更未同步验证、资料不完整、样品不典型、机构与企业认知差异。', score:5},
-  {id:'V02', title:'送检前，客户最好提前准备哪些资料？', feedback:'标题是送检前资料准备，但脚本更偏检测费用和周期所需信息。', score:4},
-  {id:'V03', title:'安规、EMC、环境试验分别在测什么？', feedback:'内容较简单，可改为更专业知识点，比如环境试验与包装运输试验的区别。', score:1},
-  {id:'V04', title:'不是产品硬件过了，检测就一定顺利', feedback:'暂无客户反馈。', score:2},
-  {id:'V05', title:'检测不合格，第一步不是盲目重测', feedback:'暂无客户反馈。', score:3},
-  {id:'V06', title:'标准更新后，老产品为什么也要关注检测？', feedback:'暂无客户反馈。', score:5},
-  {id:'V07', title:'客户投标前急需检测报告，我们如何加急处理？', feedback:'暂无客户反馈。', score:1},
-  {id:'V08', title:'选择检测机构，不只看价格，还要看什么？', feedback:'暂无客户反馈。', score:4},
-  {id:'V09', title:'医疗器械检测周期，为什么不能只问“几天出报告”？', feedback:'暂无客户反馈。', score:4},
-  {id:'V10', title:'医疗器械送检样品，为什么不能随便寄一个就测？', feedback:'暂无客户反馈。', score:3},
-  {id:'V11', title:'检测报告能不能直接用于注册，关键看这几点', feedback:'暂无客户反馈。', score:4},
-  {id:'V12', title:'企业第一次做医疗器械检测，最容易忽略的三件事', feedback:'客户补充了更专业的中段：说明书声称与技术要求/样品实物不一致；送检样品不是最终设计定型版；选错检测机构或检测项目。', score:2},
-];
 
 const api = async (url, opts={}) => {
   const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
@@ -240,10 +224,22 @@ function projectSummaryFromState(state = clientState){
     state: normalized,
   };
 }
-const canonicalProjectName = (item = {}) => String(item.name || item.state?.project?.name || item.state?.assessment?.company_name || '')
-  .replace(/\s+/g, '')
-  .replace(/作战台$/g, '')
-  .trim();
+const canonicalProjectName = (item = {}) => {
+  const sourceText = [
+    item.name,
+    item.state?.project?.name,
+    item.state?.assessment?.company_name,
+    item.state?.assessment?.industry,
+    item.state?.assessment?.offer,
+    item.state?.assessment?.target_customer,
+  ].filter(Boolean).join(' ');
+  // 同一客户项目可能经历过“内置样例名→真实客户名”的迁移；安标/医疗器械注册送检必须合并成一个项目，避免下拉出现两条安标数据。
+  if (/安标|医疗器械|注册检验|注册送检|EMC|环境试验/.test(sourceText)) return '安标检测';
+  return String(item.name || item.state?.project?.name || item.state?.assessment?.company_name || '')
+    .replace(/\s+/g, '')
+    .replace(/作战台$/g, '')
+    .trim();
+};
 function normalizeProjectItem(item = {}){
   const state = normalizeState(item.state || {});
   const name = customerDisplayName(state.assessment, state.project) || item.name || '我的内容增长作战台';
@@ -1492,9 +1488,6 @@ function renderLifecycleWorkbench(){
   const flow = getPrimaryFlow();
   const primaryAction = `<button class="war-btn primary" type="button" onclick="runPrimaryFlow()">${esc(flow.label)}</button>`;
   const projectSwitcher = renderProjectSwitcher();
-  const historyCount = clientState.diagnosis_history?.length || (clientState.diagnosis ? 1 : 0);
-  const sourceLabel = clientState.source === 'customer_public' ? '客户提交' : (clientState.source ? '内部/测试' : '本地项目');
-  const versionTag = `<span class="war-tag">${sourceLabel}</span><span class="war-tag">诊断 v${esc(clientState.diagnosis?.diagnosis_version || historyCount || 1)} / 历史 ${historyCount}</span>`;
   const winningText = winner ? `#${esc(planDisplayNumber(winner.plan?.id || winner.feedback.content_plan_id))} ${esc(winner.plan?.topic || '已回填内容')}` : '暂无胜出内容，先发布并回填';
   const decisionText = winner
     ? `“${esc(winner.plan?.topic || '最高咨询内容')}”方向值得继续观察`
@@ -1504,7 +1497,7 @@ function renderLifecycleWorkbench(){
   const reviewTag = `<span class="war-tag purple">${esc(cycleText)}</span>`;
   const hypothesis = `<span class="war-tag">假设：${esc(clientState.diagnosis?.priority_problem || clientState.assessment?.biggest_problem || '内容能否带来咨询')}</span>`;
   el.innerHTML = `<div class="war-room-shell">
-    <div class="war-nav"><div class="war-brand"><span class="war-mark"></span><strong>${esc(projectName)}</strong></div>${projectSwitcher}<div class="war-tabs"><button class="active" type="button" onclick="scrollToSection('#lifecycleWorkbench')">作战台</button><button type="button" onclick="scrollToSection('#planSection')">计划/回填</button><button type="button" onclick="regenerateCurrentDiagnosis()">重新诊断</button><button type="button" onclick="startNewProject()">新增项目</button></div><div class="war-cycle">${versionTag}</div></div>
+    <div class="war-nav"><div class="war-brand"><span class="war-mark"></span><strong>${esc(projectName)}</strong></div>${projectSwitcher}<div class="war-tabs"><button class="active" type="button" onclick="scrollToSection('#lifecycleWorkbench')">作战台</button><button type="button" onclick="scrollToSection('#planSection')">计划/回填</button><button type="button" onclick="regenerateCurrentDiagnosis()">重新诊断</button><button type="button" onclick="startNewProject()">新增项目</button></div></div>
     <section class="war-status-hero">
       <div><h2>${esc(cycleText)} · ${esc(meta.label)}</h2><div class="war-meta">${stageTag}${reviewTag}${hypothesis}</div></div>
       <div class="war-actions">${primaryAction}<button class="war-btn" type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth', block:'start'})">查看计划</button><button class="war-btn" type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth', block:'start'})">周复盘</button></div>
@@ -1534,105 +1527,9 @@ function startNextCycle(){
 window.showDiagnosisWorkflow = showDiagnosisWorkflow;
 window.startNextCycle = startNextCycle;
 
-function isAnbiaoCustomerProject(){
-  const text = [
-    clientState.project?.name,
-    clientState.assessment?.company_name,
-    clientState.assessment?.industry,
-    clientState.assessment?.offer,
-    clientState.assessment?.target_customer,
-  ].filter(Boolean).join(' ');
-  // 项目专属客户反馈样本必须用明确项目/客户语义触发，禁止用“轻工业”“检测”等宽泛行业词，避免安标检测数据串到其他作战台。
-  return /安标检测|安标|医疗器械注册|医疗器械送检|注册送检/.test(text);
-}
-
-function hasExplicitCustomerFeedback(row){
-  return Boolean(row.feedback && row.feedback !== '暂无客户反馈。');
-}
-
-function scriptConfirmStatus(row){
-  if (!hasExplicitCustomerFeedback(row)) return {key:'pending', label:'待客户确认', tone:'muted', action:'等待客户确认后再进发布排期'};
-  const score = Number(row.score || 0);
-  if (score >= 4) return {key:'ready', label:'可优先发布', tone:'green', action:'加入本周发布计划'};
-  if (score <= 2) return {key:'rewrite', label:'需优化后再发', tone:'red', action:'重写/补专业信息'};
-  return {key:'review', label:'需二次确认', tone:'orange', action:'小改后再确认'};
-}
-
-function renderAnbiaoCustomerData(){
-  const panel = $('#anbiaoCustomerPanel');
-  const summary = $('#anbiaoCustomerSummary');
-  const rowsEl = $('#anbiaoCustomerRows');
-  if (!panel || !summary || !rowsEl) return;
-  if (!isInternalMode() || !isAnbiaoCustomerProject()) {
-    panel.hidden = true;
-    summary.innerHTML = '';
-    rowsEl.innerHTML = '';
-    return;
-  }
-  panel.hidden = false;
-  const rows = ANBIAO_CUSTOMER_ROWS.map((row)=>({...row, status: scriptConfirmStatus(row)}));
-  const total = rows.length;
-  const confirmed = rows.filter((row)=>hasExplicitCustomerFeedback(row));
-  const ready = rows.filter((row)=>row.status.key === 'ready');
-  const rewrite = rows.filter((row)=>row.status.key === 'rewrite');
-  const pending = rows.filter((row)=>row.status.key === 'pending');
-  const confirmedAvg = confirmed.length
-    ? (confirmed.reduce((sum,row)=>sum + Number(row.score || 0), 0) / confirmed.length).toFixed(1)
-    : '—';
-
-  const summaryCards = [
-    ['当前阶段', '发布前确认', '客户审稿，不是平台效果'],
-    ['候选脚本', total, '待筛选进入发布计划'],
-    ['客户已确认', confirmed.length, `确认分均值 ${confirmedAvg}`],
-    ['建议可发', ready.length, '先进入本周发布排期'],
-    ['需重写', rewrite.length, '发布前先修内容质量'],
-    ['待确认', pending.length, '继续催办客户反馈'],
-  ];
-  summary.innerHTML = `
-    <div class="anbiao-stage-map" aria-label="内容增长流程">
-      <div class="active"><strong>1 发布前确认</strong><span>客户打分 / 修改意见 / 可发门禁</span></div>
-      <div><strong>2 发布执行</strong><span>排期 / 平台 / 发布状态</span></div>
-      <div><strong>3 发布后回填</strong><span>曝光 / 互动 / 咨询 / 复盘</span></div>
-    </div>
-    <div class="anbiao-summary-grid">
-      ${summaryCards.map(([label, value, note])=>`<div class="anbiao-summary-card"><span>${esc(label)}</span><strong>${esc(value)}</strong><em>${esc(note)}</em></div>`).join('')}
-    </div>`;
-
-  const renderGroup = (title, subtitle, groupRows, key) => `
-    <section class="anbiao-confirm-group ${key}">
-      <div class="anbiao-group-head"><div><strong>${esc(title)}</strong><span>${esc(subtitle)}</span></div><b>${esc(groupRows.length)} 条</b></div>
-      ${groupRows.length ? groupRows.map((row)=>{
-        const score = Number(row.score || 0);
-        return `<article class="anbiao-row ${esc(row.status.tone)}">
-          <div class="anbiao-row-main">
-            <div class="anbiao-row-title"><span>${esc(row.id)}</span><strong>${esc(row.title)}</strong></div>
-            <p>${esc(row.feedback || '暂无客户反馈。')}</p>
-          </div>
-          <div class="anbiao-row-side">
-            <div class="anbiao-score ${esc(row.status.tone)}"><span>${hasExplicitCustomerFeedback(row) ? '确认分' : '状态'}</span><strong>${hasExplicitCustomerFeedback(row) ? esc(score) : '待'}</strong></div>
-            <small>${esc(row.status.action)}</small>
-          </div>
-        </article>`;
-      }).join('') : '<div class="anbiao-empty">暂无</div>'}
-    </section>`;
-
-  rowsEl.innerHTML = `
-    <div class="anbiao-decision-note">
-      <strong>客户应该先看什么？</strong>
-      <span>先确认“可发 / 需改 / 待确认”三类动作；发布后的真实增长效果，请在下方“发布后回填”里录入。</span>
-    </div>
-    ${renderGroup('可优先发布', '客户已给高分，可进入发布计划', ready, 'ready')}
-    ${renderGroup('需要优化后再发', '客户已指出问题，不能直接发布', rewrite, 'rewrite')}
-    <details class="anbiao-pending-list">
-      <summary>待客户确认脚本（默认折叠，避免干扰增长看板）<b>${pending.length} 条</b></summary>
-      ${renderGroup('待客户确认', '还不是发布后反馈，也不能当作市场效果', pending, 'pending')}
-    </details>`;
-}
-
 function renderAllFromClient(){
   syncProjectStage();
   renderLifecycleWorkbench();
-  renderAnbiaoCustomerData();
   renderWorkflowVisibility();
   renderDashboard(clientDashboard());
   renderCustomerSnapshot(clientState.assessment);
@@ -2105,8 +2002,64 @@ async function regenerateCurrentDiagnosis(){
 }
 window.regenerateCurrentDiagnosis = regenerateCurrentDiagnosis;
 
+function inferInternalPayloadFromBrief(form){
+  const brief = String(form.querySelector('[name="ai_project_brief"]')?.value || '').trim();
+  if (!brief) return;
+  const setIfEmpty = (name, value) => {
+    const input = form.querySelector(`[name="${name}"]`);
+    if (input && !String(input.value || '').trim() && value) input.value = value;
+  };
+  const compact = brief.replace(/\s+/g, ' ');
+  let industry = '';
+  const industryMatch = compact.match(/(?:我们是|我是|客户是|业务是|做的是|主营|主要做)([^，。；;、]{2,28})/);
+  if (industryMatch?.[1]) industry = industryMatch[1].replace(/的$/, '');
+  if (!industry) {
+    if (/安标|安规|检测|送检|医疗器械/.test(compact)) industry = '安标检测｜医疗器械检测合规';
+    else if (/美甲|美睫|美容/.test(compact)) industry = '本地美容美甲门店';
+    else if (/产康|盆底肌|产后/.test(compact)) industry = '产后康复门店';
+    else if (/篮球|体育培训|球馆/.test(compact)) industry = /培训|课程|体验课/.test(compact) ? '少儿篮球培训' : '篮球销售';
+  }
+  const targetMatch = compact.match(/(?:客户是|目标客户是|主要客户是|面向|服务)([^，。；;]{3,36})/);
+  const target = targetMatch?.[1]?.replace(/^(的|给)/, '') || (/企业|老板|商家|客户/.test(compact) ? '有增长需求的企业主/商家' : '潜在目标客户');
+  let goal = '';
+  const goalMatch = compact.match(/(?:想|希望|目标是|现在想|最想)([^。；;]{4,42})/);
+  if (goalMatch?.[1]) goal = goalMatch[1];
+  if (!goal) goal = /咨询|私信|线索/.test(compact) ? '提升内容带来的有效咨询' : '找到能带来客户的内容方向';
+  setIfEmpty('industry', industry || compact.slice(0, 24));
+  setIfEmpty('target_customer', target);
+  setIfEmpty('main_goal', goal);
+  setIfEmpty('offer', customerOfferFromGoal(goal + ' ' + compact, industry));
+  setIfEmpty('customer_pain', (compact.match(/(?:顾虑|问题|痛点|担心)([^。；;]{4,40})/)?.[1] || '客户不知道为什么需要现在咨询/下单'));
+  setIfEmpty('content_assets', (compact.match(/(?:素材|手里有|已有)([^。；;]{4,60})/)?.[1] || '待补充现有素材'));
+  const channels = form.querySelector('[name="current_channels"]');
+  if (channels && !channels.value) {
+    channels.value = /抖音/.test(compact) ? '抖音' : /视频号/.test(compact) ? '视频号' : /朋友圈|私域/.test(compact) ? '朋友圈/私域' : '小红书';
+  }
+  const problem = form.querySelector('[name="biggest_problem"]');
+  if (problem && !problem.value) {
+    problem.value = /没流量|曝光/.test(compact) ? '发了没流量' : /咨询|私信|转化/.test(compact) ? '有浏览没咨询' : /复盘|总结/.test(compact) ? '发完没人复盘' : '不知道发什么';
+  }
+  document.querySelectorAll('[data-internal-platforms] button,[data-internal-problems] button').forEach((button)=>{
+    const group = button.closest('[data-internal-platforms],[data-internal-problems]');
+    const inputName = group?.matches('[data-internal-platforms]') ? 'current_channels' : 'biggest_problem';
+    const input = form.querySelector(`[name="${inputName}"]`);
+    button.classList.toggle('is-selected', Boolean(input?.value && input.value === button.dataset.value));
+  });
+  const status = $('#aiExtractStatus');
+  if (status) status.textContent = '已提取关键信息；可展开检查，也可以直接生成。';
+}
+
+function initInternalAiIntake(){
+  const form = $('#assessmentForm');
+  $('#aiExtractBtn')?.addEventListener('click', () => {
+    inferInternalPayloadFromBrief(form);
+    document.querySelector('.internal-structured-fields')?.setAttribute('open', '');
+  });
+}
+
 function initInternalApp(){
   initInternalChoices();
+  initInternalAiIntake();
   $('#assessmentForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();
     syncInternalChoicesBeforeSubmit();
