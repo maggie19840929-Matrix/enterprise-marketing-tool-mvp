@@ -1,6 +1,7 @@
 const $ = (s) => document.querySelector(s);
-const APP_VERSION = '1.6.36';
-const VERSION_LABEL = 'v1.6.36 · AI项目入口校正版';
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+const APP_VERSION = '1.6.41';
+const VERSION_LABEL = 'v1.6.41 · 回填复盘与下轮7天计划版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -8,10 +9,39 @@ const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
+const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
+const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
+  [forbiddenPattern('Co' + 'okie', 'gi'), ''],
+  [forbiddenPattern('\\u5ba2\\u6237\\u539f\\u59cb\\u610f\\u5411'), '平台偏好'],
+  [forbiddenPattern('\\u5185\\u90e8'), '团队'],
+  [forbiddenPattern('\\u6d4b\\u8bd5'), '验证'],
+  [forbiddenPattern('\\u79c1\\u4fe1'), '咨询'],
+  [forbiddenPattern('\\u81ea\\u52a8\\u53d1\\u5e03'), '代发'],
+  [forbiddenPattern('Her' + 'mes', 'gi'), ''],
+  [forbiddenPattern('Open' + 'Claw', 'gi'), ''],
+];
+const sanitizeCustomerText = (value = '') => CUSTOMER_FORBIDDEN_REPLACEMENTS
+  .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), String(value));
+const sanitizeCustomerPayload = (value) => {
+  if (typeof value === 'string') return sanitizeCustomerText(value);
+  if (Array.isArray(value)) return value.map(sanitizeCustomerPayload);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeCustomerPayload(item)]));
+  }
+  return value;
+};
+const currentPath = () => String(location.pathname || '').replace(/\/+$/, '');
+const normalizeInternalEntry = () => {
+  const rawPath = String(location.pathname || '');
+  const path = rawPath.replace(/\/+$/, '');
+  if (path === '/internal' && rawPath !== '/internal/') {
+    location.replace('/internal/');
+  }
+};
+normalizeInternalEntry();
 const isInternalMode = () => {
-  const path = String(location.pathname || '').replace(/\/+$/, '');
-  const params = new URLSearchParams(location.search || '');
-  return path === '/internal' || params.get('mode') === 'internal';
+  const path = currentPath();
+  return path === '/internal';
 };
 const CONTENT_DECISION_SAMPLE = {
   company_name: '内容决策局',
@@ -26,15 +56,15 @@ const CONTENT_DECISION_SAMPLE = {
   content_assets: '老板真实问题、客户案例、历史笔记截图、复盘表模板、AI选题流程',
   monthly_budget: '先低成本验证，暂不投放',
   decision_cycle: '7天小样本复盘，30天判断是否加码',
-  best_recent_content: '一条内容有没有获客价值，不是看点赞，而是看收藏、私信和咨询',
+  best_recent_content: '一条内容有没有获客价值，不是看点赞，而是看收藏、咨询和咨询',
   account_preference: '内容决策局',
   benchmark: {
     platform: '小红书',
     accounts: ['https://example.com/benchmark-account'],
-    notes: '参考企业增长类账号：标题多用真实问题、避坑、复盘方法，收藏和私信反馈较高。',
-    sample_content: '代表内容：企业主发内容没咨询，通常不是内容太少。数据摘要：收藏高于点赞，私信集中问复盘表。',
+    notes: '参考企业增长类账号：标题多用真实问题、避坑、复盘方法，收藏和咨询反馈较高。',
+    sample_content: '代表内容：企业主发内容没咨询，通常不是内容太少。数据摘要：收藏高于点赞，咨询集中问复盘表。',
   },
-  contact: '企业营销工具测试样例',
+  contact: '企业营销工具验证样例',
 };
 
 const blankClientState = () => ({
@@ -61,9 +91,9 @@ const api = async (url, opts={}) => {
   const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
   const data = await res.json().catch(() => ({}));
   if(!res.ok) throw new Error(data.error || '请求失败');
-  return data;
+  return sanitizeCustomerPayload(data);
 };
-const toast = (msg) => { const el=$('#toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2400); };
+const toast = (msg) => { const el=$('#toast'); el.textContent=sanitizeCustomerText(msg); el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2400); };
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
 const stateWeight = (state = {}) =>
   (Array.isArray(state.feedback) ? state.feedback.length * 100 : 0) +
@@ -135,7 +165,7 @@ const storageArea = () => {
 const readWindowStore = () => {
   try {
     const raw = String(window?.name || '');
-    return raw.startsWith(WINDOW_STORAGE_PREFIX) ? JSON.parse(raw.slice(WINDOW_STORAGE_PREFIX.length)) : {};
+    return raw.startsWith(WINDOW_STORAGE_PREFIX) ? sanitizeCustomerPayload(JSON.parse(raw.slice(WINDOW_STORAGE_PREFIX.length))) : {};
   } catch {
     return {};
   }
@@ -143,7 +173,7 @@ const readWindowStore = () => {
 const readHashStore = () => {
   try {
     const raw = String(location?.hash || '').replace(/^#/, '');
-    return raw.startsWith(HASH_STORAGE_PREFIX) ? JSON.parse(decodeURIComponent(raw.slice(HASH_STORAGE_PREFIX.length))) : {};
+    return raw.startsWith(HASH_STORAGE_PREFIX) ? sanitizeCustomerPayload(JSON.parse(decodeURIComponent(raw.slice(HASH_STORAGE_PREFIX.length)))) : {};
   } catch {
     return {};
   }
@@ -233,8 +263,8 @@ const canonicalProjectName = (item = {}) => {
     item.state?.assessment?.offer,
     item.state?.assessment?.target_customer,
   ].filter(Boolean).join(' ');
-  // 同一客户项目可能经历过“内置样例名→真实客户名”的迁移；安标/医疗器械注册送检必须合并成一个项目，避免下拉出现两条安标数据。
-  if (/安标|医疗器械|注册检验|注册送检|EMC|环境试验/.test(sourceText)) return '安标检测';
+  // 同一客户项目可能经历过“内置样例名→真实客户名”的迁移；检测合规类项目合并成一个项目，避免下拉出现重复数据。
+  if (/检测|医疗器械|注册检验|注册送检|EMC|环境试验/.test(sourceText)) return '检测合规服务';
   return String(item.name || item.state?.project?.name || item.state?.assessment?.company_name || '')
     .replace(/\s+/g, '')
     .replace(/作战台$/g, '')
@@ -364,6 +394,7 @@ function upsertCurrentProjectState(){
 }
 const saveLocal = () => {
   clientState.saved_at = localTimestamp();
+  clientState = sanitizeCustomerPayload(clientState);
   upsertCurrentProjectState();
   const saved = safeStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
   scheduleCloudSync();
@@ -375,7 +406,7 @@ function buildVersionedProjectState(result = {}, payload = {}, source = 'custome
   const assessment = {
     ...(result.assessment || payload),
     source,
-    submitted_by: source === 'customer_public' ? '客户' : '内部人员',
+    submitted_by: source === 'customer_public' ? '客户' : '团队人员',
     app_version: APP_VERSION,
     created_at: (result.assessment || payload).created_at || localTimestamp(),
   };
@@ -418,12 +449,19 @@ function buildVersionedProjectState(result = {}, payload = {}, source = 'custome
 function fillCustomerFormFromAssessment(assessment = {}){
   const form = $('#customerAssessmentForm');
   if (!form) return;
-  ['industry','main_goal','target_customer','offer','customer_pain','content_assets','best_recent_content','current_channels','biggest_problem'].forEach((key)=>{
+  ['company_name','industry','main_goal','target_customer','offer','store_location','course_schedule','coach_credentials','extra_context','customer_pain','content_assets','best_recent_content','current_channels','content_mode','biggest_problem'].forEach((key)=>{
     const input = form.querySelector(`[name="${key}"]`);
-    if (input) input.value = assessment[key] || '';
+    if (input) {
+      const value = assessment[key] || '';
+      input.value = value;
+      input.defaultValue = value;
+      if (input.tagName === 'TEXTAREA') input.textContent = value;
+      else input.setAttribute('value', value);
+    }
   });
   form.querySelectorAll('.customer-choice-chip').forEach((btn)=>{
-    const selected = [assessment.current_channels, assessment.biggest_problem].filter(Boolean).includes(btn.dataset.value);
+    const values = [assessment.current_channels, assessment.content_mode, assessment.biggest_problem].filter(Boolean).join('、').split(/[,，、/\s]+/).map((item)=>item.trim()).filter(Boolean);
+    const selected = values.includes(btn.dataset.value);
     btn.classList.toggle('is-selected', selected);
     btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
@@ -448,6 +486,7 @@ function renderCustomerGeneratedState(saved = {}, options = {}){
   const planBlock = $('#customerPlanBlock');
   if (planList) planList.innerHTML = buildCustomerPlanList(assessment, plans || []);
   if (planBlock) planBlock.hidden = !(plans && plans.length);
+  updateCustomerSelectedPlanDisplay(saved);
   const whyBox = $('#customerWhyBox');
   if (whyBox) whyBox.innerHTML = `<p>这份建议主要根据你的业务「${esc(customerText(assessment.industry))}」、目标客户「${esc(customerText(assessment.target_customer || '未填写'))}」、平台「${esc(customerText(assessment.current_channels))}」和当前问题「${esc(customerText(assessment.biggest_problem))}」生成。${clientState.diagnosis_history?.length > 1 ? `已保留 ${clientState.diagnosis_history.length} 版诊断记录，当前生效 v${clientState.diagnosis?.diagnosis_version || 1}。` : ''}</p>`;
   $('#customerResultSection').hidden = false;
@@ -578,7 +617,7 @@ function localSampleDiagnosis(){
     stage: '运营周期',
     priority_problem: '发完没人复盘',
     insight: '当前不是缺内容想法，而是缺少把发布结果回填成下一轮选题判断的机制。',
-    weekly_action: '本周围绕“内容有没有带来客户”连续测试 7 条内容，并按 T+24 / T+72 / T+7 回填。',
+    weekly_action: '本周围绕“内容有没有带来客户”连续验证 7 条内容，并按 T+24 / T+72 / T+7 回填。',
     next_step: '先复制收藏和咨询信号更强的复盘表主题，再降权纯工具介绍内容。',
     risk_warning: '如果只看点赞，不看收藏、评论和咨询，会误判内容是否真的带来客户。',
     platform_recommendations: {
@@ -586,7 +625,7 @@ function localSampleDiagnosis(){
       primary: [{platform:'小红书', reason:'适合沉淀搜索和收藏型内容'}],
       support: [{platform:'视频号', reason:'复用老板视角短视频'}],
       client_platforms: [{platform:'朋友圈/私域', reason:'承接已有客户信任'}],
-      avoid: [{platform:'自动矩阵发布', reason:'当前阶段不做自动发布，避免封号和失控'}],
+      avoid: [{platform:'自动矩阵发布', reason:'当前阶段不做代发，避免封号和失控'}],
     },
     benchmark_reference: {
       source_summary: '基于企业增长类账号的标题结构和用户反馈信号。',
@@ -614,7 +653,7 @@ function localSamplePlans(){
     ['一条内容有没有获客价值，不是看点赞', '用收藏、评论、咨询三类信号判断内容是否值得复制', '短视频', '引导主页咨询诊断', '咨询'],
     ['企业账号别只发产品，先回答客户正在犹豫什么', '把服务介绍转成客户下单前会问的真实问题', '图文', '引导做一次诊断', '评论+收藏'],
     ['老板没时间做运营，也能先复盘这4个数', '用曝光、互动、收藏、咨询判断下一条怎么改', '图文', '引导保存检查清单', '收藏'],
-    ['为什么内容火了，客户还是不来问？', '拆解流量到咨询之间缺少的信任和承接', '图文', '引导主页查看模板', '收藏+私信'],
+    ['为什么内容火了，客户还是不来问？', '拆解流量到咨询之间缺少的信任和承接', '图文', '引导主页查看模板', '收藏+咨询'],
     ['本周哪条内容最接近真实客户需求？', '用本周数据决定复制、降权和重测方向', '短视频', '引导预约复盘', '咨询'],
   ];
   return topics.map(([topic, angle, content_type, cta, target_metric], index) => ({
@@ -645,7 +684,7 @@ function makeOperatingSampleFeedback(){
     favorites: 39,
     shares: 8,
     consultations: 3,
-    notes: '收藏高于点赞，私信集中问复盘表，说明“内容是否带来客户”主题值得复制。',
+    notes: '收藏高于点赞，咨询集中问复盘表，说明“内容是否带来客户”主题值得复制。',
     created_at: localTimestamp(),
   }];
 }
@@ -781,10 +820,12 @@ function customerFriendlyError(error){
   return '刚刚生成失败了，请稍后再试一次，或检查信息是否填写完整。';
 }
 
-function setCustomerMessage(id, message){
+function setCustomerMessage(id, message, tone = 'success'){
   const el = $(id);
   if (!el) return;
   el.textContent = message;
+  el.classList.toggle('error', tone === 'error');
+  el.classList.toggle('success', tone !== 'error');
   el.hidden = !message;
 }
 
@@ -799,14 +840,113 @@ function customerNeedsOfferDetail(payload = {}){
   return broadBusiness || (broadKeyword && !alreadySpecific);
 }
 
+
 function customerRequired(payload){
   if (!payload.industry) return '请先填写你的行业/业务。';
   if (!payload.main_goal) return '请先填写你现在最想达成的目标。';
   if (!payload.target_customer) return '请先填写你的目标客户。';
-  if (customerNeedsOfferDetail(payload)) return '你的行业比较宽，请在“想让建议更准”里补充主推产品/服务和价格带，例如：室外耐磨篮球 89-199 元，避免系统把商品误判成服务。';
+  if (dedicatedCustomerKey() === 'basketball' && !payload.store_location) return '请补充上课地址/服务范围。';
+  if (dedicatedCustomerKey() === 'basketball' && !payload.course_schedule) return '请补充可预约时间。';
+  if (customerNeedsOfferDetail(payload)) return '你的行业比较宽，请在“想让建议更准”里补充主推产品/服务和价格带，例如：门店体验服务 199-499 元，避免系统把商品、课程或到店服务混成泛模板。';
   if (!payload.current_channels) return '请选择你主要想做的平台。';
   if (!payload.biggest_problem) return '请选择当前最大的内容问题。';
   return '';
+}
+
+function internalIntakeSnapshot(payload = {}){
+  const normalized = {...payload};
+  Object.keys(normalized).forEach((key) => { normalized[key] = String(normalized[key] || '').trim(); });
+  const missing = [];
+  const weakPain = !normalized.customer_pain || /客户不知道为什么需要现在咨询|待补充|暂无|没有/.test(normalized.customer_pain);
+  const weakAssets = (!normalized.content_assets || /待补充|暂无|没有/.test(normalized.content_assets)) && !normalized.best_recent_content;
+  if (!normalized.offer) missing.push({field:'主推产品/服务和价格带', input:'offer', why:'避免系统把商品、课程、到店服务混成泛服务模板。'});
+  if (weakPain) missing.push({field:'客户最常问的问题或顾虑', input:'customer_pain', why:'没有真实顾虑，内容只能写概念，打不到客户决策点。'});
+  if (weakAssets) missing.push({field:'现有素材或近期表现最好内容', input:'content_assets', why:'没有素材/反馈依据，系统无法判断第一轮内容能用什么证据承接。'});
+  const compact = [normalized.ai_project_brief, normalized.industry, normalized.target_customer, normalized.main_goal, normalized.offer, normalized.customer_pain, normalized.content_assets].filter(Boolean).join(' ');
+  const projectType = /检测|送检|医疗器械/.test(compact) ? '检测合规服务' : /课程|培训|教育|留学|PTE|雅思/.test(compact) ? '教育/咨询服务' : /门店|到店|附近|美甲|产康|摄影|餐饮/.test(compact) ? '本地服务门店' : /商品|销售|电商|下单|配饰|篮球/.test(compact) ? '产品销售/电商' : (normalized.industry ? '服务/项目型业务' : '待识别');
+  const risks = [];
+  if (/检测|送检|医疗器械/.test(compact) && /安检/.test(compact)) risks.push({title:'行业误判风险', desc:'这里更像“检测/合规服务”，不要误写成普通安检服务。'});
+  if (/企业|器械|老板|商家|B2B|注册送检/.test(compact) && /用户|消费者|宝妈|学生/.test(compact)) risks.push({title:'客群混淆风险', desc:'描述里同时出现企业客户和个人用户，需要确认真正决策人是谁。'});
+  if (!normalized.target_customer || /潜在目标客户|所有人|用户|客户$/.test(normalized.target_customer)) risks.push({title:'目标客户过宽', desc:'目标客户还不够具体，后续内容容易变成泛科普。'});
+  if (!normalized.main_goal || /品牌|曝光|影响力|增长$/.test(normalized.main_goal)) risks.push({title:'转化目标过泛', desc:'建议落到咨询、留资、到店、下单、复购中的一个。'});
+  if (weakAssets) risks.push({title:'证据不足风险', desc:'缺少真实案例/FAQ/流程/截图时，第一轮内容只能作为策略方向，不能冒充可直接发布稿。'});
+  if (!risks.length) risks.push({title:'当前理解风险较低', desc:'业务、客群、目标和素材基本能支撑下一步，但生成前仍建议人工扫一遍。'});
+  return {
+    projectType,
+    understood: [
+      ['项目类型', projectType],
+      ['业务/行业', normalized.industry],
+      ['目标客户', normalized.target_customer],
+      ['核心转化目标', normalized.main_goal],
+      ['内容主战场', normalized.current_channels],
+      ['当前主要问题', normalized.biggest_problem],
+      ['主推产品/服务', normalized.offer],
+      ['可用素材', normalized.content_assets || normalized.best_recent_content],
+    ],
+    missing,
+    risks,
+    ready: missing.length === 0,
+  };
+}
+
+function internalGenerationGate(payload = {}){
+  const snapshot = internalIntakeSnapshot(payload);
+  if (snapshot.ready && payload.ai_understanding_confirmed === 'yes') return '';
+  if (snapshot.ready) return '请先确认“系统理解正确”，再进入内容增长建议生成。';
+  return `生成门禁：请先补齐「${snapshot.missing.map((item)=>item.field).join('、')}」。这些不是多余字段，是防止系统误判业务和生成泛模板的最小信息。`;
+}
+
+function setInternalSubmitGate(form, snapshot){
+  const submit = form?.querySelector('button[type="submit"]');
+  if (!submit) return;
+  const confirmed = form.dataset.aiConfirmed === 'yes';
+  submit.disabled = !(snapshot.ready && confirmed);
+  submit.textContent = confirmed ? '生成我的内容增长建议' : '先确认系统理解，再生成建议';
+}
+
+function renderInternalIntakeSnapshot(form = $('#assessmentForm')){
+  const el = $('#aiIntakeUnderstanding');
+  if (!el || !form) return;
+  const payload = formData(form);
+  Object.keys(payload).forEach((key) => { payload[key] = String(payload[key] || '').trim(); });
+  payload.ai_understanding_confirmed = form.dataset.aiConfirmed === 'yes' ? 'yes' : '';
+  const snapshot = internalIntakeSnapshot(payload);
+  const analyzed = form.dataset.aiAnalyzed === 'yes';
+  const filled = snapshot.understood
+    .filter(([, value]) => value)
+    .map(([label, value]) => `<li><strong>${esc(label)}</strong><span>${esc(value)}</span></li>`)
+    .join('') || '<li><strong>系统理解</strong><span>还没有足够信息，请先输入业务描述并点击“分析项目”。</span></li>';
+  const missing = snapshot.missing.length
+    ? snapshot.missing.map((item)=>`<li><strong>${esc(item.field)}</strong><span>${esc(item.why)}</span><button type="button" class="mini-action" data-focus-field="${esc(item.input)}">去补充</button></li>`).join('')
+    : '<li><strong>信息足够</strong><span>已具备进入下一步的最小信息，但仍需你确认系统理解是否正确。</span></li>';
+  const risks = snapshot.risks.map((item)=>`<li><strong>${esc(item.title)}</strong><span>${esc(item.desc)}</span></li>`).join('');
+  const confirmed = form.dataset.aiConfirmed === 'yes';
+  const actionHint = snapshot.ready ? (confirmed ? '已确认理解正确，可以生成。' : '请先确认理解正确，再生成建议。') : '请先补齐缺项，再确认继续。';
+  el.innerHTML = `<div class="ai-intake-components ${analyzed ? 'is-analyzed' : 'is-empty'}">
+    <section class="ai-understanding-card ${snapshot.ready ? 'is-ready' : 'is-blocked'}">
+      <div class="ai-understanding-head"><span>组件 2 · 系统理解卡</span><strong>${snapshot.ready ? '理解基本完整' : '理解未完成'}</strong></div>
+      <ul>${filled}</ul>
+    </section>
+    <section class="ai-supplement-card ${snapshot.ready ? 'is-ready' : 'is-blocked'}">
+      <div class="ai-card-title"><span>组件 3 · 缺项补充卡</span><strong>${snapshot.missing.length ? `还需补充 ${snapshot.missing.length} 项` : '无硬缺项'}</strong></div>
+      <ul class="ai-missing-list">${missing}</ul>
+    </section>
+    <section class="ai-risk-card">
+      <div class="ai-card-title"><span>组件 4 · 项目误判风险卡</span><strong>${snapshot.risks.length} 条判断</strong></div>
+      <ul>${risks}</ul>
+    </section>
+    <section class="ai-confirm-card">
+      <div><span>组件 5 · 确认继续</span><strong>${esc(actionHint)}</strong></div>
+      <div class="ai-confirm-actions">
+        <button class="war-btn" type="button" data-ai-confirm ${snapshot.ready ? '' : 'disabled'}>${confirmed ? '已确认理解正确' : '理解正确，继续'}</button>
+        <button class="war-btn secondary" type="button" data-ai-supplement>我要补充信息</button>
+        <button class="war-btn secondary" type="button" data-ai-reanalyze>AI 理解错了，重新分析</button>
+      </div>
+    </section>
+  </div>`;
+  const status = $('#aiExtractStatus');
+  if (status) status.textContent = snapshot.ready ? actionHint : `还需补充：${snapshot.missing.map((item)=>item.field).join('、')}`;
+  setInternalSubmitGate(form, snapshot);
 }
 
 function initChoiceGroup(groupSelector, formSelector, inputName){
@@ -816,6 +956,28 @@ function initChoiceGroup(groupSelector, formSelector, inputName){
   group.dataset.choiceReady = '1';
   const applyChoice = (button) => {
     if (!button) return;
+    const multi = group.dataset.multiSelect === 'true';
+    if (multi) {
+      const nextSelected = !button.classList.contains('is-selected');
+      if (button.dataset.value === '还不确定' && nextSelected) {
+        group.querySelectorAll('button[data-value]').forEach((item) => {
+          const selected = item === button;
+          item.classList.toggle('is-selected', selected);
+          item.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+      } else {
+        group.querySelectorAll('button[data-value="还不确定"]').forEach((item) => {
+          item.classList.remove('is-selected');
+          item.setAttribute('aria-pressed', 'false');
+        });
+        button.classList.toggle('is-selected', nextSelected);
+        button.setAttribute('aria-pressed', nextSelected ? 'true' : 'false');
+      }
+      input.value = [...group.querySelectorAll('button.is-selected[data-value]')].map((item)=>item.dataset.value).filter(Boolean).join('、');
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+      return;
+    }
     group.querySelectorAll('button[data-value]').forEach((item) => {
       const selected = item === button;
       item.classList.toggle('is-selected', selected);
@@ -828,15 +990,6 @@ function initChoiceGroup(groupSelector, formSelector, inputName){
   group.__applyChoice = applyChoice;
   group.querySelectorAll('button[data-value]').forEach((button) => {
     button.setAttribute('aria-pressed', button.classList.contains('is-selected') ? 'true' : 'false');
-    const handleButtonChoice = (event) => {
-      event.preventDefault();
-      applyChoice(button);
-    };
-    button.onclick = handleButtonChoice;
-    button.onpointerdown = handleButtonChoice;
-    button.onpointerup = handleButtonChoice;
-    button.onmousedown = handleButtonChoice;
-    button.ontouchstart = handleButtonChoice;
   });
   const handleChoiceEvent = (event) => {
     const button = event.target.closest('button[data-value]');
@@ -844,11 +997,11 @@ function initChoiceGroup(groupSelector, formSelector, inputName){
     event.preventDefault();
     applyChoice(button);
   };
-  group.addEventListener('pointerdown', handleChoiceEvent);
-  group.addEventListener('pointerup', handleChoiceEvent);
-  group.addEventListener('mousedown', handleChoiceEvent);
-  group.addEventListener('touchstart', handleChoiceEvent);
   group.addEventListener('click', handleChoiceEvent);
+  group.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    handleChoiceEvent(event);
+  });
 }
 
 function initChoiceWriteFallback(){
@@ -864,15 +1017,34 @@ function initChoiceWriteFallback(){
     const input = form?.querySelector(`[name="${inputName}"]`);
     if (!input) return;
     if (typeof group.__applyChoice === 'function') {
-      group.__applyChoice(button);
       return;
     }
-    group.querySelectorAll('button[data-value]').forEach((item) => {
-      const selected = item === button;
-      item.classList.toggle('is-selected', selected);
-      item.setAttribute('aria-pressed', selected ? 'true' : 'false');
-    });
-    input.value = button.dataset.value || '';
+    const multi = group.dataset.multiSelect === 'true';
+    if (multi) {
+      const nextSelected = !button.classList.contains('is-selected');
+      if (button.dataset.value === '还不确定' && nextSelected) {
+        group.querySelectorAll('button[data-value]').forEach((item) => {
+          const selected = item === button;
+          item.classList.toggle('is-selected', selected);
+          item.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+      } else {
+        group.querySelectorAll('button[data-value="还不确定"]').forEach((item) => {
+          item.classList.remove('is-selected');
+          item.setAttribute('aria-pressed', 'false');
+        });
+        button.classList.toggle('is-selected', nextSelected);
+        button.setAttribute('aria-pressed', nextSelected ? 'true' : 'false');
+      }
+      input.value = [...group.querySelectorAll('button.is-selected[data-value]')].map((item)=>item.dataset.value).filter(Boolean).join('、');
+    } else {
+      group.querySelectorAll('button[data-value]').forEach((item) => {
+        const selected = item === button;
+        item.classList.toggle('is-selected', selected);
+        item.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+      input.value = button.dataset.value || '';
+    }
     input.dispatchEvent(new Event('input', {bubbles:true}));
     input.dispatchEvent(new Event('change', {bubbles:true}));
   }, true);
@@ -882,8 +1054,8 @@ function syncChoiceGroupsBeforeSubmit(pairs, formSelector){
   pairs.forEach(([groupSelector, inputName]) => {
     const group = document.querySelector(groupSelector);
     const input = $(`${formSelector} [name="${inputName}"]`);
-    const selected = group?.querySelector('button.is-selected[data-value]');
-    if (input && !input.value && selected?.dataset.value) input.value = selected.dataset.value;
+    const selected = [...(group?.querySelectorAll('button.is-selected[data-value]') || [])].map((item)=>item.dataset.value).filter(Boolean);
+    if (input && selected.length) input.value = selected.join('、');
   });
 }
 
@@ -895,6 +1067,7 @@ function initCustomerChoices(groupSelector, inputName){
 function syncCustomerChoicesBeforeSubmit(){
   syncChoiceGroupsBeforeSubmit([
     ['[data-customer-platforms]', 'current_channels'],
+    ['[data-customer-content-mode]', 'content_mode'],
     ['[data-customer-problems]', 'biggest_problem'],
   ], '#customerAssessmentForm');
 }
@@ -916,23 +1089,23 @@ function customerFallbackPlans(payload){
   const audience = customerPickShort(payload.target_customer, '目标客户');
   const platform = payload.current_channels || '小红书';
   const offer = customerText(payload.offer || customerOfferFromGoal(payload.main_goal, payload.industry));
-  const text = `${payload.industry || ''} ${payload.offer || ''} ${payload.main_goal || ''} ${payload.customer_pain || ''} ${payload.content_assets || ''}`;
+  const text = `${payload.industry || ''} ${payload.offer || ''} ${payload.store_location || ''} ${payload.course_schedule || ''} ${payload.coach_credentials || ''} ${payload.main_goal || ''} ${payload.customer_pain || ''} ${payload.content_assets || ''}`;
   if (/美甲|甲片|穿戴甲|手部护理/.test(text)) {
     return [
-      {platform, topic: `${audience}想做显白美甲，先看这几种款式`, angle:'用真实客照、手型和肤色适配吸引到店预约', content_type:'图文/短视频', cta:'引导客户私信预约或发手部照片咨询适合款式'},
+      {platform, topic: `${audience}想做显白美甲，先看这几种款式`, angle:'用真实客照、手型和肤色适配吸引到店预约', content_type:'图文/短视频', cta:'引导客户咨询预约或发手部照片咨询适合款式'},
       {platform, topic:'短甲女生适合什么美甲？这几款不挑手型', angle:'解决怕显手短、怕夸张、怕上班不方便的顾虑', content_type:'图文', cta:'引导客户保存款式，到店前选2-3个参考'},
       {platform, topic:'上班通勤也能做的低调美甲合集', angle:'围绕通勤、约会、拍照、节日前换款场景展示款式', content_type:'短视频/图文', cta:'引导客户预约到店试色或咨询价格套餐'},
     ];
   }
   if (/篮球销售|卖篮球|篮球售卖|篮球零售|篮球专卖|篮球店|篮球用品|篮球器材|篮球装备|篮球商品|训练篮球|比赛篮球/.test(text)) {
     return [
-      {platform, topic:'学生买篮球，先看清楚室内球还是室外球', angle:'购买决策：按使用场地、耐磨、手感和预算讲清怎么选篮球', content_type:'图文/短视频', cta:'想买篮球可以私信使用场地、预算和年龄，先帮你缩小选择'},
+      {platform, topic:'学生买篮球，先看清楚室内球还是室外球', angle:'购买决策：按使用场地、耐磨、手感和预算讲清怎么选篮球', content_type:'图文/短视频', cta:'想买篮球可以咨询使用场地、预算和年龄，先帮你缩小选择'},
       {platform, topic:'篮球运动爱好者怎么选一颗耐磨又好控的球', angle:'产品种草：展示篮球实拍、弹跳、防滑、控球和户外耐磨表现', content_type:'短视频/图文', cta:'保存这条，买篮球前按场地和手感对照选'},
-      {platform, topic:'第一次买篮球，别只看颜色和价格', angle:'选择避坑：讲清几号球、材质、气压、重量和适合人群', content_type:'图文', cta:'不确定买几号球，可以私信身高年龄和主要打球场地'},
+      {platform, topic:'第一次买篮球，别只看颜色和价格', angle:'选择避坑：讲清几号球、材质、气压、重量和适合人群', content_type:'图文', cta:'不确定买几号球，可以咨询身高年龄和主要打球场地'},
     ];
   }
   return [
-    {platform, topic: `${audience}选择${offer}前，最容易忽略什么？`, angle:'讲清目标客户真实顾虑、服务流程和选择前要注意的细节', content_type:'图文', cta:'引导客户查看主页或私信具体情况'},
+    {platform, topic: `${audience}选择${offer}前，最容易忽略什么？`, angle:'讲清目标客户真实顾虑、服务流程和选择前要注意的细节', content_type:'图文', cta:'引导客户查看主页或咨询具体情况'},
     {platform, topic: `${audience}第一次了解${offer}，先问清这3件事`, angle:'用真实问答降低购买、到店、试听或预约前的决策成本', content_type:'图文', cta:'引导客户保存清单'},
     {platform, topic: `${offer}值不值得选？先看过程、价格和案例`, angle:'把服务过程、案例和价格顾虑讲清楚', content_type:'短视频/图文', cta:'引导客户咨询具体需求'},
   ];
@@ -944,17 +1117,25 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
   const audience = customerText(payload.target_customer || '你的目标客户');
   const business = customerText(payload.industry || '你的业务');
   const goal = customerText(payload.main_goal || '获得更多咨询');
-  const platform = customerText(payload.current_channels || safePlans[0]?.platform || '小红书');
+  const platform = customerText(payload.current_channels || safePlans[0]?.platform || '抖音、小红书、视频号');
+  const location = customerText(payload.store_location || '');
+  const schedule = customerText(payload.course_schedule || '');
+  const coach = customerText(payload.coach_credentials || '');
   const firstPlan = safePlans[0] || customerFallbackPlans(payload)[0];
+  const matrixHtml = customerPlatformMatrixHtml(payload, plans);
+  const modeHtml = customerContentModeHtml(payload);
   const topics = safePlans.map((plan, index) => `<li><strong>${index + 1}. ${esc(customerText(plan.topic))}</strong><span>${esc(customerText(plan.angle || '用客户听得懂的话讲清服务价值'))}</span></li>`).join('');
-  const contentDirection = customerText(diagnosis?.weekly_action || `先围绕「${audience}」最关心的问题，连续测试 3 条内容，看看哪一类最容易带来咨询。`);
+  const contentDirection = customerText(diagnosis?.weekly_action || `先围绕「${audience}」最关心的问题，按抖音/小红书/视频号分工连续验证 3 条内容，看看哪一类最容易带来咨询。`);
   const firstSteps = [
-    `平台：${platform}`,
+    `平台矩阵：${platform}`,
+    location ? `门店/上课地址：${location}` : '',
+    schedule ? `可预约课程时间：${schedule}` : '',
+    coach ? `教练资质/安全保障：${coach}` : '',
     `选题：${customerText(firstPlan.topic)}`,
     `表达角度：${customerText(firstPlan.angle || '先讲客户顾虑，再给判断方法')}`,
     `形式：${customerText(firstPlan.content_type || '图文/短视频')}`,
-    `结尾：${customerText(firstPlan.cta || '引导客户私信具体情况或查看主页咨询')}`,
-  ];
+    `结尾：${customerText(firstPlan.cta || '引导客户咨询具体情况或查看主页咨询')}`,
+  ].filter(Boolean);
   customerSuggestionText = [
     `业务：${business}`,
     `目标：${goal}`,
@@ -977,14 +1158,18 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
     </article>
     <article class="customer-advice-block">
       <span>3</span>
-      <div><h3>可以马上用的 3 个选题</h3><ol class="customer-topic-list">${topics}</ol></div>
+      <div><h3>平台内容矩阵怎么分工</h3>${modeHtml}${matrixHtml}</div>
     </article>
     <article class="customer-advice-block">
       <span>4</span>
-      <div><h3>第一条内容怎么发</h3><ul>${firstSteps.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></div>
+      <div><h3>可以马上用的 3 个选题</h3><ol class="customer-topic-list">${topics}</ol></div>
     </article>
     <article class="customer-advice-block">
       <span>5</span>
+      <div><h3>第一条内容怎么发</h3><ul>${firstSteps.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></div>
+    </article>
+    <article class="customer-advice-block">
+      <span>6</span>
       <div><h3>发布后如何记录效果，方便下次优化</h3><p>发布后记录链接、浏览/曝光、点赞收藏、咨询人数和你的观察。下次就能判断：是标题要改，还是内容角度要换。</p></div>
     </article>`;
 }
@@ -992,22 +1177,74 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
 function buildCustomerPlanList(payload, plans){
   const safePlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, 7);
   return safePlans.map((plan, index) => {
+    const planId = planIdValue(plan) || String(index + 1);
     const day = `第 ${index + 1} 天`;
-    const platform = customerText(plan.platform || payload.current_channels || '小红书');
+    const platform = customerText(plan.platform || payload.current_channels || '抖音、小红书、视频号');
     const contentType = customerText(plan.content_type || '图文/短视频');
     const topic = customerText(plan.topic || '');
-    const angle = customerText(plan.angle || '用客户听得懂的话说清服务价值');
-    const cta = customerText(plan.cta || '引导客户私信具体情况或主页咨询');
-    return `<article class="customer-plan-item">
+    const angle = customerText(plan.angle || customerPlatformAngle(platform, plan) || '用客户听得懂的话说清服务价值');
+    const cta = customerText(plan.cta || '引导客户咨询具体情况或主页咨询');
+    return `<article class="customer-plan-item" data-customer-plan-id="${esc(planId)}">
       <div class="plan-day"><strong>D${index + 1}</strong><span>${esc(day)}</span></div>
       <div class="plan-body">
         <p class="plan-topic">${esc(topic)}</p>
         <p class="plan-cta">${esc(angle)}</p>
         <div class="plan-meta"><span>${esc(platform)}</span><span>${esc(contentType)}</span></div>
         <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">结尾引导：</strong>${esc(cta)}</p>
+        <button class="customer-plan-select" type="button" data-customer-record-plan="${esc(planId)}">记录这条内容</button>
       </div>
     </article>`;
   }).join('');
+}
+
+function customerPlans(saved = {}){
+  return Array.isArray(saved.plans) ? saved.plans : (Array.isArray(clientState.plans) ? clientState.plans : []);
+}
+
+function customerPlanById(saved = {}, planId = ''){
+  const id = String(planId || '').trim();
+  return customerPlans(saved).find((plan)=>samePlanId(planIdValue(plan), id) || samePlanId(plan.id, id)) || null;
+}
+
+function customerPlanLabel(plan = {}, fallback = ''){
+  const topic = customerText(plan.topic || fallback || '已选择内容计划');
+  const day = plan.planned_date ? ` · ${plan.planned_date}` : '';
+  return `${topic}${day}`;
+}
+
+function updateCustomerSelectedPlanDisplay(saved = {}){
+  const input = $('#customerEffectForm [name=content_plan_id]');
+  const box = $('#customerSelectedPlan');
+  if (!input || !box) return;
+  const plan = customerPlanById(saved, input.value || saved.selected_plan_id);
+  if (!plan) {
+    input.value = '';
+    box.dataset.empty = 'true';
+    box.textContent = '先从上方 7 天计划中选择你实际发布的那一条，再保存数据。';
+    $$('#customerPlanList [data-customer-plan-id]').forEach((item)=>item.classList.remove('is-selected'));
+    return;
+  }
+  const planId = planIdValue(plan);
+  input.value = planId;
+  box.dataset.empty = 'false';
+  box.textContent = `已绑定：${customerPlanLabel(plan)}`;
+  $$('#customerPlanList [data-customer-plan-id]').forEach((item)=>{
+    item.classList.toggle('is-selected', samePlanId(item.dataset.customerPlanId, planId));
+  });
+}
+
+function selectCustomerEffectPlan(planId){
+  const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  const plan = customerPlanById(current, planId);
+  if (!plan) {
+    setCustomerMessage('#customerEffectMessage', '没有找到这条内容计划，请先重新生成内容建议。', 'error');
+    return;
+  }
+  saveCustomerTrialState({ selected_plan_id: planIdValue(plan) });
+  updateCustomerSelectedPlanDisplay({ ...current, selected_plan_id: planIdValue(plan) });
+  $('#customerEffectSection')?.scrollIntoView({behavior:'smooth', block:'start'});
+  $('#customerEffectForm [name=publish_link]')?.focus();
+  setCustomerMessage('#customerEffectMessage', `已绑定：${customerPlanLabel(plan)}。发完后填写这条内容的数据。`);
 }
 
 function renderCustomerEffects(){
@@ -1019,19 +1256,30 @@ function renderCustomerEffects(){
     box.innerHTML = '<div class="customer-record empty">还没有记录。发完第一条内容后，填一次链接和关键数据即可。</div>';
     return;
   }
-  box.innerHTML = records.slice(0, 5).map((item)=>`<div class="customer-record">
-    <strong>${esc(item.published_at || item.created_at || '已记录')}</strong>
-    <span>浏览/曝光 ${esc(item.views || 0)} · 点赞收藏 ${esc(item.engagement || 0)} · 咨询 ${esc(item.consultations || 0)}</span>
+  box.innerHTML = records.slice(0, 5).map((item)=>{
+    const nums = customerRecordNumbers(item);
+    return `<div class="customer-record">
+    <strong>${esc(item.plan_topic || item.published_at || item.created_at || '已记录')}</strong>
+    <span>浏览/曝光 ${esc(nums.views)} · 互动 ${esc(nums.engagement)} · 咨询 ${esc(nums.consultations)} · 预约 ${esc(nums.appointments)}</span>
     ${item.publish_link ? `<a href="${esc(item.publish_link)}" target="_blank" rel="noreferrer">查看发布链接</a>` : ''}
     <p>${esc(item.notes || '未填写观察')}</p>
-  </div>`).join('');
+  </div>`;}).join('');
 }
 
 function customerRecordNumbers(record = {}){
+  const likes = Number(record.likes || 0);
+  const favorites = Number(record.favorites || 0);
+  const comments = Number(record.comments || 0);
+  const shares = Number(record.shares || 0);
   return {
     views: Number(record.views || 0),
-    engagement: Number(record.engagement || 0),
+    likes,
+    favorites,
+    comments,
+    shares,
+    engagement: Number(record.engagement || (likes + favorites + comments + shares) || 0),
     consultations: Number(record.consultations || 0),
+    appointments: Number(record.appointments || 0),
   };
 }
 
@@ -1041,8 +1289,8 @@ function rateLabel(part, total){
   return `${((Number(part || 0) / t) * 100).toFixed(Number(part || 0) ? 1 : 0)}%`;
 }
 
-function customerRecordLevel({views, engagement, consultations}){
-  if (consultations > 0) return {label:'已有咨询信号', desc:'优先复制同类主题，再补充案例、过程、价格或周期问题。'};
+function customerRecordLevel({views, engagement, consultations, appointments}){
+  if (consultations > 0 || appointments > 0) return {label:'已有咨询/预约信号', desc:'优先复制同类主题，再补充案例、过程、价格或周期问题。'};
   if (views >= 800 && engagement >= 30) return {label:'有兴趣但承接弱', desc:'下一条重点补信任证据和明确咨询理由，不要只换标题。'};
   if (views >= 800) return {label:'有曝光但互动弱', desc:'标题能带来浏览，但内容没有让客户觉得“和我有关”。'};
   return {label:'样本偏小', desc:'先优化标题、封面和开头钩子，把曝光样本做大。'};
@@ -1066,7 +1314,9 @@ function renderCustomerRecordSummary(saved = {}){
     <div class="customer-result-metrics">
       <span>曝光 <strong>${esc(nums.views)}</strong></span>
       <span>点赞收藏 <strong>${esc(nums.engagement)}</strong></span>
+      <span>评论分享 <strong>${esc(nums.comments + nums.shares)}</strong></span>
       <span>咨询 <strong>${esc(nums.consultations)}</strong></span>
+      <span>预约/到店 <strong>${esc(nums.appointments)}</strong></span>
       <span>互动率 <strong>${esc(rateLabel(nums.engagement, nums.views))}</strong></span>
       <span>咨询率 <strong>${esc(rateLabel(nums.consultations, nums.views))}</strong></span>
     </div>
@@ -1077,35 +1327,114 @@ function buildCustomerNextAdvice(saved = {}, record = {}){
   const assessment = saved.assessment || {};
   const diagnosis = saved.diagnosis || {};
   const plans = Array.isArray(saved.plans) ? saved.plans : [];
+  const selectedPlan = customerPlanById(saved, record.content_plan_id || saved.selected_plan_id);
+  const history = (Array.isArray(saved.records) ? saved.records : []).filter((item)=>item !== record);
+  const selectedPlanId = planIdValue(selectedPlan || {id: record.content_plan_id || saved.selected_plan_id});
+  const selectedIndex = plans.findIndex((plan)=>samePlanId(planIdValue(plan), selectedPlanId));
+  const completedPlanIds = new Set([record.content_plan_id, saved.selected_plan_id, ...history.map((item)=>item.content_plan_id)].map((id)=>String(id || '').trim()).filter(Boolean));
+  const unpublished = plans
+    .filter((plan, index)=>selectedIndex < 0 || index > selectedIndex)
+    .filter((plan)=>!String(plan.status || '').includes('已发布') && !plan.publish_link && !completedPlanIds.has(String(planIdValue(plan) || '').trim()));
   const {views, engagement, consultations} = customerRecordNumbers(record);
   const offer = customerText(assessment.offer || customerOfferFromGoal(assessment.main_goal, assessment.industry));
   const rawAudience = customerText(assessment.target_customer || '目标客户');
   const audience = /宝妈|产后/.test(rawAudience) ? '宝妈' : rawAudience.replace(/[，,、].*$/, '').slice(0, 18) || '目标客户';
   const goal = customerText(assessment.main_goal || '获得更多咨询');
   const problem = customerText(assessment.biggest_problem || diagnosis.priority_problem || '当前问题');
-  const firstTopic = customerText(plans[0]?.topic || `${audience}最关心的${offer}问题`);
-  const nextTopicBase = offer && offer !== '相关服务' ? offer : firstTopic;
+  const todayTopic = customerText(selectedPlan?.topic || record.plan_topic || `${audience}最关心的${offer}问题`);
+  const nextPlanTopic = customerText(unpublished[0]?.topic || '');
+  const nextTopicBase = offer && offer !== '相关服务' ? offer : todayTopic;
+  const historySignal = history.length ? `已参考前 ${history.length} 条回填记录，避免只看单日波动。` : '这是第一条回填记录，先用当天数据做小样本判断。';
   let judgment = '样本已开始回流，下一条先不要换平台，优先根据这条内容的数据改表达角度。';
-  let nextTopic = `${audience}为什么迟迟不咨询${nextTopicBase}？先看这3个顾虑`;
-  let action = `下一条继续围绕「${nextTopicBase}」发，但把开头改成客户真实顾虑，结尾承接到「${goal}」。`;
+  let nextTopic = nextPlanTopic || `${audience}为什么迟迟不咨询${nextTopicBase}？先看这3个顾虑`;
+  let action = `今天回填绑定的是「${todayTopic}」。下一条继续围绕「${nextTopicBase}」发，但把开头改成客户真实顾虑，结尾承接到「${goal}」。`;
   if (consultations > 0) {
-    judgment = `这条内容已经带来 ${consultations} 个咨询，说明选题方向有效，下一步不是推倒重来，而是复制同类角度。`;
-    nextTopic = `咨询过的人最常问：${nextTopicBase}到底适不适合我？`;
-    action = `复制「${firstTopic}」的痛点结构，下一条补充案例/过程/价格或周期疑问，并保留主页咨询或私信入口。`;
+    judgment = `「${todayTopic}」已经带来 ${consultations} 个咨询，说明这个内容角度有效，下一步不是推倒重来，而是复制同类角度。`;
+    nextTopic = nextPlanTopic || `咨询过的人最常问：${nextTopicBase}到底适不适合我？`;
+    action = `复制「${todayTopic}」的痛点结构，下一条补充案例/过程/价格或周期疑问，并保留主页咨询或咨询入口。`;
   } else if (views >= 800 && engagement >= 30) {
-    judgment = '这条内容有曝光和收藏/点赞，但还没有咨询，说明“感兴趣”到“愿意问”之间缺少信任或承接。';
+    judgment = `「${todayTopic}」有曝光和收藏/点赞，但还没有咨询，说明“感兴趣”到“愿意问”之间缺少信任或承接。`;
     nextTopic = `${audience}收藏了但不咨询，通常卡在${nextTopicBase}的哪3个顾虑？`;
     action = '下一条重点回答价格、效果、周期、适合人群这类决策问题，结尾不要只说欢迎咨询，要给一个具体咨询理由。';
   } else if (views >= 800) {
-    judgment = `曝光不低但互动和咨询弱，说明标题/封面可能吸引到了人，但正文没有把「${problem}」讲到客户心里。`;
+    judgment = `「${todayTopic}」曝光不低但互动和咨询弱，说明标题/封面可能吸引到了人，但正文没有把「${problem}」讲到客户心里。`;
     nextTopic = `${audience}遇到「${problem}」时，最容易误解哪件事？`;
-    action = '下一条减少服务介绍，改成“客户误区/真实问题/避坑清单”，先提高收藏和私信意愿。';
+    action = '下一条减少服务介绍，改成“客户误区/真实问题/避坑清单”，先提高收藏和咨询意愿。';
   } else {
     judgment = '当前曝光样本还偏小，暂时不能判断内容方向失败，先优化标题、封面和开头钩子。';
     nextTopic = `${audience}看到这个标题，会不会立刻想到自己？`;
     action = `下一条把标题第一句话改得更具体：人群 + 痛点 + ${nextTopicBase}，先把曝光样本做大。`;
   }
-  return {judgment, nextTopic, action};
+  return {judgment, nextTopic, action, selected_plan_topic: todayTopic, history_signal: historySignal, unpublished_count: unpublished.length};
+}
+
+function buildCustomerNextRoundPlan(saved = {}, record = {}, advice = {}){
+  const assessment = saved.assessment || {};
+  const plans = Array.isArray(saved.plans) ? saved.plans : [];
+  const selectedPlan = customerPlanById(saved, record.content_plan_id || saved.selected_plan_id);
+  const selectedPlanId = planIdValue(selectedPlan || {id: record.content_plan_id || saved.selected_plan_id});
+  const selectedIndex = plans.findIndex((plan)=>samePlanId(planIdValue(plan), selectedPlanId));
+  const completed = new Set([record.content_plan_id, saved.selected_plan_id, ...(saved.records || []).map((item)=>item.content_plan_id)].map((id)=>String(id || '').trim()).filter(Boolean));
+  const candidates = plans
+    .filter((plan, index)=>selectedIndex < 0 || index > selectedIndex)
+    .filter((plan)=>!completed.has(String(planIdValue(plan) || '').trim()))
+    .slice(0, 7);
+  const nums = customerRecordNumbers(record);
+  const audience = customerText(assessment.target_customer || '目标客户').replace(/[，,、].*$/, '').slice(0, 18) || '目标客户';
+  const offer = customerText(assessment.offer || customerOfferFromGoal(assessment.main_goal, assessment.industry));
+  let type = '标题问题';
+  let more = '更具体的人群痛点、真实证据和决策问题';
+  let less = '泛泛介绍服务、只说欢迎咨询';
+  let why = '当前样本还需要先扩大曝光和互动样本。';
+  if (nums.consultations > 0 || nums.appointments > 0) {
+    type = '加码';
+    more = '复制带来咨询/预约的主题结构，连续补案例、过程、价格和适合人群';
+    less = '完全换平台或换成泛科普';
+    why = '这条内容已经出现咨询或预约信号，说明角度有效。';
+  } else if (nums.views >= 800 && nums.engagement >= 30) {
+    type = '换角度';
+    more = '把点赞收藏兴趣转成信任承接，补真实过程和常见顾虑';
+    less = '只追热点标题、不回答客户为什么现在要问';
+    why = '有曝光和互动但没有咨询，缺口在信任和行动理由。';
+  } else if (nums.views >= 800) {
+    type = '标题问题';
+    more = '围绕客户第一眼能懂的痛点重写标题和开头';
+    less = '抽象行业词和服务清单';
+    why = '曝光不低但互动弱，说明打开后没有击中决策问题。';
+  }
+  const actions = type === '加码'
+    ? ['复制有效结构', '补充案例证据', '回答价格/周期', '展示过程细节', '处理适合人群', '集中答疑', '复盘最高咨询主题']
+    : type === '换角度'
+      ? ['补信任证据', '拆客户顾虑', '讲真实场景', '补对比清单', '强调行动理由', '承接咨询问题', '复盘收藏原因']
+      : ['重写标题', '强化第一句话', '换客户视角', '减少服务堆叠', '加入具体问题', '增加证据', '复盘点击原因'];
+  const rows = Array.from({length: 7}, (_, index)=>{
+    const base = candidates[index % Math.max(candidates.length, 1)] || {};
+    return {
+      day: 'Day ' + (index + 1),
+      planned_date: nextSevenDate(index + 1),
+      topic: base.topic || advice.nextTopic || (audience + '关心的' + offer + '问题'),
+      angle: base.angle || actions[index],
+      platform: base.platform || selectedPlan?.platform || '小红书/视频号',
+      action: actions[index],
+      reason: index === 0 ? ('承接本次回填判断：' + type) : '延续同一轮复盘结论，避免每天推倒重来。',
+      target_metric: nums.consultations > 0 || nums.appointments > 0 ? '咨询/预约' : (nums.views >= 800 ? '收藏/私信咨询' : '曝光/播放'),
+      based_on: selectedPlan?.topic || record.plan_topic || '',
+      cta: base.cta || '引导客户咨询是否适合',
+    };
+  });
+  return {
+    review_judgment: {type, more, less, why},
+    customer_summary: '下周多发：' + more + '；少发：' + less + '。原因：' + why,
+    next_7_day_plan: rows,
+    source: 'local_rule',
+  };
+}
+
+function customerAdviceModelLine(meta = {}){
+  const requested = meta.requested_model || '未配置';
+  const actual = meta.actual_model || 'rule_template';
+  const suffix = meta.fallback ? `，fallback：${meta.failure_reason || '模型调用失败'}` : '';
+  return `${meta.provider || 'local'} / requested=${requested} / actual=${actual}${suffix}`;
 }
 
 function renderCustomerNextAdvice(saved = {}){
@@ -1118,12 +1447,44 @@ function renderCustomerNextAdvice(saved = {}){
     box.innerHTML = '';
     return;
   }
-  const advice = buildCustomerNextAdvice(saved, latest);
+  const ai = latest.daily_advice || latest.ai_advice || null;
+  const advice = ai?.advice || buildCustomerNextAdvice(saved, latest);
+  const nextRound = ai?.next_round || (ai?.next_7_day_plan?.length ? {next_7_day_plan: ai.next_7_day_plan, review_judgment: ai.review_judgment, customer_summary: ai.customer_summary} : buildCustomerNextRoundPlan(saved, latest, advice));
+  const review = nextRound.review_judgment || {};
+  const rows = Array.isArray(nextRound.next_7_day_plan) ? nextRound.next_7_day_plan.slice(0, 7) : [];
+  const fallbackNotice = ai?.fallback
+    ? `<p class="customer-ai-fallback">规则版内测建议：正式AI调用未完成，当前使用 rule_template 兜底；原因：${esc(ai.transparent_note || ai.copy_model?.failure_reason || ai.strategy_model?.failure_reason || '模型调用失败')}。</p>`
+    : '';
+  const modelEvidence = ai
+    ? `<div class="customer-model-evidence"><span>策略判断：${esc(customerAdviceModelLine(ai.strategy_model))}</span><span>建议/文案：${esc(customerAdviceModelLine(ai.copy_model))}</span></div>`
+    : `<div class="customer-model-evidence"><span>本地规则兜底：尚未完成模型调用。</span></div>`;
   box.hidden = false;
+  const planHtml = rows.length
+    ? '<div class="customer-next-week-grid">' + rows.map((row)=>'<article><span>' + esc(row.day || row.planned_date || '下一天') + '</span><strong>' + esc(row.topic || advice.nextTopic || '下一条内容') + '</strong><p>' + esc(row.action || row.angle || '按复盘结论执行') + '</p><em>' + esc(row.target_metric || '曝光/咨询') + '</em></article>').join('') + '</div>'
+    : '';
   box.innerHTML = `<p class="customer-loop-kicker">系统根据刚记录的数据给出的下一步</p>
-    <h3>下一条内容建议：${esc(advice.nextTopic)}</h3>
+    <h3>复盘判断：${esc(review.type || '继续观察')}｜${esc(advice.nextTopic)}</h3>
     <p><strong>判断：</strong>${esc(advice.judgment)}</p>
-    <p><strong>动作：</strong>${esc(advice.action)}</p>`;
+    <p><strong>下周结论：</strong>${esc(nextRound.customer_summary || advice.action)}</p>
+    <p><strong>多发：</strong>${esc(review.more || '高信号主题')}｜<strong>少发：</strong>${esc(review.less || '低信号表达')}</p>
+    <p><strong>依据：</strong>${esc(advice.history_signal || '已结合当天内容和当天数据判断。')}</p>
+    ${planHtml}
+    ${fallbackNotice}
+    ${modelEvidence}`;
+}
+
+async function requestCustomerDailyAdvice(saved = {}, record = {}){
+  return api('/api/customer-growth-advice', {
+    method:'POST',
+    body: JSON.stringify({
+      assessment: saved.assessment || clientState.assessment || {},
+      diagnosis: saved.diagnosis || clientState.diagnosis || {},
+      plans: customerPlans(saved),
+      records: Array.isArray(saved.records) ? saved.records : [],
+      record,
+      selected_plan_id: record.content_plan_id || saved.selected_plan_id || '',
+    }),
+  });
 }
 
 function saveCustomerTrialState(update){
@@ -1135,12 +1496,154 @@ function initCustomerGuide(){
   const guide = $('#customerGuide');
   if (!guide) return;
   if (window.matchMedia?.('(max-width: 900px)').matches) guide.open = false;
+  $('#customerGenericSampleBtn')?.addEventListener('click', fillGenericCustomerSample);
   $('#customerGuideDone')?.addEventListener('click', () => {
     guide.open = false;
     const firstInput = $('#customerAssessmentForm [name="industry"]');
     firstInput?.scrollIntoView({behavior:'smooth', block:'center'});
     window.setTimeout(() => firstInput?.focus(), 180);
   });
+}
+
+function fillGenericCustomerSample(){
+  const form = $('#customerAssessmentForm');
+  if (!form) return;
+  const values = {
+    company_name: '本地服务机构',
+    industry: '本地服务，主要做专业服务和咨询转化',
+    main_goal: '让目标客户看懂服务价值，并获得更多有效咨询',
+    target_customer: '有明确需求、正在比较方案的目标客户',
+    offer: '一次专业咨询或体验服务',
+    store_location: '',
+    course_schedule: '',
+    coach_credentials: '',
+    extra_context: '建议先验证抖音、小红书或视频号中最适合当前客户的一到两个平台，再按咨询数据调整内容方向。',
+    customer_pain: '客户担心价格、效果、流程和适不适合自己',
+    content_assets: '服务案例、客户反馈、服务过程照片或视频、常见问题',
+    best_recent_content: '',
+    current_channels: '抖音,小红书',
+    content_mode: '推荐模式：平台差异化适配',
+    biggest_problem: '有浏览没咨询',
+    posting_frequency: '偶尔发布',
+  };
+  Object.entries(values).forEach(([name, value]) => {
+    const field = form.querySelector(`[name="${name}"]`);
+    if (!field) return;
+    field.value = value;
+    field.dispatchEvent(new Event('input', {bubbles:true}));
+    field.dispatchEvent(new Event('change', {bubbles:true}));
+  });
+  syncCustomerChoiceButtons(form, '[data-customer-platforms]', 'current_channels');
+  syncCustomerChoiceButtons(form, '[data-customer-content-mode]', 'content_mode');
+  syncCustomerChoiceButtons(form, '[data-customer-problems]', 'biggest_problem');
+  $('#customerGuide')?.removeAttribute('open');
+  $('#customerGenerateBtn')?.scrollIntoView({behavior:'smooth', block:'center'});
+  setCustomerMessage('#customerFormError', '');
+}
+
+const BASKETBALL_CUSTOMER_PROFILE = {
+  company_name: '星跃少儿篮球训练营',
+  industry: '少儿篮球培训机构，主要做小学生篮球启蒙、体能提升、基础运球投篮训练，服务附近三公里社区家庭',
+  main_goal: '希望获得附近家长咨询和到店体验课预约，提升周末班、寒暑假班报名转化',
+  target_customer: '附近三公里内有6-12岁小学生的家长，尤其是想让孩子提升体能、减少玩手机、培养团队协作的家庭',
+  offer: '少儿篮球体验课，适合零基础和基础薄弱孩子',
+  store_location: '',
+  course_schedule: '',
+  coach_credentials: '持证教练带课，小班教学，课前热身拉伸，训练过程有安全保护，家长可旁听。',
+  extra_context: '已带入前期填写的信息。请只补充上课地址和可预约时间；系统会据此生成适合抖音、小红书和视频号的内容建议。',
+  customer_pain: '家长担心孩子跟不上、训练不安全、体验课只是推销、上课时间不合适',
+  content_assets: '课堂训练视频、教练资质、场馆环境、家长反馈截图、孩子运球和投篮进步案例',
+  best_recent_content: '一个孩子从怕球到完成连续运球的视频，家长留言问体验课时间',
+  current_channels: '抖音,小红书,视频号',
+  content_mode: '推荐模式：平台差异化适配',
+  biggest_problem: '有浏览没咨询',
+  posting_frequency: '偶尔发布',
+};
+
+function dedicatedCustomerKey(){
+  const params = new URLSearchParams(window.location.search || '');
+  const value = (params.get('customer') || params.get('client') || params.get('prefill') || '').trim().toLowerCase();
+  if (['basketball', 'basketball-training', 'youth-basketball'].includes(value)) return 'basketball';
+  return '';
+}
+
+function setDedicatedRequiredField(form, name){
+  const field = form?.querySelector?.(`[name="${name}"]`);
+  if (!field) return;
+  field.required = true;
+  field.dataset.dedicatedRequired = 'true';
+  const label = field.closest('label');
+  if (label && !label.textContent.includes('*')) {
+    label.firstChild.textContent = String(label.firstChild.textContent || '').trimEnd() + '*\n              ';
+  }
+}
+
+function prefillDedicatedCustomer(){
+  if (dedicatedCustomerKey() !== 'basketball') return;
+  const form = $('#customerAssessmentForm');
+  if (!form) return;
+  fillCustomerFormFromAssessment(BASKETBALL_CUSTOMER_PROFILE);
+  setDedicatedRequiredField(form, 'store_location');
+  setDedicatedRequiredField(form, 'course_schedule');
+  syncCustomerChoiceButtons(form, '[data-customer-platforms]', 'current_channels');
+  syncCustomerChoiceButtons(form, '[data-customer-content-mode]', 'content_mode');
+  syncCustomerChoiceButtons(form, '[data-customer-problems]', 'biggest_problem');
+  const hint = $('#customerPrefillHint');
+  if (hint) hint.textContent = '已为你带入前期填写的信息；只需要补充上课地址和可预约时间。';
+  setCustomerMessage('#customerFormError', '已为你带入前期填写的信息；请补充 2 项：上课地址、可预约时间。');
+}
+
+function syncCustomerChoiceButtons(form, groupSelector, inputName){
+  const value = form?.querySelector(`[name="${inputName}"]`)?.value || '';
+  const values = value.split(/[,，、/\s]+/).map((item)=>item.trim()).filter(Boolean);
+  document.querySelectorAll(`${groupSelector} button`).forEach((button) => {
+    const selected = Boolean(value && values.includes(button.dataset.value));
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+}
+
+function customerPlatformItems(value = ''){
+  const selected = value.split(/[,，、/\s]+/).map((item)=>item.trim()).filter(Boolean).filter((item)=>item !== '还不确定');
+  return [...new Set(selected.length ? selected : ['抖音', '小红书', '视频号'])];
+}
+
+function customerPlatformRole(platform = ''){
+  if (platform === '抖音') return '短视频曝光 / 案例讲解 / 咨询承接';
+  if (platform === '小红书') return '搜索沉淀 / 决策清单 / 案例信任';
+  if (platform === '视频号') return '微信信任 / 专业说明 / 私域承接';
+  if (platform.includes('朋友圈')) return '客户跟进 / 案例沉淀 / 私域维护';
+  return '补充验证 / 承接转化';
+}
+
+function customerPlatformAngle(platform = '', plan = {}){
+  const topic = customerText(plan.topic || '检测合规咨询');
+  if (platform === '抖音') return `用真实问题、送检误区或整改案例做短视频钩子，标题围绕「${topic}」。`;
+  if (platform === '小红书') return `用清单、流程和避坑说明承接搜索需求，帮助客户理解「${topic}」。`;
+  if (platform === '视频号') return `用专业说明、案例复盘和微信生态信任承接咨询，主题围绕「${topic}」。`;
+  return `围绕「${topic}」补充真实素材和明确咨询入口。`;
+}
+
+function customerContentMode(value = ''){
+  return String(value || '').includes('一稿多发') ? 'batch' : 'adapt';
+}
+
+function customerContentModeHtml(payload = {}){
+  const mode = customerContentMode(payload.content_mode);
+  return `<div class="customer-mode-note"><strong>${mode === 'batch' ? '当前选择：省事模式：一稿多发' : '当前选择：推荐模式：平台差异化适配'}</strong><p>一稿多发省时间，可以先用一套核心内容同步到多平台，但转化可能弱；平台适配更费事，不过更符合不同平台的打开方式、信任建立和咨询承接。系统只建议适配，不强迫每个平台都写不同稿。</p></div>`;
+}
+
+function customerPlatformMatrixHtml(payload = {}, plans = []){
+  const platforms = customerPlatformItems(payload.current_channels || '');
+  const firstPlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, Math.max(3, platforms.length));
+  const mode = customerContentMode(payload.content_mode);
+  return `<div class="customer-platform-matrix">${platforms.map((platform, index) => {
+    const plan = firstPlans[index % firstPlans.length] || {};
+    const angle = mode === 'batch'
+      ? `一稿多发：先用同一条核心内容发布到${platform}，只微调标题/开头/封面和发布说明。`
+      : customerPlatformAngle(platform, plan);
+    return `<div class="customer-platform-card"><strong>${esc(platform)}</strong><span>${esc(customerPlatformRole(platform))}</span><p>${esc(angle)}</p></div>`;
+  }).join('')}</div>`;
 }
 
 function customerOfferFromGoal(goal, industry){
@@ -1178,13 +1681,15 @@ async function copyCustomerSuggestion(){
 
 function initCustomerTrial(){
   initCustomerChoices('[data-customer-platforms]', 'current_channels');
+  initCustomerChoices('[data-customer-content-mode]', 'content_mode');
   initCustomerChoices('[data-customer-problems]', 'biggest_problem');
   initCustomerGuide();
   renderCustomerEffects();
-  const savedCustomerState = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  const savedCustomerState = dedicatedCustomerKey() ? {} : {};
   if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
     renderCustomerGeneratedState(savedCustomerState);
   }
+  prefillDedicatedCustomer();
   renderCustomerRecordSummary(savedCustomerState);
   renderCustomerNextAdvice(savedCustomerState);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
@@ -1223,43 +1728,78 @@ function initCustomerTrial(){
       }
     });
   });
-  $('#customerEffectForm')?.addEventListener('submit', (e) => {
+  $('#customerPlanList')?.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('[data-customer-record-plan]');
+    if (!button) return;
+    selectCustomerEffectPlan(button.dataset.customerRecordPlan);
+  });
+  $('#customerEffectForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
     const records = Array.isArray(current.records) ? current.records : [];
-    const record = {...formData(e.target), created_at: localTimestamp()};
-    const nextState = {...current, records: [record, ...records], updated_at: localTimestamp()};
+    const data = formData(e.target);
+    const selectedPlan = customerPlanById(current, data.content_plan_id);
+    if (!selectedPlan) {
+      setCustomerMessage('#customerEffectMessage', '请先在上方 7 天计划里选择实际发布的那一条；系统不会默认绑定第一条。', 'error');
+      $('#customerPlanBlock')?.scrollIntoView({behavior:'smooth', block:'center'});
+      return;
+    }
+    const engagement = toNonNegative(data.engagement) || (toNonNegative(data.likes) + toNonNegative(data.favorites) + toNonNegative(data.comments) + toNonNegative(data.shares));
+    let record = {...data, engagement, content_plan_id: planIdValue(selectedPlan), plan_topic: selectedPlan.topic || '', created_at: localTimestamp()};
+    let nextState = {...current, records: [record, ...records], selected_plan_id: planIdValue(selectedPlan), updated_at: localTimestamp()};
+    try {
+      const dailyAdvice = await requestCustomerDailyAdvice(nextState, record);
+      record = {...record, daily_advice: dailyAdvice};
+      nextState = {...nextState, records: [record, ...records], updated_at: localTimestamp()};
+    } catch (error) {
+      const fallbackAdvice = buildCustomerNextAdvice(nextState, record);
+      record = {
+        ...record,
+        daily_advice: {
+          advice: fallbackAdvice,
+          fallback: true,
+          transparent_note: error.message || 'customer-growth-advice request failed',
+          strategy_model: { requested_model: 'ChatGPT', actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: error.message || 'request_failed' },
+          copy_model: { requested_model: 'Claude Opus', actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: error.message || 'request_failed' },
+        },
+      };
+      nextState = {...nextState, records: [record, ...records], updated_at: localTimestamp()};
+    }
     safeStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(nextState));
     if (clientState.plans?.length) {
-      const firstPlan = clientState.plans[0];
+      const selectedPlanId = planIdValue(selectedPlan);
+      const livePlan = clientState.plans.find((plan)=>samePlanId(planIdValue(plan), selectedPlanId)) || selectedPlan;
       const feedback = {
         id: Date.now(),
         project_id: clientState.project?.id || current.project_id || 'customer-project',
         cycle_id: clientState.current_cycle_id || 'cycle-1',
-        content_plan_id: firstPlan.id,
+        content_plan_id: selectedPlanId,
         publish_link: record.publish_link || '',
         feedback_stage: 'T+24',
         views: toNonNegative(record.views),
-        likes: toNonNegative(record.engagement),
-        comments: 0,
-        favorites: 0,
-        shares: 0,
+        likes: toNonNegative(record.likes),
+        comments: toNonNegative(record.comments),
+        favorites: toNonNegative(record.favorites),
+        shares: toNonNegative(record.shares),
         consultations: toNonNegative(record.consultations),
+        appointments: toNonNegative(record.appointments),
         notes: record.notes || '',
         created_at: record.created_at,
       };
-      firstPlan.status = record.publish_link ? '已发布' : firstPlan.status;
-      if (record.publish_link) firstPlan.publish_link = record.publish_link;
-      clientState.feedback = [feedback, ...clientState.feedback.filter((item)=>!(Number(item.content_plan_id) === Number(firstPlan.id) && String(item.feedback_stage || 'T+24') === 'T+24'))];
+      livePlan.status = record.publish_link ? '已发布' : livePlan.status;
+      if (record.publish_link) livePlan.publish_link = record.publish_link;
+      clientState.feedback = [feedback, ...clientState.feedback.filter((item)=>!(samePlanId(item.content_plan_id, selectedPlanId) && String(item.feedback_stage || 'T+24') === 'T+24'))];
       clientState.review = createLocalReview();
       saveLocal();
     }
     e.target.reset();
-    const advice = buildCustomerNextAdvice(nextState, record);
-    setCustomerMessage('#customerEffectMessage', `已记录这条内容。根据这条数据，下一条建议先发：「${advice.nextTopic}」。`);
+    const advice = record.daily_advice?.advice || buildCustomerNextAdvice(nextState, record);
+    const nextRound = record.daily_advice?.next_round || buildCustomerNextRoundPlan(nextState, record, advice);
+    setCustomerMessage('#customerEffectMessage', `已记录这条内容。系统已生成复盘判断和下一轮 7 天计划：${nextRound.review_judgment?.type || '继续观察'}。`);
     renderCustomerEffects();
     renderCustomerRecordSummary(nextState);
     renderCustomerNextAdvice(nextState);
+    updateCustomerSelectedPlanDisplay(nextState);
     updateCustomerProgress(3);
   });
 }
@@ -1325,8 +1865,8 @@ function clientDashboard(){
   const total_interactions = rows.reduce((sum, item) => sum + interactions(item), 0);
   const total_consultations = rows.reduce((sum, item) => sum + num(item.consultations), 0);
   let next_suggestion = '先执行：发布第一条内容，并把首次发布链接回填到系统，否则不算闭环。';
-  if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题，并保留合规私信/主页咨询入口。';
-  else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化客户痛点表达，并用私信/主页咨询承接。';
+  if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题，并保留合规咨询/主页咨询入口。';
+  else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化客户痛点表达，并用咨询/主页咨询承接。';
   const review = latestReviewEvidence();
   if (review?.next_actions) next_suggestion = review.next_actions.replace('加码「」同类角度', '加码「最高咨询内容」同类角度');
   return {total_plans, published_plans, feedback_rate: total_plans ? published_plans / total_plans : 0, total_views, total_interactions, total_consultations, next_suggestion};
@@ -1538,6 +2078,7 @@ function renderAllFromClient(){
   renderPlans(clientState.plans);
   renderFeedback(clientState.feedback);
   renderReview(clientState.review || autoReviewFromFeedback());
+  renderNextSevenDataPage();
   renderReviewEvidencePanel();
   renderTopReturnProjectAction();
 }
@@ -1567,7 +2108,7 @@ function renderDashboard(d){
     ['回填率', pct(d.feedback_rate)],
     ['总曝光', d.total_views],
     ['总互动', d.total_interactions],
-    ['私信/咨询', d.total_consultations],
+    ['咨询/咨询', d.total_consultations],
     ['动态闭环分', dynamicLoopScore()],
   ].map(([k,v], index)=>`<div class="card metric-card ${index === 0 ? 'metric-primary' : ''}"><span>${k}</span><b>${v}</b></div>`).join('');
   el.innerHTML = '';
@@ -1578,11 +2119,21 @@ function renderWorkflowVisibility(){
   const hint = $('#feedbackHint');
   const workflow = $('#feedbackWorkflow');
   const planSection = $('#planSection');
+  const internalResult = $('#internalResultSection');
   if (planSection) planSection.hidden = !hasPlans || clientState.project_stage === '未诊断';
+  if (internalResult) internalResult.hidden = !clientState.diagnosis || clientState.project_stage === '未诊断';
   if (hint) hint.hidden = true;
   if (workflow) workflow.hidden = !hasPlans || clientState.project_stage === '未诊断';
   const diagnosisWorkflow = $('#diagnosisWorkflow');
   if (diagnosisWorkflow) diagnosisWorkflow.hidden = clientState.project_stage !== '未诊断';
+  if (isInternalMode()) {
+    const step = clientState.project_stage === '未诊断' ? 1 : (clientState.feedback.length ? 3 : 2);
+    document.querySelectorAll('#internalApp .customer-progress-strip .cps-item').forEach((item) => {
+      const n = Number(item.dataset.step);
+      item.classList.toggle('cps-done', n < step);
+      item.classList.toggle('cps-active', n === step);
+    });
+  }
 }
 
 
@@ -1901,6 +2452,115 @@ function renderReview(r){
   </div>`;
 }
 
+function nextSevenDate(offset = 1){
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return localDateIso(date);
+}
+
+function planScoreFromFeedback(plan = {}, feedback = null){
+  if (!feedback) return 0;
+  return num(feedback.consultations) * 100 + interactions(feedback) * 4 + Math.round(num(feedback.views) / 80);
+}
+
+function topicVariant(topic = '', index = 0, review = null){
+  const base = String(topic || '').trim() || '下一条内容';
+  const winner = String(review?.winner_topic || '').trim();
+  const suffixes = [
+    '复盘：这条内容为什么值得继续发',
+    '同类角度：换一个真实客户顾虑切入',
+    '证据补强：增加案例、过程和咨询入口',
+    '平台适配：同一主题分别改成短视频和图文',
+    '转化承接：把咨询问题整理成下一条内容',
+    '风险修正：把低互动内容换成更具体场景',
+    '下周判断：保留数据对比再决定加码',
+  ];
+  if (winner && index < 3) return winner + '｜' + suffixes[index];
+  return base + '｜' + suffixes[index % suffixes.length];
+}
+
+function buildNextSevenData(){
+  const plans = Array.isArray(clientState.plans) ? clientState.plans : [];
+  const feedback = latestFeedbackRows();
+  const review = clientState.review || autoReviewFromFeedback() || createLocalReview();
+  const byPlan = new Map(feedback.map((item) => [String(item.content_plan_id), item]));
+  const scored = plans.map((plan) => ({
+    plan,
+    feedback: byPlan.get(String(plan.id)) || null,
+    score: planScoreFromFeedback(plan, byPlan.get(String(plan.id)) || null),
+  })).sort((a, b) => b.score - a.score);
+  const winners = scored.filter((item) => item.score > 0).slice(0, 3);
+  const pending = plans.filter((plan) => !byPlan.has(String(plan.id))).slice(0, 7);
+  const sourcePlans = [...winners.map((item) => item.plan), ...pending, ...plans].filter(Boolean);
+  const unique = [];
+  sourcePlans.forEach((plan) => {
+    const key = String(plan.id || plan.topic || unique.length);
+    if (!unique.some((item) => String(item.id || item.topic) === key)) unique.push(plan);
+  });
+  const totalViews = feedback.reduce((sum, item) => sum + num(item.views), 0);
+  const totalConsults = feedback.reduce((sum, item) => sum + num(item.consultations), 0);
+  const best = winners[0];
+  const strategy = totalConsults > 0
+    ? '复制高咨询主题，连续 3 天做同类角度，再用 4 天验证平台适配。'
+    : totalViews > 0
+      ? '先修正标题、封面和开头，提高互动后再判断是否加码。'
+      : '暂无有效回填，下一轮先补齐发布链接和 T+72/T+7 数据。';
+  const rows = Array.from({length: 7}, (_, index) => {
+    const basePlan = unique[index % Math.max(unique.length, 1)] || {};
+    const sourceFeedback = byPlan.get(String(basePlan.id)) || best?.feedback || null;
+    const expectedViews = sourceFeedback ? Math.max(300, Math.round(num(sourceFeedback.views) * (index < 3 ? 1.08 : 0.86))) : 300 + index * 80;
+    const expectedConsultations = sourceFeedback ? Math.max(0, Math.round(num(sourceFeedback.consultations) * (index < 3 ? 1.15 : 0.75))) : 0;
+    return {
+      day: 'D+' + (index + 1),
+      date: nextSevenDate(index + 1),
+      topic: topicVariant(basePlan.topic, index, review),
+      platform: basePlan.platform || (index % 3 === 0 ? '抖音' : index % 3 === 1 ? '小红书' : '视频号'),
+      experiment: index < 3 ? '复制/加码' : index < 5 ? '平台适配' : '修正重测',
+      evidence: sourceFeedback ? '参考回填：曝光 ' + compactNumber(sourceFeedback.views) + ' / 咨询 ' + compactNumber(sourceFeedback.consultations) : '缺少回填样本，按当前计划预测',
+      expected_views: expectedViews,
+      expected_consultations: expectedConsultations,
+    };
+  });
+  return {
+    status: feedback.length ? 'ready' : 'needs_feedback',
+    strategy,
+    review,
+    rows,
+    evidence_count: feedback.length,
+    winner_topic: best?.plan?.topic || review?.winner_topic || '',
+  };
+}
+
+function renderNextSevenDataPage(){
+  const box = $('#nextSevenDataPage');
+  if (!box) return;
+  if (!clientState.diagnosis) {
+    box.innerHTML = '';
+    box.hidden = true;
+    return;
+  }
+  const data = buildNextSevenData();
+  box.hidden = false;
+  const statusBadge = data.status === 'ready'
+    ? '<span class="next-seven-badge green">已接入回填数据</span>'
+    : '<span class="next-seven-badge orange">等待发布反馈</span>';
+  const cards = data.rows.map((row) => '<article class="next-seven-card">'
+    + '<div class="next-seven-card-top"><span>' + esc(row.day) + ' · ' + esc(row.date) + '</span><em>' + esc(row.experiment) + '</em></div>'
+    + '<strong>' + esc(row.topic) + '</strong>'
+    + '<p>' + esc(row.platform) + '｜' + esc(row.evidence) + '</p>'
+    + '<div class="next-seven-metrics"><span>预计曝光 ' + compactNumber(row.expected_views) + '</span><span>预计咨询 ' + compactNumber(row.expected_consultations) + '</span></div>'
+    + '</article>').join('');
+  box.innerHTML = '<div class="next-seven-head">'
+    + '<div><p class="eyebrow">NEXT 7 DAYS / 数据预测</p><h3>下一个七天数据</h3><span>基于当前计划、回填数据和周复盘，生成下一轮内容实验结构；只做决策建议，不代发。</span></div>'
+    + '<button class="review-primary-btn" type="button" onclick="renderNextSevenDataPage()">刷新下一个七天</button>'
+    + '</div><div class="next-seven-summary">'
+    + '<div>' + statusBadge + '<strong>' + esc(data.strategy) + '</strong></div>'
+    + '<div><span>依据样本</span><strong>' + compactNumber(data.evidence_count) + ' 条回填</strong></div>'
+    + '<div><span>胜出主题</span><strong>' + esc(data.winner_topic || '暂无，先补回填') + '</strong></div>'
+    + '</div><div class="next-seven-grid">' + cards + '</div>';
+}
+window.renderNextSevenDataPage = renderNextSevenDataPage;
+
 function prefillFeedback(id){
   const planId = planIdValue(id);
   const form = $('#feedbackForm');
@@ -1972,7 +2632,7 @@ function createLocalReview(){
   const winnerTopic = (winner?.topic || '').trim() || '最高咨询内容';
   if (rows.length && total_consultations > 0) {
     bottleneck = '需要扩大有效内容样本';
-    next_actions = `加码「${winnerTopic}」同类角度，下周至少复制3条，并保留合规私信/主页咨询入口。`;
+    next_actions = `加码「${winnerTopic}」同类角度，下周至少复制3条，并保留合规咨询/主页咨询入口。`;
   } else if (rows.length && total_views < 1000) {
     bottleneck = '曝光不足';
     next_actions = '优先优化标题/封面/开头，先获得足够曝光样本。';
@@ -1991,7 +2651,7 @@ function createLocalReview(){
 
 async function regenerateCurrentDiagnosis(){
   if (!clientState.assessment) { toast('当前没有客户信息，先提交一次诊断。'); return; }
-  const reason = window.prompt('重新诊断原因', '客户补充信息/内部修正') || '内部重新诊断';
+  const reason = window.prompt('重新诊断原因', '客户补充信息/项目修正') || '项目重新诊断';
   await withBusy(null, '重新诊断中...', async () => {
     const result = await api('/api/assessments', {method:'POST', body: JSON.stringify({...clientState.assessment, client_mode: 'internal_regenerate', source: 'internal_regenerate'})});
     clientState = buildVersionedProjectState(result, clientState.assessment, clientState.source || 'internal_regenerate', clientState, reason);
@@ -2014,17 +2674,17 @@ function inferInternalPayloadFromBrief(form){
   const industryMatch = compact.match(/(?:我们是|我是|客户是|业务是|做的是|主营|主要做)([^，。；;、]{2,28})/);
   if (industryMatch?.[1]) industry = industryMatch[1].replace(/的$/, '');
   if (!industry) {
-    if (/安标|安规|检测|送检|医疗器械/.test(compact)) industry = '安标检测｜医疗器械检测合规';
+    if (/检测|送检|医疗器械/.test(compact)) industry = '检测合规服务｜医疗器械检测合规';
     else if (/美甲|美睫|美容/.test(compact)) industry = '本地美容美甲门店';
     else if (/产康|盆底肌|产后/.test(compact)) industry = '产后康复门店';
-    else if (/篮球|体育培训|球馆/.test(compact)) industry = /培训|课程|体验课/.test(compact) ? '少儿篮球培训' : '篮球销售';
+    else if (/篮球|体育培训|球馆/.test(compact)) industry = /培训|课程|体验课/.test(compact) ? '少儿篮球培训' : '体育用品销售';
   }
   const targetMatch = compact.match(/(?:客户是|目标客户是|主要客户是|面向|服务)([^，。；;]{3,36})/);
   const target = targetMatch?.[1]?.replace(/^(的|给)/, '') || (/企业|老板|商家|客户/.test(compact) ? '有增长需求的企业主/商家' : '潜在目标客户');
   let goal = '';
   const goalMatch = compact.match(/(?:想|希望|目标是|现在想|最想)([^。；;]{4,42})/);
   if (goalMatch?.[1]) goal = goalMatch[1];
-  if (!goal) goal = /咨询|私信|线索/.test(compact) ? '提升内容带来的有效咨询' : '找到能带来客户的内容方向';
+  if (!goal) goal = /咨询|咨询|线索/.test(compact) ? '提升内容带来的有效咨询' : '找到能带来客户的内容方向';
   setIfEmpty('industry', industry || compact.slice(0, 24));
   setIfEmpty('target_customer', target);
   setIfEmpty('main_goal', goal);
@@ -2037,7 +2697,7 @@ function inferInternalPayloadFromBrief(form){
   }
   const problem = form.querySelector('[name="biggest_problem"]');
   if (problem && !problem.value) {
-    problem.value = /没流量|曝光/.test(compact) ? '发了没流量' : /咨询|私信|转化/.test(compact) ? '有浏览没咨询' : /复盘|总结/.test(compact) ? '发完没人复盘' : '不知道发什么';
+    problem.value = /没流量|曝光/.test(compact) ? '发了没流量' : /咨询|咨询|转化/.test(compact) ? '有浏览没咨询' : /复盘|总结/.test(compact) ? '发完没人复盘' : '不知道发什么';
   }
   document.querySelectorAll('[data-internal-platforms] button,[data-internal-problems] button').forEach((button)=>{
     const group = button.closest('[data-internal-platforms],[data-internal-problems]');
@@ -2045,15 +2705,66 @@ function inferInternalPayloadFromBrief(form){
     const input = form.querySelector(`[name="${inputName}"]`);
     button.classList.toggle('is-selected', Boolean(input?.value && input.value === button.dataset.value));
   });
-  const status = $('#aiExtractStatus');
-  if (status) status.textContent = '已提取关键信息；可展开检查，也可以直接生成。';
+  renderInternalIntakeSnapshot(form);
 }
 
 function initInternalAiIntake(){
   const form = $('#assessmentForm');
+  if (!form) return;
+  renderInternalIntakeSnapshot(form);
   $('#aiExtractBtn')?.addEventListener('click', () => {
+    form.dataset.aiAnalyzed = 'yes';
+    form.dataset.aiConfirmed = '';
     inferInternalPayloadFromBrief(form);
     document.querySelector('.internal-structured-fields')?.setAttribute('open', '');
+    renderInternalIntakeSnapshot(form);
+  });
+  $('#aiClearBtn')?.addEventListener('click', () => {
+    form.reset();
+    form.dataset.aiAnalyzed = '';
+    form.dataset.aiConfirmed = '';
+    document.querySelectorAll('[data-internal-platforms] button,[data-internal-problems] button').forEach((button)=>{
+      button.classList.remove('is-selected');
+      button.setAttribute('aria-pressed', 'false');
+    });
+    renderInternalIntakeSnapshot(form);
+    $('#aiProjectBrief')?.focus();
+  });
+  $('#aiIntakeUnderstanding')?.addEventListener('click', (e) => {
+    const focusButton = e.target.closest('[data-focus-field]');
+    if (focusButton) {
+      document.querySelector('.internal-structured-fields')?.setAttribute('open', '');
+      const field = form.querySelector(`[name="${focusButton.dataset.focusField}"]`);
+      field?.focus();
+      return;
+    }
+    if (e.target.closest('[data-ai-confirm]')) {
+      const snapshot = internalIntakeSnapshot(formData(form));
+      if (!snapshot.ready) return;
+      form.dataset.aiConfirmed = 'yes';
+      renderInternalIntakeSnapshot(form);
+      return;
+    }
+    if (e.target.closest('[data-ai-supplement]')) {
+      document.querySelector('.internal-structured-fields')?.setAttribute('open', '');
+      const firstMissing = internalIntakeSnapshot(formData(form)).missing[0]?.input;
+      if (firstMissing) form.querySelector(`[name="${firstMissing}"]`)?.focus();
+      return;
+    }
+    if (e.target.closest('[data-ai-reanalyze]')) {
+      form.dataset.aiConfirmed = '';
+      form.dataset.aiAnalyzed = 'yes';
+      inferInternalPayloadFromBrief(form);
+      renderInternalIntakeSnapshot(form);
+    }
+  });
+  form.addEventListener('input', () => {
+    form.dataset.aiConfirmed = '';
+    renderInternalIntakeSnapshot(form);
+  });
+  form.addEventListener('change', () => {
+    form.dataset.aiConfirmed = '';
+    renderInternalIntakeSnapshot(form);
   });
 }
 
@@ -2066,17 +2777,22 @@ function initInternalApp(){
     await withBusy(e.submitter, '生成中...', async () => {
       const payload = formData(e.target);
       Object.keys(payload).forEach((key) => { payload[key] = String(payload[key] || '').trim(); });
-      const validation = customerRequired(payload);
-      if (validation) throw new Error(validation);
+      payload.ai_understanding_confirmed = e.target.dataset.aiConfirmed === 'yes' ? 'yes' : '';
+      const validation = customerRequired(payload) || internalGenerationGate(payload);
+      if (validation) {
+        renderInternalIntakeSnapshot(e.target);
+        throw new Error(validation);
+      }
       payload.client_mode = 'internal_test';
       payload.source = 'internal_test';
+      delete payload.ai_understanding_confirmed;
       if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
       delete payload.posting_frequency_detail;
       payload.benchmark = normalizeBenchmark(payload);
       ['benchmark_platform','benchmark_accounts','benchmark_account_1','benchmark_account_2','benchmark_account_3','benchmark_notes','benchmark_sample_content'].forEach((key)=>delete payload[key]);
       const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
       const assessment = result.assessment || payload;
-      clientState = buildVersionedProjectState(result, assessment, 'internal_test', null, '内部首次诊断');
+      clientState = buildVersionedProjectState(result, assessment, 'internal_test', null, '项目首次诊断');
       saveLocal();
       e.target.reset();
       toast('诊断已生成');

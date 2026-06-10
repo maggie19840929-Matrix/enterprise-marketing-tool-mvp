@@ -16,6 +16,86 @@
 
 ## 更新记录
 
+### v1.6.41 · 回填复盘短模型链路版
+
+日期：2026-06-11
+
+本次修补：
+1. 将回填后模型调用收敛为短输出：只让火山方舟生成复盘判断、下一步策略和客户短结论。
+2. 下一轮 7 天计划由系统基于模型判断、回填指标和历史 7 天计划展开，避免长生成触发 Netlify 平台 504。
+3. 超时上限恢复到平台安全范围内，线上若模型失败继续明确 fallback_reason，不冒充模型输出。
+
+验收：
+- npm test；
+- 线上 customer-growth-advice 烟测需返回 7 条 next_7_day_plan，并保留模型证据。
+
+
+### v1.6.40 · 回填复盘模型超时修正版
+
+日期：2026-06-11
+
+本次修补：
+1. 将火山方舟调用默认超时时间从 25 秒提高到 45 秒，上限提高到 60 秒，避免回填后 7 天计划生成被过早截断。
+2. 保持 fallback 证据透明：若模型仍失败，继续返回 provider/fallback/fallback_reason，不冒充正式模型输出。
+3. 继续保留 v1.6.38 冻结锚点和 v1.6.39 回填闭环结构。
+
+验收：
+- npm test；
+- 线上 /api/customer-growth-advice 模型烟测需确认 provider=volcengine_ark 且 fallback=false。
+
+
+### v1.6.39 · 回填复盘与下轮7天计划版
+
+日期：2026-06-11
+
+本次修补：
+1. 冻结 v1.6.38 火山方舟接入版为可回滚锚点，并保存工作树快照、diff、变更清单和 tag。
+2. 客户版效果回填从“下一条建议”升级为“复盘判断 + 下一轮 7 天内容计划”。
+3. 回填字段保持营销复盘边界：曝光/播放、点赞、收藏、评论、分享、私信/咨询、预约/到店和备注，不引入 CRM/ERP/销售跟进流程。
+4. /api/customer-growth-advice 返回 next_round、review_judgment、customer_summary、next_7_day_plan 和模型证据，火山失败时显式 fallback。
+5. 客户版和 /internal/ 共用主闭环能力；内部调试能力仍由 /internal/ 路由门禁保留，/?mode=internal 仍为客户版。
+
+验收：
+- npm test；
+- Netlify 生产部署后验证 /api/health、客户页、篮球预填链接、/?mode=internal 和 /internal/；
+- 线上模型烟测确认 provider/fallback/requested_model/actual_model 证据。
+
+
+### v1.6.38 · 豆包/火山方舟模型接入版
+
+日期：2026-06-10
+
+本次修补：
+1. public 客户版首轮 7 天内容建议默认接入火山方舟 OpenAI-compatible Chat Completions API。
+2. 客户发布效果记录后的下一步建议默认接入同一条火山方舟模型链路。
+3. 增加统一 `model_info / generation_meta` 模型证据，明确 provider、requested_model、actual_model、fallback、fallback_reason、latency_ms 和 usage。
+4. 未配置 `ARK_API_KEY` 或模型 Endpoint ID 时，明确回退到 `rule_template`，不冒充真实 AI。
+5. internal 版保留 `model_provider / model_mode` 后端路由入口，后续可测试 Ark、OpenAI、Anthropic 或 local。
+
+验收：
+- `node --check static/app.js`；
+- `node --check netlify/functions/api.mjs`；
+- `npm test`；
+- Netlify preview 验证 `/api/assessments` 与 `/api/customer-growth-advice` 均返回模型证据。
+
+### v1.6.37 · AI项目入口门禁版
+
+日期：2026-06-07
+
+本次修补：
+1. 内测新增项目入口增加「系统理解卡」，把 AI 从一句业务描述中提取到的业务、目标、客群、平台、问题、主推产品、客户顾虑和素材依据显性展示。
+2. 增加缺项提示：当主推产品/服务、客户真实顾虑、现有素材/近期最好内容不足时，先提示补齐，不再让系统直接生成泛模板。
+3. 增加生成门禁：`internal_test` 模式下，后端同步拦截缺少关键精度字段的提交，防止前端绕过。
+4. 客户公开版不展示「AI项目助手 / 系统理解卡 / 生成门禁」等内测入口文案，继续保持原客户轻表单主路径。
+5. 版本统一升级为 `1.6.37`。
+
+验收：
+- `node --check static/app.js` 通过；
+- `node --check netlify/functions/api.mjs` 通过；
+- `npm test` 通过；
+- 本地与线上验证 `/` 客户页无内测入口文案；`/internal` 新增项目入口可展示系统理解卡和缺项提示；
+- 线上部署：`https://sales-improve.fpmatrix.cn`，deploy `6a24f32c5cc5de2f94e02d05`。
+
 ### v1.6.31 · 项目数据隔离与安标检测模块边界修复版
 
 日期：2026-06-05

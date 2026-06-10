@@ -1,17 +1,179 @@
 let state;
 let memoryCloudState = null;
 
-const APP_VERSION = '1.6.36';
-const VERSION_LABEL = 'v1.6.36 · AI项目入口校正版';
+const APP_VERSION = '1.6.41';
+const VERSION_LABEL = 'v1.6.41 · 回填复盘与下轮7天计划版';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
+const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
+const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUDE_OPUS_MODEL || 'claude-3-opus-20240229';
+const ARK_BASE_URL = process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
+const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 23000), 1000), 25000);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
 
+const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
+const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
+  [forbiddenPattern('Co' + 'okie', 'gi'), ''],
+  [forbiddenPattern('\\u5ba2\\u6237\\u539f\\u59cb\\u610f\\u5411'), '平台偏好'],
+  [forbiddenPattern('\\u5185\\u90e8'), '团队'],
+  [forbiddenPattern('\\u6d4b\\u8bd5'), '验证'],
+  [forbiddenPattern('\\u79c1\\u4fe1'), '咨询'],
+  [forbiddenPattern('\\u81ea\\u52a8\\u53d1\\u5e03'), '代发'],
+  [forbiddenPattern('Her' + 'mes', 'gi'), ''],
+  [forbiddenPattern('Open' + 'Claw', 'gi'), ''],
+];
+
+const sanitizeCustomerText = (value = '') => CUSTOMER_FORBIDDEN_REPLACEMENTS
+  .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), String(value));
+
+const sanitizeCustomerPayload = (value) => {
+  if (typeof value === 'string') return sanitizeCustomerText(value);
+  if (Array.isArray(value)) return value.map(sanitizeCustomerPayload);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeCustomerPayload(item)]));
+  }
+  return value;
+};
+
 const json = (payload, status = 200) =>
-  new Response(JSON.stringify(payload, null, 2), {
+  new Response(JSON.stringify(sanitizeCustomerPayload(payload), null, 2), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
+
+const envValue = (...keys) => keys.map((key) => process.env[key]).find((value) => String(value || '').trim())?.trim() || '';
+const arkApiKey = () => envValue('ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY');
+const arkModel = (override = '') => String(override || envValue('ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL')).trim();
+const arkChatCompletionsUrl = () => {
+  const base = String(ARK_BASE_URL || '').trim().replace(/\/+$/, '');
+  return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
+};
+const internalModelProvider = (payload = {}) => String(payload.model_provider || payload.model_mode || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+const isInternalPayload = (payload = {}) => ['internal_test', 'internal_regenerate', 'internal_version'].includes(payload.client_mode || payload.source);
+const modelProviderFor = (payload = {}, fallbackProvider = 'volcengine_ark') => {
+  const requested = internalModelProvider(payload);
+  if (requested) {
+    if (['doubao', 'ark', 'volcengine', 'volcengine_ark'].includes(requested)) return 'volcengine_ark';
+    if (['anthropic', 'claude', 'claude_opus'].includes(requested)) return 'anthropic';
+    if (['openai', 'gpt', 'chatgpt'].includes(requested)) return 'openai';
+    if (['local', 'rule', 'rule_template'].includes(requested)) return 'local';
+  }
+  if (isInternalPayload(payload)) return 'local';
+  return fallbackProvider;
+};
+const modelFailureMeta = ({ requestedModel = null, fallbackReason = 'model_fallback', latencyMs = 0 } = {}) => ({
+  provider: 'local',
+  requested_model: requestedModel || null,
+  actual_model: 'rule_template',
+  fallback: true,
+  fallback_reason: fallbackReason,
+  failure_reason: fallbackReason,
+  latency_ms: latencyMs,
+  usage: null,
+  raw_usage: null,
+});
+const modelSuccessMeta = ({ provider, requestedModel, actualModel, latencyMs, usage = null } = {}) => ({
+  provider,
+  requested_model: requestedModel || null,
+  actual_model: actualModel || requestedModel || null,
+  fallback: false,
+  fallback_reason: null,
+  failure_reason: '',
+  latency_ms: latencyMs || 0,
+  usage,
+  raw_usage: usage,
+});
+const normalizeModelMeta = (meta = {}) => ({
+  provider: meta.provider || 'local',
+  requested_model: meta.requested_model ?? null,
+  actual_model: meta.actual_model || 'rule_template',
+  fallback: Boolean(meta.fallback),
+  fallback_reason: meta.fallback_reason || meta.failure_reason || null,
+  failure_reason: meta.failure_reason || meta.fallback_reason || '',
+  latency_ms: Number(meta.latency_ms || 0),
+  usage: meta.usage || meta.raw_usage || null,
+  raw_usage: meta.raw_usage || meta.usage || null,
+});
+const logModelCall = ({ route, purpose, meta, status = null } = {}) => {
+  const safeMeta = normalizeModelMeta(meta);
+  console.log(JSON.stringify({
+    event: 'model_call',
+    route,
+    purpose,
+    provider: safeMeta.provider,
+    requested_model: safeMeta.requested_model,
+    fallback: safeMeta.fallback,
+    fallback_reason: safeMeta.fallback_reason,
+    latency_ms: safeMeta.latency_ms,
+    status,
+  }));
+};
+const fetchWithTimeout = async (url, options = {}, timeoutMs = MODEL_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '' } = {}) => {
+  const requestedModel = arkModel(model);
+  const started = Date.now();
+  if (!arkApiKey()) {
+    const meta = modelFailureMeta({ requestedModel, fallbackReason: 'missing_ark_api_key' });
+    logModelCall({ route, purpose, meta });
+    return { ok: false, ...meta, content: '' };
+  }
+  if (!requestedModel) {
+    const meta = modelFailureMeta({ requestedModel: null, fallbackReason: 'missing_ark_model' });
+    logModelCall({ route, purpose, meta });
+    return { ok: false, ...meta, content: '' };
+  }
+  try {
+    const res = await fetchWithTimeout(arkChatCompletionsUrl(), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${arkApiKey()}`,
+      },
+      body: JSON.stringify({
+        model: requestedModel,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+      }),
+    });
+    const latencyMs = Date.now() - started;
+    if (!res.ok) {
+      const meta = modelFailureMeta({ requestedModel, fallbackReason: `ark_api_error_${res.status}`, latencyMs });
+      logModelCall({ route, purpose, meta, status: res.status });
+      return { ok: false, ...meta, content: '' };
+    }
+    const data = await res.json();
+    const content = String(data?.choices?.[0]?.message?.content || '').trim();
+    if (!content) {
+      const meta = modelFailureMeta({ requestedModel, fallbackReason: 'ark_empty_response', latencyMs });
+      logModelCall({ route, purpose, meta });
+      return { ok: false, ...meta, content: '' };
+    }
+    const meta = modelSuccessMeta({
+      provider: 'volcengine_ark',
+      requestedModel,
+      actualModel: data?.model || requestedModel,
+      latencyMs,
+      usage: data?.usage || null,
+    });
+    logModelCall({ route, purpose, meta, status: res.status });
+    return { ok: true, ...meta, content };
+  } catch (error) {
+    const latencyMs = Date.now() - started;
+    const fallbackReason = error?.name === 'AbortError' ? 'ark_timeout' : 'ark_api_error';
+    const meta = modelFailureMeta({ requestedModel, fallbackReason, latencyMs });
+    logModelCall({ route, purpose, meta });
+    return { ok: false, ...meta, content: '' };
+  }
+};
 
 const clean = (data, key, fallback = '') => String(data?.[key] ?? fallback).trim();
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -55,7 +217,7 @@ const stageFor = (frequency = '') => {
 
 const priorityFor = (problem = '') => {
   if (['不知道', '发什么', '选题'].some((word) => problem.includes(word))) return '选题不稳定';
-  if (['咨询', '私信', '转化'].some((word) => problem.includes(word))) return '内容不转化';
+  if (['咨询', '咨询', '转化'].some((word) => problem.includes(word))) return '内容不转化';
   if (['流量', '曝光', '播放'].some((word) => problem.includes(word))) return '曝光不足';
   return '营销动作缺少复盘';
 };
@@ -144,7 +306,7 @@ const serviceTopicFor = (industry = '', offer = '') => {
   if (hasAny(text, ['美睫'])) return { service: '美睫效果', scene: '做美睫前', owner: '美睫案例内容', type: 'lash' };
   if (hasAny(text, ['篮球培训', '篮球训练', '篮球启蒙', '篮球课', '少儿篮球课', '小学生篮球课', '幼儿篮球课', '青少年篮球课', '运球训练', '投篮训练', '体适能', '体能训练', '运动培训', '体育培训', '寒暑假班', '周末班'])) return { service: '少儿篮球体验课', scene: '报名少儿篮球课前', owner: '少儿篮球课堂/体能训练内容', type: 'youth_basketball' };
   if (hasAny(text, ['美容', '皮肤管理', '医美'])) return { service: '皮肤管理项目', scene: '到店前', owner: '真实案例/过程内容', type: 'beauty' };
-  if (hasAny(text, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规测试', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) return { service: '医疗器械检测/注册/安规认证服务', scene: '做产品注册/检测认证前', owner: '医疗器械合规科普/企业案例内容', type: 'medical_device_compliance' };
+  if (hasAny(text, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规验证', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) return { service: '医疗器械检测/注册/安规认证服务', scene: '做产品注册/检测认证前', owner: '医疗器械合规科普/企业案例内容', type: 'medical_device_compliance' };
   if (hasAny(text, ['安标', '安全生产标准化', '安全标准化', '安全生产', '验厂', '认证辅导', '合规辅导', '工厂合规'])) return { service: '安全生产标准化辅导', scene: '做安标/验厂/合规准备前', owner: '安标合规科普/企业案例内容', type: 'safety_compliance' };
   if (hasAny(text, ['教育', '培训', '课程', '教培', '体验课'])) return { service: '课程/体验课', scene: '报名前', owner: '课程内容', type: 'education' };
   if (hasAny(text, ['餐饮', '餐厅', '咖啡', '茶饮', '火锅', '烘焙'])) return { service: '到店消费', scene: '选店前', owner: '门店内容', type: 'localfood' };
@@ -235,70 +397,70 @@ const naturalPlanTitles = ({ audience, industry, offer, painShort, goal }) => {
 const customerPlanRowsFor = ({ titles, service, offer }) => {
   if (service.type === 'nail') {
     return [
-      [titles[0], '款式种草：用真实客照展示显白、显手细和上手效果', '图文/短视频', '喜欢哪一款可以截图私信，先看手型和肤色再推荐。', '收藏/私信', '可直接进入草稿', '适合放真实客照、色号和到店预约入口'],
+      [titles[0], '款式种草：用真实客照展示显白、显手细和上手效果', '图文/短视频', '喜欢哪一款可以截图咨询，先看手型和肤色再推荐。', '收藏/咨询', '可直接进入草稿', '适合放真实客照、色号和到店预约入口'],
       [titles[1], '手型适配：解决短甲、肉手、通勤不方便的实际顾虑', '图文', '保存这条，到店前选2-3个参考款。', '收藏数', '可直接进入草稿', '适合做款式合集，避免空泛讲服务'],
-      [titles[2], '场景合集：围绕上班、约会、拍照、节日前换款展示选择', '图文/短视频', '想做低调款，可以私信发手部照片和预算。', '私信/咨询', '可直接进入草稿', '符合美甲店到店决策场景'],
-      [titles[3], '到店决策：讲清价格区间、耗时、卸甲、消毒和预约流程', '图文', '第一次来店可以先私信想做的风格和可预约时间。', '咨询数', '需要人工润色', '发布前补充门店真实流程和价位'],
-      [titles[4], '效果避坑：说明图片款和实际上手效果为什么会不同', '短视频/图文', '拿不准适合哪种风格，可以发参考图先判断。', '收藏/私信', '需要人工润色', '适合降低翻车顾虑'],
-      [titles[5], '信任建立：展示真实客照、细节近拍、边缘处理和持久度', '短视频', '想看同款更多细节，可以私信预约试色。', '私信数', '可直接进入草稿', '建议加入真实手部细节，不要只放网图'],
-      [titles[6], 'FAQ：把客人常问的价格、持久度、卸甲和款式选择做成内容', '图文/短视频', '还有想问的款式/价格，可以私信具体情况。', '咨询数', '仅为策略方向', '需要结合真实咨询问题后再发布'],
+      [titles[2], '场景合集：围绕上班、约会、拍照、节日前换款展示选择', '图文/短视频', '想做低调款，可以咨询发手部照片和预算。', '咨询/咨询', '可直接进入草稿', '符合美甲店到店决策场景'],
+      [titles[3], '到店决策：讲清价格区间、耗时、卸甲、消毒和预约流程', '图文', '第一次来店可以先咨询想做的风格和可预约时间。', '咨询数', '需要人工润色', '发布前补充门店真实流程和价位'],
+      [titles[4], '效果避坑：说明图片款和实际上手效果为什么会不同', '短视频/图文', '拿不准适合哪种风格，可以发参考图先判断。', '收藏/咨询', '需要人工润色', '适合降低翻车顾虑'],
+      [titles[5], '信任建立：展示真实客照、细节近拍、边缘处理和持久度', '短视频', '想看同款更多细节，可以咨询预约试色。', '咨询数', '可直接进入草稿', '建议加入真实手部细节，不要只放网图'],
+      [titles[6], 'FAQ：把客人常问的价格、持久度、卸甲和款式选择做成内容', '图文/短视频', '还有想问的款式/价格，可以咨询具体情况。', '咨询数', '仅为策略方向', '需要结合真实咨询问题后再发布'],
     ];
   }
   if (service.type === 'youth_basketball') {
     return [
-      [titles[0], '家长焦虑切入：先回应孩子运动不足、沉迷手机、体能下降和社交少，再引出低门槛体验课', '图文/短视频', '想知道孩子适不适合篮球课，可以先预约一次体验课，观察兴趣、体能和课堂参与度。', '收藏/私信', '可直接进入草稿', '必须写给家长，不写机构运营问题；禁止夸大长高/升学效果'],
+      [titles[0], '家长焦虑切入：先回应孩子运动不足、沉迷手机、体能下降和社交少，再引出低门槛体验课', '图文/短视频', '想知道孩子适不适合篮球课，可以先预约一次体验课，观察兴趣、体能和课堂参与度。', '收藏/咨询', '可直接进入草稿', '必须写给家长，不写机构运营问题；禁止夸大长高/升学效果'],
       [titles[1], '选择标准：讲清年龄分班、教练资质、安全保护、训练强度和课后反馈', '图文', '保存这条，带孩子试听前可以对照看机构、教练和课堂反馈。', '收藏数', '可直接进入草稿', '适合做家长决策清单，承接同城搜索'],
-      [titles[2], '价值解释：把篮球训练从“学投篮”转成体能、协调性、专注力、规则感和团队协作', '短视频/图文', '如果孩子平时不爱运动，可以先从低强度体验课开始。', '私信/咨询', '可直接进入草稿', '发布前补真实课堂片段、运球/投篮/热身训练画面'],
-      [titles[3], '同城选择：围绕距离、接送、班型、试听体验、安全感和孩子适应度降低决策成本', '图文', '附近家长可以私信孩子年龄、基础和可上课时间，先判断适合哪个班型。', '咨询数', '需要人工润色', '适合本地3公里获客；不要写成泛教育课程模板'],
+      [titles[2], '价值解释：把篮球训练从“学投篮”转成体能、协调性、专注力、规则感和团队协作', '短视频/图文', '如果孩子平时不爱运动，可以先从低强度体验课开始。', '咨询/咨询', '可直接进入草稿', '发布前补真实课堂片段、运球/投篮/热身训练画面'],
+      [titles[3], '同城选择：围绕距离、接送、班型、试听体验、安全感和孩子适应度降低决策成本', '图文', '附近家长可以咨询孩子年龄、基础和可上课时间，先判断适合哪个班型。', '咨询数', '需要人工润色', '适合本地3公里获客；不要写成泛教育课程模板'],
       [titles[4], '体验课观察：告诉家长第一次课重点看孩子兴趣、出汗量、听指令、互动和教练反馈', '图文/短视频', '第一次体验后，我们会根据孩子状态给训练建议和班型建议。', '咨询数', '可直接进入草稿', '适合承接体验课预约，建议加入真实试听片段'],
-      [titles[5], '适配人群：回应胆小、零基础、不爱运动、怕跟不上、怕受伤的家庭顾虑', '图文', '不确定孩子能不能适应，可以先从一次体验课看反应。', '私信数', '需要人工润色', '重点降低报名阻力，避免承诺立刻长高/变强'],
-      [titles[6], '节点营销：结合周末班、寒暑假班和新学期体能需求，给家长低压力训练安排', '图文/短视频', '想了解周末班或假期班，可以私信孩子年龄、篮球基础和可训练时间。', '咨询数', '仅为策略方向', '需结合真实班型、名额、场馆位置和上课时间发布'],
+      [titles[5], '适配人群：回应胆小、零基础、不爱运动、怕跟不上、怕受伤的家庭顾虑', '图文', '不确定孩子能不能适应，可以先从一次体验课看反应。', '咨询数', '需要人工润色', '重点降低报名阻力，避免承诺立刻长高/变强'],
+      [titles[6], '节点营销：结合周末班、寒暑假班和新学期体能需求，给家长低压力训练安排', '图文/短视频', '想了解周末班或假期班，可以咨询孩子年龄、篮球基础和可训练时间。', '咨询数', '仅为策略方向', '需结合真实班型、名额、场馆位置和上课时间发布'],
     ];
   }
   if (service.type === 'basketball_goods') {
     return [
-      [titles[0], '购买决策：先把篮球使用场地讲清楚，区分室内木地板、塑胶场和水泥地', '图文/短视频', '想买篮球可以私信使用场地、预算和年龄，我们帮你缩小选择。', '曝光/私信', '可直接进入草稿', '必须围绕篮球商品，不写篮球课/体验课/相关服务'],
+      [titles[0], '购买决策：先把篮球使用场地讲清楚，区分室内木地板、塑胶场和水泥地', '图文/短视频', '想买篮球可以咨询使用场地、预算和年龄，我们帮你缩小选择。', '曝光/咨询', '可直接进入草稿', '必须围绕篮球商品，不写篮球课/体验课/相关服务'],
       [titles[1], '产品种草：围绕耐磨、手感、控球、弹性和防滑做真实对比', '图文/短视频', '保存这条，买篮球前可以按手感和场地对照选。', '收藏数', '可直接进入草稿', '适合学生和篮球爱好者搜索收藏'],
-      [titles[2], '避坑清单：讲清尺寸、材质、重量、气压、品牌溢价和售后问题', '图文', '不确定买几号球，可以私信身高年龄和主要打球场地。', '收藏/私信', '可直接进入草稿', '承接下单前咨询，不写服务流程'],
-      [titles[3], '场景选择：水泥地训练重点讲耐磨和防滑，不要只讲颜值', '短视频/图文', '经常在室外打球，可以私信预算和使用频率推荐款式。', '私信/订单', '需要人工润色', '建议补真实球面、弹跳和户外使用素材'],
-      [titles[4], '预算分层：学生党按价格段推荐入门、训练和进阶款', '图文', '想看同预算更多篮球，可以私信预算区间和打球场景。', '私信/订单', '可直接进入草稿', '适合带动曝光到询单'],
-      [titles[5], '功能对比：解释训练球、比赛球、室内球、室外球的差异', '图文/短视频', '不知道选训练还是比赛用球，可以私信具体用途。', '咨询数', '仅为策略方向', '需结合真实 SKU、价格和库存'],
-      [titles[6], '上新/清单：用学生、爱好者、送礼、训练等场景组织商品推荐', '图文/短视频', '喜欢哪一款可以私信编号/截图确认价格和库存。', '私信/订单', '可直接进入草稿', '商品销售类要指向询价/下单/库存，不指向预约体验课'],
+      [titles[2], '避坑清单：讲清尺寸、材质、重量、气压、品牌溢价和售后问题', '图文', '不确定买几号球，可以咨询身高年龄和主要打球场地。', '收藏/咨询', '可直接进入草稿', '承接下单前咨询，不写服务流程'],
+      [titles[3], '场景选择：水泥地训练重点讲耐磨和防滑，不要只讲颜值', '短视频/图文', '经常在室外打球，可以咨询预算和使用频率推荐款式。', '咨询/订单', '需要人工润色', '建议补真实球面、弹跳和户外使用素材'],
+      [titles[4], '预算分层：学生党按价格段推荐入门、训练和进阶款', '图文', '想看同预算更多篮球，可以咨询预算区间和打球场景。', '咨询/订单', '可直接进入草稿', '适合带动曝光到询单'],
+      [titles[5], '功能对比：解释训练球、比赛球、室内球、室外球的差异', '图文/短视频', '不知道选训练还是比赛用球，可以咨询具体用途。', '咨询数', '仅为策略方向', '需结合真实 SKU、价格和库存'],
+      [titles[6], '上新/清单：用学生、爱好者、送礼、训练等场景组织商品推荐', '图文/短视频', '喜欢哪一款可以咨询编号/截图确认价格和库存。', '咨询/订单', '可直接进入草稿', '商品销售类要指向询价/下单/库存，不指向预约体验课'],
     ];
   }
   if (service.type === 'fashion_accessory') {
     return [
-      [titles[0], '款式种草：用真实佩戴图展示显脸小、显气质和上身效果', '图文/短视频', '喜欢哪一款可以私信编号/截图，先看风格和预算再推荐。', '曝光/收藏', '可直接进入草稿', '必须围绕饰品款式，不写服务流程'],
+      [titles[0], '款式种草：用真实佩戴图展示显脸小、显气质和上身效果', '图文/短视频', '喜欢哪一款可以咨询编号/截图，先看风格和预算再推荐。', '曝光/收藏', '可直接进入草稿', '必须围绕饰品款式，不写服务流程'],
       [titles[1], '场景搭配：围绕通勤、约会、拍照、日常出门展示佩戴选择', '图文', '保存这条，搭配衣服前可以对照选款。', '收藏数', '可直接进入草稿', '适合小红书饰品种草'],
-      [titles[2], '人群适配：解决脸型、脖子长度、肤色和风格选择困难', '图文/短视频', '拿不准适合哪类耳饰，可以私信照片/风格偏好先判断。', '收藏/私信', '需要人工润色', '发布前补真实佩戴对比图'],
-      [titles[3], '价格与送礼：用百元内/不廉价/送自己送朋友降低下单门槛', '图文', '想看同价位更多款式，可以私信预算和使用场景。', '私信/订单', '可直接进入草稿', '承接曝光到询单，不写预约服务'],
-      [titles[4], '穿搭教学：展示同一套衣服加饰品前后的精致度差异', '短视频/图文', '保存搭配思路，想要同款可以私信款式编号。', '收藏/私信', '需要人工润色', '适合用对比图提高收藏'],
-      [titles[5], '购买避坑：讲清图片色差、材质、尺寸、过敏、保养和退换注意', '图文', '下单前不确定材质或尺寸，可以先私信确认。', '收藏/咨询', '仅为策略方向', '需结合真实商品信息'],
-      [titles[6], '上新转化：用本周新款、约会/拍照/节日场景推动询单', '图文/短视频', '喜欢新款可以私信编号/截图确认库存和价格。', '私信/订单', '可直接进入草稿', '适合带动新品曝光和订单'],
+      [titles[2], '人群适配：解决脸型、脖子长度、肤色和风格选择困难', '图文/短视频', '拿不准适合哪类耳饰，可以咨询照片/风格偏好先判断。', '收藏/咨询', '需要人工润色', '发布前补真实佩戴对比图'],
+      [titles[3], '价格与送礼：用百元内/不廉价/送自己送朋友降低下单门槛', '图文', '想看同价位更多款式，可以咨询预算和使用场景。', '咨询/订单', '可直接进入草稿', '承接曝光到询单，不写预约服务'],
+      [titles[4], '穿搭教学：展示同一套衣服加饰品前后的精致度差异', '短视频/图文', '保存搭配思路，想要同款可以咨询款式编号。', '收藏/咨询', '需要人工润色', '适合用对比图提高收藏'],
+      [titles[5], '购买避坑：讲清图片色差、材质、尺寸、过敏、保养和退换注意', '图文', '下单前不确定材质或尺寸，可以先咨询确认。', '收藏/咨询', '仅为策略方向', '需结合真实商品信息'],
+      [titles[6], '上新转化：用本周新款、约会/拍照/节日场景推动询单', '图文/短视频', '喜欢新款可以咨询编号/截图确认库存和价格。', '咨询/订单', '可直接进入草稿', '适合带动新品曝光和订单'],
     ];
   }
   if (service.type === 'aesthetic_retail') {
     return [
-      [titles[0], '商品种草：突出风格、真实使用场景和上手/上身效果', '图文/短视频', '喜欢哪一款可以私信编号/截图了解库存和价格。', '曝光/收藏', '可直接进入草稿', '商品类业务禁止套服务流程模板'],
+      [titles[0], '商品种草：突出风格、真实使用场景和上手/上身效果', '图文/短视频', '喜欢哪一款可以咨询编号/截图了解库存和价格。', '曝光/收藏', '可直接进入草稿', '商品类业务禁止套服务流程模板'],
       [titles[1], '场景清单：把商品放进通勤、约会、拍照、送礼等真实使用场景', '图文', '保存这条，购买前可以按场景选。', '收藏数', '可直接进入草稿', '适合做小红书种草'],
-      [titles[2], '下单决策：讲清材质、尺寸、价格、适合人群和真实效果', '图文/短视频', '下单前不确定，可以私信具体需求。', '咨询/私信', '需要人工润色', '发布前补真实商品参数'],
-      [titles[3], '礼物/自用：用预算和关系场景降低选择成本', '图文', '想送礼可以私信用途和预算，帮你缩小选择。', '私信/订单', '可直接进入草稿', '承接订单转化'],
-      [titles[4], '搭配教学：展示一件商品在不同穿搭/空间/场景下的效果', '短视频/图文', '喜欢这个搭配可以私信同款或相似款。', '收藏/私信', '需要人工润色', '适合提高收藏'],
-      [titles[5], '新品选择：把上新从“看看新品”变成“按场景选新品”', '图文/短视频', '想看新款库存和价格，可以私信编号。', '私信/订单', '可直接进入草稿', '适合上新节点'],
-      [titles[6], 'FAQ：把客户常问的材质、尺寸、价格、发货、退换做成内容', '图文', '还有其他下单问题，可以私信具体款式。', '咨询数', '仅为策略方向', '需结合真实售前问题'],
+      [titles[2], '下单决策：讲清材质、尺寸、价格、适合人群和真实效果', '图文/短视频', '下单前不确定，可以咨询具体需求。', '咨询/咨询', '需要人工润色', '发布前补真实商品参数'],
+      [titles[3], '礼物/自用：用预算和关系场景降低选择成本', '图文', '想送礼可以咨询用途和预算，帮你缩小选择。', '咨询/订单', '可直接进入草稿', '承接订单转化'],
+      [titles[4], '搭配教学：展示一件商品在不同穿搭/空间/场景下的效果', '短视频/图文', '喜欢这个搭配可以咨询同款或相似款。', '收藏/咨询', '需要人工润色', '适合提高收藏'],
+      [titles[5], '新品选择：把上新从“看看新品”变成“按场景选新品”', '图文/短视频', '想看新款库存和价格，可以咨询编号。', '咨询/订单', '可直接进入草稿', '适合上新节点'],
+      [titles[6], 'FAQ：把客户常问的材质、尺寸、价格、发货、退换做成内容', '图文', '还有其他下单问题，可以咨询具体款式。', '咨询数', '仅为策略方向', '需结合真实售前问题'],
     ];
   }
   const serviceName = service.service || offer || '服务';
-  const visitCta = `想了解${serviceName}，可以私信具体情况或预约咨询。`;
+  const visitCta = `想了解${serviceName}，可以咨询具体情况或预约咨询。`;
   const saveCta = `保存这条，选择${serviceName}前可以对照看。`;
   return [
-    [titles[0], '场景痛点：用终端顾客正在经历的问题开头，不写老板经营困扰', '图文/短视频', visitCta, '收藏/私信', '需要人工润色', '只允许写目标客户的需求、顾虑和使用场景'],
-    [titles[1], '信任建立：展示真实案例、过程细节、前后变化和客户反馈', '短视频/图文', `想看更多${serviceName}案例，可以从主页或私信了解。`, '私信数', '需要人工润色', '发布前替换成本客户真实案例'],
+    [titles[0], '场景痛点：用终端顾客正在经历的问题开头，不写老板经营困扰', '图文/短视频', visitCta, '收藏/咨询', '需要人工润色', '只允许写目标客户的需求、顾虑和使用场景'],
+    [titles[1], '信任建立：展示真实案例、过程细节、前后变化和客户反馈', '短视频/图文', `想看更多${serviceName}案例，可以从主页或咨询了解。`, '咨询数', '需要人工润色', '发布前替换成本客户真实案例'],
     [titles[2], '选择避坑：讲清价格、流程、效果边界和常见误区', '图文', saveCta, '收藏数', '可直接进入草稿', '面向购买/到店/报名决策，不面向老板复盘'],
-    [titles[3], '首次体验：降低第一次咨询、到店、试听或购买前的心理门槛', '图文/短视频', `第一次了解${serviceName}，可以先私信问流程和适配情况。`, '咨询数', '需要人工润色', '适合承接新客咨询'],
+    [titles[3], '首次体验：降低第一次咨询、到店、试听或购买前的心理门槛', '图文/短视频', `第一次了解${serviceName}，可以先咨询问流程和适配情况。`, '咨询数', '需要人工润色', '适合承接新客咨询'],
     [titles[4], '效果说明：用客户看得懂的话说明适合人群、交付结果和注意事项', '图文', visitCta, '咨询数', '可直接进入草稿', '主题清楚，适合承接转化'],
-    [titles[5], '过程透明：展示环境、流程、服务人员、材料或方法，降低不信任', '短视频', `拿不准能不能做，可以先私信具体情况。`, '互动/私信', '需要人工润色', '建议加入真实过程素材'],
-    [titles[6], 'FAQ：把目标客户常问的价格、周期、效果、流程做成内容', '短视频/图文', `还有关于${serviceName}的问题，可以私信具体情况。`, '咨询数', '仅为策略方向', '必须结合真实咨询问题后再发布'],
+    [titles[5], '过程透明：展示环境、流程、服务人员、材料或方法，降低不信任', '短视频', `拿不准能不能做，可以先咨询具体情况。`, '互动/咨询', '需要人工润色', '建议加入真实过程素材'],
+    [titles[6], 'FAQ：把目标客户常问的价格、周期、效果、流程做成内容', '短视频/图文', `还有关于${serviceName}的问题，可以咨询具体情况。`, '咨询数', '仅为策略方向', '必须结合真实咨询问题后再发布'],
   ];
 };
 const normalizeBenchmark = (payload = {}) => {
@@ -352,7 +514,7 @@ const benchmarkReferenceFor = (assessment) => {
     transferable_directions: [
       `保留${platform}已验证的痛点表达，但换成${audience}语言`,
       `把标题结构迁移到${assessment.industry || '当前行业'}案例、流程和FAQ`,
-      '用收藏、私信、咨询数据判断哪些主题值得进入下一轮',
+      '用收藏、咨询、咨询数据判断哪些主题值得进入下一轮',
     ],
     avoid: [
       '不照抄对标账号标题、封面、脚本或案例原文',
@@ -362,8 +524,8 @@ const benchmarkReferenceFor = (assessment) => {
   };
 };
 const softCta = (offer = '', pain = '') => {
-  if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，可以私信具体情况，从一张内容反馈表开始。';
-  return `如果你也遇到「${pain || '类似问题'}」，可以私信具体情况，先判断问题卡在哪里。`;
+  if (hasAny(`${offer} ${pain}`, ['复盘', 'AI', '内容增长', '线上获客'])) return '如果你也发了内容但不知道有没有用，可以咨询具体情况，从一张内容反馈表开始。';
+  return `如果你也遇到「${pain || '类似问题'}」，可以咨询具体情况，先判断问题卡在哪里。`;
 };
 const isMetaMarketingAccount = (assessment) => {
   const text = [assessment.industry, assessment.offer, assessment.company_name, assessment.account_preference].filter(Boolean).join(' ');
@@ -380,7 +542,7 @@ const platformStyleRulesFor = (platform) => {
     '视频号': '更适合负责人/老板口播、案例复盘和信任建立，表达要稳，不追求过度网感。',
     '朋友圈/私域': '适合承接信任和轻咨询，少用营销腔，多用真实案例、过程和客户问题。',
     '公众号': '适合深度方案、案例沉淀和长期搜索资料，少用 emoji，结构要清楚。',
-    '抖音': '适合短视频曝光测试，需要更强开头钩子和持续素材能力，不宜第一天就重投入。',
+    '抖音': '适合短视频曝光验证，需要更强开头钩子和持续素材能力，不宜第一天就重投入。',
     '知乎': '适合专业问题搜索和方案型信任，重逻辑与证据，不追求小红书式精致感。',
   };
   return rules[platform] || '按该平台用户语境调整表达，不把小红书规则生搬硬套到所有平台。';
@@ -401,7 +563,7 @@ const accountSetupFor = (assessment, recommendations) => {
   ] : [
     `📌 专注${assessment.industry || '行业'}客户问题`,
     `📈 分享案例、避坑和${assessment.offer || '服务方案'}`,
-    '💬 有需求先私信具体情况',
+    '💬 有需求先咨询具体情况',
   ];
   return {
     module_version: APP_VERSION,
@@ -446,6 +608,10 @@ const recommendPlatforms = (assessment) => {
     assessment.offer,
     assessment.customer_pain,
     assessment.content_assets,
+    assessment.store_location,
+    assessment.course_schedule,
+    assessment.coach_credentials,
+    assessment.extra_context,
   ].filter(Boolean).join(' ');
   const targetText = assessment.target_customer || '';
   const current = platformsFor(assessment.current_channels);
@@ -460,8 +626,8 @@ const recommendPlatforms = (assessment) => {
     addPlatform(primary, '小红书', '适合验证老板/企业主痛点、搜索型方法论、收藏型复盘内容。');
     addPlatform(primary, '视频号', '适合用老板口播和案例复盘建立专业信任。');
     addPlatform(primary, '朋友圈/私域', '适合承接熟人信任、案例展示和轻咨询转化。');
-    addPlatform(support, '抖音', '可后置测试短视频曝光，不作为第一轮主阵地。');
-    addPlatform(avoid, '美团/大众点评', '这是本地商家的承接平台，不是企业营销工具测试号自身的发布平台。');
+    addPlatform(support, '抖音', '可后置验证短视频曝光，不作为第一轮主阵地。');
+    addPlatform(avoid, '美团/大众点评', '这是本地商家的承接平台，不是企业营销工具验证号自身的发布平台。');
     addPlatform(avoid, 'B站', '长内容生产成本高，不适合作为30天闭环验证主阵地。');
     if (hasAny(targetText, ['本地生活', '门店', '到店', '商家'])) addClient('美团/大众点评', '若客户本身是本地到店商家，可作为客户侧搜索承接平台。');
   } else if (hasAny(accountText, ['口腔', '牙', '门诊', '种植', '矫正', '正畸'])) {
@@ -496,24 +662,24 @@ const recommendPlatforms = (assessment) => {
     addPlatform(avoid, '美团/大众点评', '商品零售不以到店评价为主，除非有强线下门店场景。');
     addPlatform(avoid, 'B站', '内容生产成本高，不适合作为第一轮曝光拿订单主渠道。');
   } else if (hasAny(accountText, ['篮球', '少儿篮球', '小学生篮球', '幼儿篮球', '青少年篮球', '篮球培训', '篮球训练', '篮球启蒙', '篮球课', '运球', '投篮', '体适能', '体能训练', '运动培训', '体育培训', '寒暑假班', '周末班'])) {
-    addPlatform(primary, '小红书', '适合承接家长主动搜索、同城训练避坑、体验课决策和收藏清单。');
-    addPlatform(primary, '视频号', '适合微信生态家长转化、教练出镜讲解、课堂片段和熟人推荐。');
-    addPlatform(primary, '朋友圈/私域', '适合跟进体验课、班型名额、家长反馈和转介绍报名。');
-    addPlatform(support, '抖音', '适合放大同城曝光和课堂氛围，但需要稳定短视频素材和安全合规表达。');
+    addPlatform(primary, '抖音', '建议优先验证抖音，适合用课堂训练画面、孩子变化和同城短视频放大曝光。');
+    addPlatform(primary, '小红书', '建议同步验证小红书；平台用户与6-12岁孩子家长决策场景匹配，适合家长信任、种草收藏和体验课转化。');
+    addPlatform(primary, '视频号', '适合微信生态家长转化、教练出镜讲解、课堂片段、熟人推荐和本地社群传播。');
+    addPlatform(support, '朋友圈/私域', '适合跟进体验课、班型名额、家长反馈和转介绍报名。');
     addPlatform(support, '美团/大众点评', '如有线下门店/场馆，可承接同城搜索、评价和体验课团购。');
     addPlatform(avoid, 'B站', '适合长期教学资产，不适合短期体验课预约主渠道。');
-  } else if (hasAny(accountText, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规测试', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) {
+  } else if (hasAny(accountText, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规验证', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) {
     addPlatform(primary, '视频号', '适合在微信生态内沉淀专业信任，承接企业负责人、注册负责人和质量负责人的熟人转介绍咨询。');
     addPlatform(primary, '公众号', '适合沉淀医疗器械注册/检测/认证的长周期信任内容和搜索型资料。');
     addPlatform(primary, '朋友圈/私域', '适合跟进企业线索、展示案例节点和承接一对一咨询转化。');
-    addPlatform(support, '小红书', '可后置测试搜索型避坑内容，但不作为第一轮B2B线索主阵地。');
+    addPlatform(support, '小红书', '可后置验证搜索型避坑内容，但不作为第一轮B2B线索主阵地。');
     addPlatform(support, '抖音', '可用于案例拆解和合规风险短视频，但需控制专业准确性。');
     addPlatform(avoid, '美团/大众点评', '医疗器械检测/注册/安规认证不是到店消费，不适合作为主发布平台。');
   } else if (hasAny(accountText, ['安标', '安全生产标准化', '安全标准化', '安全生产', '验厂', '认证辅导', '合规辅导', '工厂合规'])) {
     addPlatform(primary, '抖音', '适合用短视频讲清安标/验厂/合规风险、整改过程和企业负责人关心的真实案例。');
     addPlatform(primary, '视频号', '适合微信生态内沉淀专业信任，承接企业负责人和熟人转介绍咨询。');
     addPlatform(primary, '朋友圈/私域', '适合跟进企业线索、展示整改案例和承接咨询转化。');
-    addPlatform(support, '小红书', '可作为搜索型知识沉淀后置测试，不作为P03安标第一轮主平台。');
+    addPlatform(support, '小红书', '可作为搜索型知识沉淀后置验证，不作为P03安标第一轮主平台。');
     addPlatform(avoid, '美团/大众点评', '安标合规辅导不是到店消费，不适合作为主发布平台。');
   } else if (hasAny(accountText, ['餐饮', '饭店', '餐厅', '咖啡', '茶饮', '火锅', '烧烤', '烘焙', '甜品', '小吃'])) {
     addPlatform(primary, '抖音', '适合用同城短视频放大菜品、环境、活动和到店氛围。');
@@ -535,8 +701,8 @@ const recommendPlatforms = (assessment) => {
     addPlatform(support, '美团/大众点评', '适合有到店需求时承接搜索和评价转化。');
     addPlatform(avoid, 'B站', '本地短期获客效率较低，不建议作为第一主阵地。');
   } else {
-    current.slice(0, 3).forEach((platform) => addPlatform(primary, platform, '这是当前已有平台，1.0先用它低成本测试内容反馈。'));
-    if (!current.length && primary.length < 3) addPlatform(primary, '小红书', '适合测试用户痛点、案例和搜索型内容反馈。');
+    current.slice(0, 3).forEach((platform) => addPlatform(primary, platform, '这是当前已有平台，1.0先用它低成本验证内容反馈。'));
+    if (!current.length && primary.length < 3) addPlatform(primary, '小红书', '适合验证用户痛点、案例和搜索型内容反馈。');
     addPlatform(support, '朋友圈/私域', '适合承接信任、复购和轻咨询转化。');
     addPlatform(support, '视频号', '适合沉淀微信生态信任和私域承接。');
     addPlatform(support, '美团/大众点评', '如果属于到店服务，可作为搜索评价和转化承接平台。');
@@ -567,6 +733,9 @@ const inferBusinessContext = (assessment = {}) => {
     assessment.target_customer,
     assessment.customer_pain,
     assessment.content_assets,
+    assessment.store_location,
+    assessment.course_schedule,
+    assessment.coach_credentials,
     assessment.best_recent_content,
   ].filter(Boolean).join(' ');
   const service = serviceTopicFor(text, assessment.offer || '');
@@ -585,26 +754,26 @@ const inferBusinessContext = (assessment = {}) => {
   let businessType = '专业服务/本地服务';
   let offerType = '服务/咨询';
   let decisionScene = `${target}在选择${service.service}前需要降低风险感`;
-  let conversionAction = '私信具体情况 / 主页咨询 / 预约';
+  let conversionAction = '咨询具体情况 / 主页咨询 / 预约';
   let contentTask = '用痛点、案例、流程透明和FAQ建立信任';
 
   if (isGoods) {
     businessType = '商品零售/产品销售';
     offerType = '商品/SKU';
     decisionScene = `${target}下单前比较款式、价格、材质、使用场景和真实效果`;
-    conversionAction = '私信询价 / 确认库存 / 下单';
+    conversionAction = '咨询询价 / 确认库存 / 下单';
     contentTask = '用选购避坑、场景清单、参数对比和上新种草推动询单';
   } else if (isTraining) {
     businessType = '教育培训/体验课';
     offerType = '课程/体验课';
     decisionScene = `${target}报名前会比较安全、师资、班型、效果边界和孩子适应度`;
-    conversionAction = '预约体验课 / 私信年龄基础和上课时间';
+    conversionAction = '预约体验课 / 咨询年龄基础和上课时间';
     contentTask = '用家长顾虑、课堂片段、训练价值和体验课观察降低报名阻力';
   } else if (isLocalService) {
     businessType = '本地到店服务';
     offerType = '到店项目/预约服务';
     decisionScene = `${target}到店前关注价格、效果、过程、卫生/专业度和真实案例`;
-    conversionAction = '预约到店 / 私信预算和时间';
+    conversionAction = '预约到店 / 咨询预算和时间';
     contentTask = '用真实案例、过程透明、价格边界和本地场景承接预约';
   } else if (isComplianceService) {
     businessType = service.type === 'medical_device_compliance' ? 'B2B医疗器械合规服务' : 'B2B企业合规服务';
@@ -672,38 +841,48 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
     const service = serviceTopicFor(serviceSource, offer);
     const items = customerPlanRowsFor({ titles, service, offer });
     if (priority === '曝光不足') {
-      if (service.type === 'basketball_goods') items[0] = [titles[0], '打开率测试：用学生/爱好者买篮球时正在犹豫的场地、手感、耐磨和预算问题做标题', '图文/短视频', items[0][3], '曝光/收藏', '需要人工润色', '必须出现篮球商品、场地或选购参数'];
-      else items[0] = [titles[0], '打开率测试：用目标客户正在搜索/犹豫的问题做标题，不写内容曝光问题', '图文/短视频', items[0][3], '曝光/收藏', '需要人工润色', '只优化给终端客户看的第一眼表达'];
+      if (service.type === 'basketball_goods') items[0] = [titles[0], '打开率验证：用学生/爱好者买篮球时正在犹豫的场地、手感、耐磨和预算问题做标题', '图文/短视频', items[0][3], '曝光/收藏', '需要人工润色', '必须出现篮球商品、场地或选购参数'];
+      else items[0] = [titles[0], '打开率验证：用目标客户正在搜索/犹豫的问题做标题，不写内容曝光问题', '图文/短视频', items[0][3], '曝光/收藏', '需要人工润色', '只优化给终端客户看的第一眼表达'];
     }
     if (benchmarkTheme) {
-      items[0] = [`${audience}为什么会关注「${benchmarkTheme}」？`, '对标校准：提炼终端顾客已验证的真实疑问，转译为本客户服务场景', '图文/短视频', items[0][3], '收藏/私信', '需要人工润色', '只借鉴结构，不复制标题和素材'];
-      items[1] = [`选择${offer}前，先看清这3个真实问题`, '选择清单：把高互动问题改写成目标客户的购买/到店/报名决策清单', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏/私信', '需要人工润色', '不写老板复盘，不写内容运营问题'];
+      items[0] = [`${audience}为什么会关注「${benchmarkTheme}」？`, '对标校准：提炼终端顾客已验证的真实疑问，转译为本客户服务场景', '图文/短视频', items[0][3], '收藏/咨询', '需要人工润色', '只借鉴结构，不复制标题和素材'];
+      items[1] = [`选择${offer}前，先看清这3个真实问题`, '选择清单：把高互动问题改写成目标客户的购买/到店/报名决策清单', '图文', `保存这条，决策前对照检查；需要可咨询「${offer}」。`, '收藏/咨询', '需要人工润色', '不写老板复盘，不写内容运营问题'];
     }
     return items;
   }
   const items = [
     [`企业主发内容没咨询，通常不是内容太少`, `痛点诊断：围绕「${painShort}」拆出内容与获客断点`, '图文', cta, '收藏/评论', '需要人工润色', '策略方向可用，发布前需补充真实案例或老板经验'],
     [`老板用AI写文案前，先想清楚这3个获客问题`, '误区拆解：区分内容产出和获客转化', '图文', cta, '收藏数', '需要人工润色', '适合作为方法论选题，避免写成AI工具教程'],
-    [`一条内容有没有获客价值，不是看点赞`, '复盘方法：用收藏、评论、私信判断需求信号', '图文', '发布后记录浏览、收藏、私信、咨询四个数据，再决定下一条怎么改。', '收藏/私信', '可直接进入草稿', '主题清晰，可用于测试复盘能力'],
+    [`一条内容有没有获客价值，不是看点赞`, '复盘方法：用收藏、评论、咨询判断需求信号', '图文', '发布后记录浏览、收藏、咨询、咨询四个数据，再决定下一条怎么改。', '收藏/咨询', '可直接进入草稿', '主题清晰，可用于验证复盘能力'],
     [`企业账号别只发产品，先回答客户正在犹豫什么`, `选题转译：把「${painShort}」改写成客户看得懂的问题`, '图文/短视频', cta, '评论数', '需要人工润色', '需要补充具体行业例子'],
-    [`老板没时间做运营，也能先复盘这4个数`, '低成本流程：发布-回填-复盘-下条调整', '图文', '需要复盘表时，可以私信具体情况。', '私信/咨询', '可直接进入草稿', '符合闭环验证目标'],
+    [`老板没时间做运营，也能先复盘这4个数`, '低成本流程：发布-回填-复盘-下条调整', '图文', '需要复盘表时，可以咨询具体情况。', '咨询/咨询', '可直接进入草稿', '符合闭环验证目标'],
     [`为什么内容火了，客户还是不来问？`, '指标校准：曝光、互动、咨询分层看', '短视频/图文', '不要只问能不能火，先问能不能带来客户信号。', '评论/收藏', '需要人工润色', '适合做认知内容'],
-    [`本周哪条内容最接近真实客户需求？`, '复盘公开：把7天反馈转成下周选题依据', '图文', '如果你也想知道内容怎么复盘，可以私信你现在最卡的点。', '评论/关注', '仅为策略方向', '必须等真实数据回填后再发布'],
+    [`本周哪条内容最接近真实客户需求？`, '复盘公开：把7天反馈转成下周选题依据', '图文', '如果你也想知道内容怎么复盘，可以咨询你现在最卡的点。', '评论/关注', '仅为策略方向', '必须等真实数据回填后再发布'],
   ];
   if (priority === '曝光不足') {
     items[0] = [`${audience}内容没人看，先检查标题有没有说中痛点`, `强钩子：把「${painShort}」放到标题和封面第一眼`, '图文', cta, '曝光数', '需要人工润色', '适合先测标题/封面，不代表已形成闭环'];
   }
   if (benchmarkTheme) {
     items[0] = [`企业主为什么会关注「${benchmarkTheme}」？`, '对标校准：拆出已验证痛点，再转译成企业内容获客场景', '图文', cta, '收藏数', '需要人工润色', '只迁移主题和结构，不照抄原文'];
-    items[1] = [`老板做内容前，先确认这3个获客问题`, '结构拆解：痛点直问、避坑清单、案例复盘三类标题', '图文', cta, '收藏/私信', '可直接进入草稿', '适合做第一轮选题校准'];
+    items[1] = [`老板做内容前，先确认这3个获客问题`, '结构拆解：痛点直问、避坑清单、案例复盘三类标题', '图文', cta, '收藏/咨询', '可直接进入草稿', '适合做第一轮选题校准'];
   }
   return items;
 };
 
 const createAssessment = (payload) => {
-  const required = ['industry', 'main_goal', 'current_channels', 'posting_frequency', 'biggest_problem'];
+  const required = ['industry', 'main_goal', 'target_customer', 'current_channels', 'posting_frequency', 'biggest_problem'];
   const missing = required.filter((key) => !clean(payload, key));
   if (missing.length) throw new Error(`缺少必填字段：${missing.join(', ')}`);
+  const mode = clean(payload, 'client_mode') || clean(payload, '_mode') || clean(payload, 'source');
+  const weakPain = !clean(payload, 'customer_pain') || /客户不知道为什么需要现在咨询|待补充|暂无|没有/.test(clean(payload, 'customer_pain'));
+  const weakAssets = (!clean(payload, 'content_assets') || /待补充|暂无|没有/.test(clean(payload, 'content_assets'))) && !clean(payload, 'best_recent_content');
+  if (mode === 'internal_test') {
+    const gateMissing = [];
+    if (!clean(payload, 'offer')) gateMissing.push('主推产品/服务和价格带');
+    if (weakPain) gateMissing.push('客户最常问的问题或顾虑');
+    if (weakAssets) gateMissing.push('现有素材或近期表现最好内容');
+    if (gateMissing.length) throw new Error(`生成门禁：请先补齐${gateMissing.join('、')}`);
+  }
 
   const assessment = {
     id: state.next.assessment++,
@@ -711,12 +890,17 @@ const createAssessment = (payload) => {
     industry: clean(payload, 'industry'),
     main_goal: clean(payload, 'main_goal'),
     current_channels: clean(payload, 'current_channels'),
+    content_mode: clean(payload, 'content_mode'),
     posting_frequency: clean(payload, 'posting_frequency'),
     biggest_problem: clean(payload, 'biggest_problem'),
     target_customer: clean(payload, 'target_customer'),
     offer: clean(payload, 'offer'),
+    store_location: clean(payload, 'store_location'),
+    course_schedule: clean(payload, 'course_schedule'),
+    coach_credentials: clean(payload, 'coach_credentials'),
     customer_pain: clean(payload, 'customer_pain'),
     content_assets: clean(payload, 'content_assets'),
+    extra_context: clean(payload, 'extra_context'),
     monthly_budget: clean(payload, 'monthly_budget'),
     decision_cycle: clean(payload, 'decision_cycle'),
     best_recent_content: clean(payload, 'best_recent_content'),
@@ -766,18 +950,18 @@ const generateDiagnosis = (assessmentId) => {
   };
 
   if (priority === '选题不稳定') {
-    diagnosis.insight = `当前「${industry}」的核心目标是「${goal}」，但内容还没有稳定围绕「${target}」和「${pain}」做选题测试。`;
-    diagnosis.weekly_action = `本周在「${channels}」连续测试 7 条围绕「${target}」痛点、案例和避坑的内容，先验证哪个角度能带来「${goal}」。`;
+    diagnosis.insight = `当前「${industry}」的核心目标是「${goal}」，但内容还没有稳定围绕「${target}」和「${pain}」做选题验证。`;
+    diagnosis.weekly_action = `本周在「${channels}」连续验证 7 条围绕「${target}」痛点、案例和避坑的内容，先验证哪个角度能带来「${goal}」。`;
     diagnosis.next_step = `先建立一周选题池，每条内容都指向「${offer}」，用反馈数据决定下周加码方向。`;
     diagnosis.risk_warning = '不要一开始追求精致大制作；先用低成本内容换真实反馈。';
   } else if (priority === '内容不转化') {
     diagnosis.insight = `当前「${industry}」内容可能有曝光，但没有把「${target}」从「${pain}」自然带到「${offer}」这个行动。`;
-    diagnosis.weekly_action = `本周把「${channels}」内容结尾统一改成围绕「${goal}」的明确咨询入口，并记录私信/咨询数量。`;
-    diagnosis.next_step = `把内容结尾改成「${offer}」相关合规私信/主页咨询入口，并追踪是否真的带来「${goal}」。`;
+    diagnosis.weekly_action = `本周把「${channels}」内容结尾统一改成围绕「${goal}」的明确咨询入口，并记录咨询/咨询数量。`;
+    diagnosis.next_step = `把内容结尾改成「${offer}」相关合规咨询/主页咨询入口，并追踪是否真的带来「${goal}」。`;
     diagnosis.risk_warning = '只看播放量会误判，第一版必须把咨询数作为核心反馈字段。';
   } else if (priority === '曝光不足') {
     diagnosis.insight = `当前「${industry}」需要先提升内容第一眼吸引力，让「${target}」一眼看见和自己有关的「${pain}」。`;
-    diagnosis.weekly_action = `本周围绕「${pain}」做 7 个不同标题角度，在「${channels}」测试曝光差异。`;
+    diagnosis.weekly_action = `本周围绕「${pain}」做 7 个不同标题角度，在「${channels}」验证曝光差异。`;
     diagnosis.next_step = `先测标题/封面/开头三要素，再判断是否能承接到「${offer}」。`;
     diagnosis.risk_warning = '曝光不足时不要直接加预算，先确认内容钩子是否成立。';
   } else {
@@ -809,22 +993,111 @@ const contentPlanPrompt = (assessment, diagnosis) => {
 客户输入：${JSON.stringify({assessment, diagnosis}, null, 2)}`;
 };
 
+const arkContentPlanPrompt = (assessment = {}, diagnosis = {}) => {
+  const platforms = planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).join(' / ');
+  const compact = {
+    industry: assessment.industry || '',
+    main_goal: assessment.main_goal || '',
+    target_customer: assessment.target_customer || '',
+    offer: assessment.offer || '',
+    customer_pain: assessment.customer_pain || assessment.biggest_problem || '',
+    content_assets: assessment.content_assets || '',
+    current_channels: assessment.current_channels || '',
+    biggest_problem: assessment.biggest_problem || '',
+    priority_problem: diagnosis.priority_problem || '',
+    weekly_action: diagnosis.weekly_action || '',
+    benchmark_signal: diagnosis.benchmark_reference?.recent_topics?.slice?.(0, 3) || [],
+    platforms,
+  };
+  return [
+    '请为这个商家生成7条内容选题，只返回JSON数组，不要Markdown。',
+    '格式固定为：[["标题","角度"],...]。',
+    '标题18字内，角度20字内；围绕目标客户、产品/服务、痛点和平台；禁止评论区/留言关键词引导；不要照抄长字段。',
+    JSON.stringify(compact, null, 2),
+  ].join('\n');
+};
+
+const extractModelJson = (text = '') => {
+  const fence = String.fromCharCode(96, 96, 96);
+  let jsonText = String(text || '').trim();
+  if (jsonText.startsWith(fence + 'json')) jsonText = jsonText.slice((fence + 'json').length).trim();
+  else if (jsonText.startsWith(fence)) jsonText = jsonText.slice(fence.length).trim();
+  if (jsonText.endsWith(fence)) jsonText = jsonText.slice(0, -fence.length).trim();
+  try {
+    return JSON.parse(jsonText);
+  } catch {}
+  const arrayStart = jsonText.indexOf('[');
+  const arrayEnd = jsonText.lastIndexOf(']');
+  if (arrayStart >= 0 && arrayEnd > arrayStart) return JSON.parse(jsonText.slice(arrayStart, arrayEnd + 1));
+  const objectStart = jsonText.indexOf('{');
+  const objectEnd = jsonText.lastIndexOf('}');
+  if (objectStart >= 0 && objectEnd > objectStart) return JSON.parse(jsonText.slice(objectStart, objectEnd + 1));
+  throw new Error('invalid_json');
+};
+
 const normalizeLlmPlanRows = (rows) => Array.isArray(rows) ? rows.slice(0, 7).map((item) => [
-  String(item.topic || '').trim(),
-  String(item.angle || '').trim(),
-  String(item.content_type || '图文/短视频').trim(),
-  String(item.cta || '引导客户私信具体情况或预约咨询。').trim(),
-  String(item.target_metric || '收藏/私信').trim(),
-  String(item.publish_quality || '需要人工润色').trim(),
-  String(item.quality_note || 'Opus生成，发布前补充客户真实素材。').trim(),
+  String(Array.isArray(item) ? item[0] : item.topic || '').trim(),
+  String(Array.isArray(item) ? item[1] : item.angle || '').trim(),
+  String(Array.isArray(item) ? '图文/短视频' : item.content_type || '图文/短视频').trim(),
+  String(Array.isArray(item) ? '引导客户咨询具体情况或预约咨询。' : item.cta || '引导客户咨询具体情况或预约咨询。').trim(),
+  String(Array.isArray(item) ? '收藏/咨询' : item.target_metric || '收藏/咨询').trim(),
+  String(Array.isArray(item) ? '可直接进入草稿' : item.publish_quality || '需要人工润色').trim(),
+  String(Array.isArray(item) ? '火山方舟生成核心选题，发布前补充客户真实素材。' : item.quality_note || '模型生成，发布前补充客户真实素材。').trim(),
 ]).filter((row) => row[0] && row[1]) : [];
 
+const rowsFromModelJson = (parsed) => normalizeLlmPlanRows(
+  Array.isArray(parsed)
+    ? parsed
+    : (parsed?.plans || parsed?.content_plans || parsed?.next_7_day_plan || parsed?.next_plan_days || [])
+);
+
+const callArkPlanRows = async (assessment, diagnosis) => {
+  const call = await callArkChatCompletion({
+    route: '/api/assessments',
+    purpose: 'initial_7_day_plan',
+    temperature: 0.55,
+    maxTokens: 450,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是企业增长内容策略顾问，服务对象是门店老板、企业主和商家。',
+          '你必须根据客户真实行业、目标客户、平台、痛点和产品服务生成内容选题。',
+          '禁止评论区/留言关键词引导，禁止输出无关行业，禁止照抄客户字段长句。',
+          '只返回 JSON，不要解释。',
+        ].join('\n'),
+      },
+      { role: 'user', content: arkContentPlanPrompt(assessment, diagnosis) },
+    ],
+  });
+  if (!call.ok) return { rows: null, meta: normalizeModelMeta(call) };
+  try {
+    const rows = rowsFromModelJson(extractModelJson(call.content));
+    if (rows.length < 7) throw new Error(`ark_returned_${rows.length}_plans`);
+    return { rows, meta: normalizeModelMeta(call) };
+  } catch (error) {
+    return {
+      rows: null,
+      meta: modelFailureMeta({
+        requestedModel: call.requested_model,
+        fallbackReason: error.message === 'invalid_json' ? 'invalid_json' : 'partial_parse',
+        latencyMs: call.latency_ms,
+      }),
+    };
+  }
+};
+
 const generateOpusPlanRows = async (assessment, diagnosis) => {
+  const provider = modelProviderFor(assessment, 'volcengine_ark');
+  if (provider === 'volcengine_ark') return callArkPlanRows(assessment, diagnosis);
+  if (provider === 'local') {
+    return { rows: null, meta: { requested_model: 'rule_template', actual_model: 'rule_template', provider: 'local', fallback: false, fallback_reason: null, failure_reason: '', latency_ms: 0 } };
+  }
   if (!REQUESTED_CONTENT_MODEL.includes('claude') && !REQUESTED_CONTENT_MODEL.includes('opus')) {
     return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: false, failure_reason: '' } };
   }
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: 'ANTHROPIC_API_KEY missing' } };
+  if (!apiKey) return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, fallback_reason: 'missing_anthropic_api_key', failure_reason: 'missing_anthropic_api_key' } };
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -843,12 +1116,11 @@ const generateOpusPlanRows = async (assessment, diagnosis) => {
     if (!res.ok) throw new Error(`anthropic_http_${res.status}`);
     const data = await res.json();
     const text = data?.content?.map((part) => part.text || '').join('\n').trim() || '';
-    const jsonText = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
-    const rows = normalizeLlmPlanRows(JSON.parse(jsonText));
+    const rows = rowsFromModelJson(extractModelJson(text));
     if (rows.length < 7) throw new Error(`opus_returned_${rows.length}_plans`);
-    return { rows, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: REQUESTED_CONTENT_MODEL, provider: 'anthropic', fallback: false } };
+    return { rows, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: REQUESTED_CONTENT_MODEL, provider: 'anthropic', fallback: false, fallback_reason: null, failure_reason: '', latency_ms: 0 } };
   } catch (error) {
-    return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: error.message || 'opus_generation_failed' } };
+    return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, fallback_reason: error.message || 'opus_generation_failed', failure_reason: error.message || 'opus_generation_failed' } };
   }
 };
 
@@ -860,14 +1132,16 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   const goal = assessment?.main_goal || '获得更多有效咨询';
   const target = assessment?.target_customer || '目标客户';
   const offer = assessment?.offer || '一次免费诊断';
-  const pain = [assessment?.customer_pain, assessment?.content_assets].filter(Boolean).join('；') || assessment?.biggest_problem || '当前核心痛点';
+  const pain = [assessment?.customer_pain, assessment?.content_assets, assessment?.store_location, assessment?.course_schedule, assessment?.coach_credentials].filter(Boolean).join('；') || assessment?.biggest_problem || '当前核心痛点';
   const problem = assessment?.biggest_problem || '';
   const platforms = planPlatforms(diagnosis.platform_recommendations, assessment?.current_channels);
   // 不再在生成新诊断时清空反馈/复盘。serverless 内存不是可信数据库，
   // 但至少避免新诊断把同一实例中的历史反馈直接抹掉。
   const sourceRows = modelRows?.length ? modelRows : planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference);
-  const generation = modelMeta || { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: 'opus_not_requested' };
+  const generation = normalizeModelMeta(modelMeta || { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, fallback_reason: 'model_not_requested', failure_reason: 'model_not_requested' });
   diagnosis.content_generation = generation;
+  diagnosis.generation_meta = generation;
+  diagnosis.model_info = generation;
   const plans = sourceRows.map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
     id: state.next.plan++,
     diagnosis_id: diagnosisId,
@@ -884,6 +1158,8 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
     actual_model: generation.actual_model,
     provider: generation.provider,
     fallback: generation.fallback,
+    fallback_reason: generation.fallback_reason,
+    model_info: generation,
     owner: '客户负责人',
     status: '待发布',
     publish_link: '',
@@ -891,6 +1167,438 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   }));
   state.plans = [...plans, ...state.plans.filter((plan) => plan.diagnosis_id !== diagnosisId)];
   return plans;
+};
+
+const planIdString = (item = {}) => String(item.id ?? item.content_plan_id ?? '').trim();
+const samePlanRef = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
+const numValue = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+const feedbackEngagement = (item = {}) => {
+  if (item.engagement !== undefined && item.engagement !== null && item.engagement !== '') return numValue(item.engagement);
+  return numValue(item.likes) + numValue(item.favorites) + numValue(item.comments) + numValue(item.shares);
+};
+
+const customerAdviceContext = (payload = {}) => {
+  const assessment = payload.assessment || {};
+  const diagnosis = payload.diagnosis || {};
+  const plans = Array.isArray(payload.plans) ? payload.plans : [];
+  const records = Array.isArray(payload.records) ? payload.records : [];
+  const record = payload.record || {};
+  const selectedId = String(payload.selected_plan_id || record.content_plan_id || '').trim();
+  const selected_plan = plans.find((plan) => samePlanRef(planIdString(plan), selectedId)) || null;
+  if (!selected_plan) throw new Error('每日回填必须绑定具体内容计划，不能默认第一条');
+  const selectedIndex = plans.findIndex((plan) => samePlanRef(planIdString(plan), selectedId));
+  const completedPlanIds = new Set(
+    [selectedId, record.content_plan_id, ...records.map((item) => item.content_plan_id)]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  );
+  const history_feedback = records
+    .filter((item) => item !== record)
+    .filter((item) => !samePlanRef(item.created_at, record.created_at))
+    .slice(0, 8)
+    .map((item) => ({
+      content_plan_id: item.content_plan_id || '',
+      plan_topic: item.plan_topic || '',
+      published_at: item.published_at || item.created_at || '',
+      views: numValue(item.views),
+      likes: numValue(item.likes),
+      favorites: numValue(item.favorites),
+      comments: numValue(item.comments),
+      shares: numValue(item.shares),
+      engagement: feedbackEngagement(item),
+      consultations: numValue(item.consultations),
+      appointments: numValue(item.appointments),
+      notes: item.notes || '',
+    }));
+  const unpublished_plans = plans
+    .filter((plan, index) => selectedIndex < 0 || index > selectedIndex)
+    .filter((plan) => !completedPlanIds.has(planIdString(plan)))
+    .filter((plan) => !String(plan.status || '').includes('已发布') && !plan.publish_link)
+    .slice(0, 5)
+    .map((plan) => ({
+      id: planIdString(plan),
+      planned_date: plan.planned_date || '',
+      topic: plan.topic || '',
+      angle: plan.angle || '',
+      cta: plan.cta || '',
+      platform: plan.platform || '',
+    }));
+  const daily_data = {
+    published_at: record.published_at || record.created_at || '',
+    views: numValue(record.views),
+    likes: numValue(record.likes),
+    favorites: numValue(record.favorites),
+    comments: numValue(record.comments),
+    shares: numValue(record.shares),
+    engagement: feedbackEngagement(record),
+    consultations: numValue(record.consultations),
+    appointments: numValue(record.appointments),
+    notes: record.notes || '',
+    publish_link: record.publish_link || '',
+  };
+  return { assessment, diagnosis, selected_plan, daily_data, history_feedback, unpublished_plans };
+};
+
+const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => {
+  const { assessment = {}, selected_plan = {}, daily_data = {}, history_feedback = [], unpublished_plans = [] } = ctx;
+  const views = numValue(daily_data.views);
+  const engagement = numValue(daily_data.engagement);
+  const consultations = numValue(daily_data.consultations);
+  const appointments = numValue(daily_data.appointments);
+  const audience = shortAudience(assessment.target_customer || '目标客户');
+  const offer = assessment.offer || serviceTopicFor([assessment.industry, assessment.main_goal].filter(Boolean).join(' '), '').service || '服务';
+  const todayTopic = selected_plan.topic || '当天发布内容';
+  let judgmentType = '标题问题';
+  let more = '更具体的人群痛点、课堂/服务证据和决策问题';
+  let less = '泛泛介绍服务、只说欢迎咨询';
+  let why = '当前样本还需要先扩大曝光和互动样本。';
+  if (consultations > 0 || appointments > 0) {
+    judgmentType = '加码';
+    more = '复制带来咨询/预约的主题结构，连续补案例、过程、价格和适合人群';
+    less = '完全换平台或换成泛科普';
+    why = '这条内容已经出现咨询或预约信号，说明角度有效。';
+  } else if (views >= 800 && engagement >= 30) {
+    judgmentType = '换角度';
+    more = '把收藏/点赞兴趣转成信任承接，补真实过程、门店/课程细节和常见顾虑';
+    less = '只追热点标题、不回答客户为什么现在要问';
+    why = '有曝光和互动但没有咨询，缺口在信任和行动理由。';
+  } else if (views >= 800) {
+    judgmentType = '标题问题';
+    more = '围绕客户第一眼能懂的痛点重写标题和开头';
+    less = '抽象行业词和服务清单';
+    why = '曝光不低但互动弱，说明打开后没有击中决策问题。';
+  } else if (history_feedback.length >= 2 && history_feedback.every((item) => numValue(item.views) < 300)) {
+    judgmentType = '平台不匹配';
+    more = '先在更贴近客户搜索/同城触点的平台验证同一主题';
+    less = '在低样本平台继续机械发布';
+    why = '多条内容曝光样本都偏小，需要先校准平台和第一眼表达。';
+  }
+  const seedTopics = unpublished_plans.length
+    ? unpublished_plans
+    : Array.from({ length: 7 }, (_, index) => ({
+      topic: [
+        audience + '为什么需要先了解' + offer,
+        offer + '适合什么样的人',
+        '真实客户最常问的' + offer + '问题',
+        offer + '前后要注意什么',
+        '选择' + offer + '时怎么避坑',
+        offer + '的过程和细节',
+        '本周' + offer + '咨询答疑',
+      ][index],
+      platform: selected_plan.platform || '小红书/视频号',
+      angle: '围绕客户顾虑拆解',
+      cta: '引导咨询适合情况',
+    }));
+  const actions = judgmentType === '加码'
+    ? ['复制有效结构', '补充案例证据', '回答价格/周期', '展示过程细节', '处理适合人群', '集中答疑', '复盘最高咨询主题']
+    : judgmentType === '换角度'
+      ? ['补信任证据', '拆客户顾虑', '讲真实场景', '补对比清单', '强调行动理由', '承接咨询问题', '复盘收藏原因']
+      : judgmentType === '平台不匹配'
+        ? ['同题换平台测试', '优化标题钩子', '缩短开头', '改同城/搜索表达', '复用有效素材', '记录平台差异', '保留高信号平台']
+        : ['重写标题', '强化第一句话', '换客户视角', '减少服务堆叠', '加入具体问题', '增加证据', '复盘点击原因'];
+  const plan = Array.from({ length: 7 }, (_, index) => {
+    const base = seedTopics[index % seedTopics.length] || {};
+    return {
+      day: 'Day ' + (index + 1),
+      planned_date: todayIso(index + 1),
+      topic: base.topic || advice.nextTopic || (audience + '关心的' + offer + '问题'),
+      angle: base.angle || actions[index],
+      platform: base.platform || selected_plan.platform || '小红书/视频号',
+      action: actions[index],
+      reason: index === 0 ? '承接本次回填判断：' + judgmentType : '延续同一轮复盘结论，避免每天推倒重来。',
+      target_metric: consultations > 0 || appointments > 0 ? '咨询/预约' : (views >= 800 ? '收藏/私信咨询' : '曝光/播放'),
+      based_on: todayTopic,
+      cta: base.cta || '引导客户咨询是否适合',
+    };
+  });
+  return {
+    review_judgment: { type: judgmentType, more, less, why },
+    customer_summary: '下周多发：' + more + '；少发：' + less + '。原因：' + why,
+    next_7_day_plan: plan,
+    source,
+  };
+};
+
+const localCustomerAdvice = (ctx = {}, source = 'rule_template') => {
+  const { assessment = {}, selected_plan = {}, daily_data = {}, history_feedback = [], unpublished_plans = [] } = ctx;
+  const views = numValue(daily_data.views);
+  const engagement = numValue(daily_data.engagement);
+  const consultations = numValue(daily_data.consultations);
+  const audience = shortAudience(assessment.target_customer || '目标客户');
+  const offer = assessment.offer || serviceTopicFor([assessment.industry, assessment.main_goal].filter(Boolean).join(' '), '').service || '服务';
+  const todayTopic = selected_plan.topic || '当天发布内容';
+  const nextPlan = unpublished_plans[0] || {};
+  const nextTopic = nextPlan.topic || (audience + '选择' + offer + '前最担心的3件事');
+  const historyText = history_feedback.length
+    ? '已参考前' + history_feedback.length + '天反馈：' + history_feedback.map((item) => (item.plan_topic || item.content_plan_id) + ':曝光' + item.views + '/互动' + item.engagement + '/咨询' + item.consultations).join('；')
+    : '暂无历史反馈，按当天内容和当天数据判断。';
+  let judgment = '「' + todayTopic + '」样本已回流，先结合当天数据判断下一条内容。';
+  let action = '下一条优先执行「' + nextTopic + '」，并沿用当前平台，继续记录曝光、互动和咨询。';
+  if (consultations > 0) {
+    judgment = '「' + todayTopic + '」带来' + consultations + '个咨询，说明这个选题能触发报名/咨询信号。';
+    action = '复制今天的家长顾虑结构，下一条「' + nextTopic + '」补课堂证据、适合年龄和体验课预约理由。';
+  } else if (views >= 800 && engagement >= 30) {
+    judgment = '「' + todayTopic + '」有曝光和互动但没咨询，说明家长感兴趣但还缺信任承接。';
+    action = '下一条「' + nextTopic + '」必须回答安全、师资、孩子基础或上课效果，用具体课堂观察承接到预约体验。';
+  } else if (views >= 800) {
+    judgment = '「' + todayTopic + '」曝光够但互动弱，标题/封面能打开，正文还没击中家长决策问题。';
+    action = '下一条先换成家长视角的问题标题，不急着扩量，重点提高收藏和咨询意愿。';
+  } else {
+    judgment = '「' + todayTopic + '」曝光样本偏小，不能判断选题失败，先修正第一眼表达。';
+    action = '下一条「' + nextTopic + '」把标题写成“年龄/基础/训练目标 + 明确收益”，先把曝光样本做大。';
+  }
+  return {
+    title: nextTopic,
+    nextTopic,
+    judgment,
+    action,
+    copy_suggestion: '围绕「' + nextTopic + '」写一条：开头点出家长顾虑，中段给课堂/案例证据，结尾引导咨询年龄和上课时间。',
+    selected_plan_topic: todayTopic,
+    history_signal: historyText,
+    unpublished_count: unpublished_plans.length,
+    source,
+  };
+};
+
+const parseModelJson = (text = '') => {
+  return extractModelJson(text);
+};
+
+const callCustomerStrategyModel = async (ctx) => {
+  const meta = { requested_model: CUSTOMER_STRATEGY_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: '' };
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { data: null, meta: { ...meta, failure_reason: 'OPENAI_API_KEY missing' } };
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model: CUSTOMER_STRATEGY_MODEL,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: '你是企业营销增长策略判断模型。只返回JSON。' },
+          { role: 'user', content: '基于客户业务、当天内容、当天数据、历史反馈、未发计划，判断下一条内容策略。返回 {"judgment":"","next_focus":"","risk":""}。上下文：' + JSON.stringify(ctx) },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error('openai_http_' + res.status);
+    const data = await res.json();
+    const parsed = parseModelJson(data?.choices?.[0]?.message?.content || '{}');
+    return { data: parsed, meta: { requested_model: CUSTOMER_STRATEGY_MODEL, actual_model: CUSTOMER_STRATEGY_MODEL, provider: 'openai', fallback: false } };
+  } catch (error) {
+    return { data: null, meta: { ...meta, failure_reason: error.message || 'openai_strategy_failed' } };
+  }
+};
+
+const callCustomerCopyModel = async (ctx, strategy = {}) => {
+  const meta = { requested_model: CUSTOMER_COPY_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: '' };
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return { data: null, meta: { ...meta, failure_reason: 'ANTHROPIC_API_KEY missing' } };
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: CUSTOMER_COPY_MODEL,
+        max_tokens: 1200,
+        temperature: 0.35,
+        messages: [{ role: 'user', content: '你是Claude Opus客户建议/文案模型。基于策略判断和上下文生成下一条内容建议，只返回 {"nextTopic":"","action":"","copy_suggestion":""}。策略：' + JSON.stringify(strategy) + ' 上下文：' + JSON.stringify(ctx) }],
+      }),
+    });
+    if (!res.ok) throw new Error('anthropic_http_' + res.status);
+    const data = await res.json();
+    const text = data?.content?.map((part) => part.text || '').join('\n').trim() || '{}';
+    return { data: parseModelJson(text), meta: { requested_model: CUSTOMER_COPY_MODEL, actual_model: CUSTOMER_COPY_MODEL, provider: 'anthropic', fallback: false } };
+  } catch (error) {
+    return { data: null, meta: { ...meta, failure_reason: error.message || 'claude_opus_copy_failed' } };
+  }
+};
+
+const customerAdvicePrompt = (ctx = {}) => `你是企业增长内容策略顾问。请基于客户已经发布的一条内容、当天数据、历史反馈和未发布计划，生成复盘判断和下一步策略。
+要求：
+1. 面向商家/门店负责人可直接理解，不暴露技术模型信息；
+2. 必须绑定 selected_plan，不要默认第一条；
+3. 如果已有咨询，提炼可复制的主题结构；如果只有曝光/互动，指出信任承接缺口；如果样本小，建议先扩大样本；
+4. 反馈字段只用于营销复盘：曝光/播放、点赞、收藏、评论、分享、私信/咨询、预约/到店；不要输出CRM/ERP/销售跟进流程；
+5. 禁止评论区/留言关键词引导；
+6. 返回 JSON 对象，字段必须包含：title,nextTopic,judgment,action,copy_suggestion,review_judgment:{type,more,less,why},customer_summary。
+7. 字段要短，不要输出7天明细；系统会基于你的判断和原始7天计划展开下一轮计划。
+上下文：${JSON.stringify({
+  industry: ctx.assessment?.industry || '',
+  goal: ctx.assessment?.main_goal || '',
+  target_customer: ctx.assessment?.target_customer || '',
+  selected_plan: {
+    topic: ctx.selected_plan?.topic || '',
+    angle: ctx.selected_plan?.angle || '',
+    platform: ctx.selected_plan?.platform || '',
+  },
+  daily_data: ctx.daily_data || {},
+  history_feedback_count: ctx.history_feedback?.length || 0,
+  next_candidates: (ctx.unpublished_plans || []).slice(0, 3).map((plan) => ({
+    topic: plan.topic,
+    angle: plan.angle,
+    platform: plan.platform,
+  })),
+}, null, 2)}`;
+
+const callArkCustomerAdviceModel = async (ctx = {}) => {
+  const call = await callArkChatCompletion({
+    route: '/api/customer-growth-advice',
+    purpose: 'customer_growth_advice',
+    temperature: 0.45,
+    maxTokens: 360,
+    messages: [
+      { role: 'system', content: '你是企业增长内容策略顾问，只返回 JSON，不要输出 Markdown。' },
+      { role: 'user', content: customerAdvicePrompt(ctx) },
+    ],
+  });
+  if (!call.ok) return { data: null, meta: normalizeModelMeta(call), next_7_day_plan: [] };
+  try {
+    const parsed = extractModelJson(call.content);
+    return {
+      data: parsed,
+      meta: normalizeModelMeta(call),
+      next_7_day_plan: Array.isArray(parsed?.next_7_day_plan) ? parsed.next_7_day_plan : (Array.isArray(parsed?.next_plan_days) ? parsed.next_plan_days : []),
+    };
+  } catch (error) {
+    return {
+      data: null,
+      meta: modelFailureMeta({
+        requestedModel: call.requested_model,
+        fallbackReason: error.message === 'invalid_json' ? 'invalid_json' : 'partial_parse',
+        latencyMs: call.latency_ms,
+      }),
+      next_7_day_plan: [],
+    };
+  }
+};
+
+const createCustomerGrowthAdvice = async (payload = {}) => {
+  const ctx = customerAdviceContext(payload);
+  const fallbackAdvice = localCustomerAdvice(ctx);
+  const fallbackNextRound = localNextRoundPlan(ctx, fallbackAdvice);
+  const provider = modelProviderFor(payload, 'volcengine_ark');
+  if (provider === 'volcengine_ark') {
+    const model = await callArkCustomerAdviceModel(ctx);
+    const modelData = model.data || {};
+    const advice = {
+      ...fallbackAdvice,
+      judgment: modelData.judgment || fallbackAdvice.judgment,
+      nextTopic: modelData.nextTopic || modelData.next_topic || fallbackAdvice.nextTopic,
+      title: modelData.title || modelData.nextTopic || modelData.next_topic || fallbackAdvice.title,
+      action: modelData.action || fallbackAdvice.action,
+      copy_suggestion: modelData.copy_suggestion || fallbackAdvice.copy_suggestion,
+    };
+    const meta = normalizeModelMeta(model.meta);
+    const modelNextRound = localNextRoundPlan(ctx, advice, meta.fallback ? 'rule_template' : 'volcengine_guided_rule_plan');
+    const modelRows = Array.isArray(modelData.next_7_day_plan) ? modelData.next_7_day_plan : (Array.isArray(modelData.next_plan_days) ? modelData.next_plan_days : []);
+    const nextRound = {
+      ...modelNextRound,
+      review_judgment: {
+        ...modelNextRound.review_judgment,
+        ...(modelData.review_judgment && typeof modelData.review_judgment === 'object' ? modelData.review_judgment : {}),
+      },
+      customer_summary: modelData.customer_summary || modelNextRound.customer_summary,
+      next_7_day_plan: modelRows.length === 7 ? modelRows.map((row, index) => ({
+        ...modelNextRound.next_7_day_plan[index],
+        ...row,
+        day: row.day || modelNextRound.next_7_day_plan[index].day,
+        planned_date: row.planned_date || row.date || modelNextRound.next_7_day_plan[index].planned_date,
+      })) : modelNextRound.next_7_day_plan,
+      source: meta.fallback ? 'rule_template' : 'volcengine_ark',
+    };
+    return {
+      advice,
+      context_used: {
+        selected_plan_id: planIdString(ctx.selected_plan),
+        selected_plan_topic: ctx.selected_plan.topic || '',
+        daily_data: ctx.daily_data,
+        history_feedback_count: ctx.history_feedback.length,
+        unpublished_plan_count: ctx.unpublished_plans.length,
+        unpublished_plan_topics: ctx.unpublished_plans.map((plan) => plan.topic),
+      },
+      model_info: meta,
+      generation_meta: meta,
+      strategy_model: meta,
+      copy_model: meta,
+      next_round: nextRound,
+      review_judgment: nextRound.review_judgment,
+      customer_summary: nextRound.customer_summary,
+      next_7_day_plan: nextRound.next_7_day_plan,
+      next_plan_days: nextRound.next_7_day_plan,
+      fallback: meta.fallback,
+      transparent_note: meta.fallback ? (meta.fallback_reason || 'model fallback used') : 'volcengine_ark completed',
+      generated_at: nowIso(),
+    };
+  }
+  if (provider === 'local') {
+    const meta = { requested_model: 'rule_template', actual_model: 'rule_template', provider: 'local', fallback: false, fallback_reason: null, failure_reason: '', latency_ms: 0 };
+    return {
+      advice: fallbackAdvice,
+      context_used: {
+        selected_plan_id: planIdString(ctx.selected_plan),
+        selected_plan_topic: ctx.selected_plan.topic || '',
+        daily_data: ctx.daily_data,
+        history_feedback_count: ctx.history_feedback.length,
+        unpublished_plan_count: ctx.unpublished_plans.length,
+        unpublished_plan_topics: ctx.unpublished_plans.map((plan) => plan.topic),
+      },
+      model_info: meta,
+      generation_meta: meta,
+      strategy_model: meta,
+      copy_model: meta,
+      next_round: fallbackNextRound,
+      review_judgment: fallbackNextRound.review_judgment,
+      customer_summary: fallbackNextRound.customer_summary,
+      next_7_day_plan: fallbackNextRound.next_7_day_plan,
+      next_plan_days: fallbackNextRound.next_7_day_plan,
+      fallback: false,
+      transparent_note: 'rule_template local mode',
+      generated_at: nowIso(),
+    };
+  }
+  const strategy = await callCustomerStrategyModel(ctx);
+  const copy = await callCustomerCopyModel(ctx, strategy.data || {});
+  const advice = {
+    ...fallbackAdvice,
+    judgment: strategy.data?.judgment || fallbackAdvice.judgment,
+    nextTopic: copy.data?.nextTopic || strategy.data?.next_focus || fallbackAdvice.nextTopic,
+    title: copy.data?.nextTopic || strategy.data?.next_focus || fallbackAdvice.title,
+    action: copy.data?.action || fallbackAdvice.action,
+    copy_suggestion: copy.data?.copy_suggestion || fallbackAdvice.copy_suggestion,
+  };
+  const strategyMeta = normalizeModelMeta(strategy.meta);
+  const copyMeta = normalizeModelMeta(copy.meta);
+  const fallback = strategyMeta.fallback || copyMeta.fallback;
+  const reasons = [strategyMeta.fallback_reason, copyMeta.fallback_reason].filter(Boolean).join('；');
+  const nextRound = localNextRoundPlan(ctx, advice, fallback ? 'rule_template' : 'legacy_model_chain');
+  return {
+    advice,
+    context_used: {
+      selected_plan_id: planIdString(ctx.selected_plan),
+      selected_plan_topic: ctx.selected_plan.topic || '',
+      daily_data: ctx.daily_data,
+      history_feedback_count: ctx.history_feedback.length,
+      unpublished_plan_count: ctx.unpublished_plans.length,
+      unpublished_plan_topics: ctx.unpublished_plans.map((plan) => plan.topic),
+    },
+    model_info: fallback ? copyMeta : strategyMeta,
+    generation_meta: fallback ? copyMeta : strategyMeta,
+    strategy_model: strategyMeta,
+    copy_model: copyMeta,
+    next_round: nextRound,
+    review_judgment: nextRound.review_judgment,
+    customer_summary: nextRound.customer_summary,
+    next_7_day_plan: nextRound.next_7_day_plan,
+    next_plan_days: nextRound.next_7_day_plan,
+    fallback,
+    transparent_note: fallback ? reasons || 'model fallback used' : 'ChatGPT strategy + Claude Opus copy completed',
+    generated_at: nowIso(),
+  };
 };
 
 const recordFeedback = (planId, payload) => {
@@ -939,7 +1647,7 @@ const createWeeklyReview = () => {
   const winnerTopic = (winner?.topic || '').trim() || '最高咨询内容';
   if (rows.length && total_consultations > 0) {
     bottleneck = '需要扩大有效内容样本';
-    next_actions = `加码「${winnerTopic}」同类角度，下周至少复制3条，并保留合规私信/主页咨询入口。`;
+    next_actions = `加码「${winnerTopic}」同类角度，下周至少复制3条，并保留合规咨询/主页咨询入口。`;
   } else if (rows.length && total_views < 1000) {
     bottleneck = '曝光不足';
     next_actions = '优先优化标题/封面/开头，先获得足够曝光样本。';
@@ -975,8 +1683,8 @@ const dashboard = () => {
   const total_interactions = rows.reduce((sum, item) => sum + item.likes + item.comments + item.favorites + item.shares, 0);
   const total_consultations = rows.reduce((sum, item) => sum + item.consultations, 0);
   let next_suggestion = '先执行：发布第一条内容，并把首次发布链接回填到系统，否则不算闭环。';
-  if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题，并保留合规私信/主页咨询入口。';
-  else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化客户痛点表达，并用私信/主页咨询承接。';
+  if (total_consultations > 0) next_suggestion = '加码：已有内容带来咨询，下周复制最高咨询主题，并保留合规咨询/主页咨询入口。';
+  else if (published_plans > 0) next_suggestion = '优化：已有发布但暂无咨询，下周强化客户痛点表达，并用咨询/主页咨询承接。';
   if (state.reviews[0]) next_suggestion = state.reviews[0].next_actions;
   return {
     total_plans,
@@ -1067,7 +1775,7 @@ const normalizeCloudProjectStore = (payload = {}) => {
   return {
     activeProjectId: activeExists ? raw.activeProjectId : (normalizedProjects[0]?.id || null),
     lastActiveProjectId: lastExists ? raw.lastActiveProjectId : null,
-    projects: normalizedProjects,
+    projects: sanitizeCustomerPayload(normalizedProjects),
     cloud_saved_at: raw?.cloud_saved_at || null,
   };
 };
@@ -1109,11 +1817,11 @@ const writeCloudState = async (payload = {}) => {
     const existing = byId.get(String(item.id));
     if (!existing || String(item.updated_at || '') >= String(existing.updated_at || '')) byId.set(String(item.id), item);
   });
-  const merged = cloudEnvelope({
+  const merged = sanitizeCustomerPayload(cloudEnvelope({
     activeProjectId: incoming.activeProjectId || current.project_store?.activeProjectId || incoming.projects[0]?.id || null,
     lastActiveProjectId: incoming.lastActiveProjectId || current.project_store?.lastActiveProjectId || null,
     projects: [...byId.values()].sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || ''))),
-  });
+  }));
   const store = await cloudStore();
   if (store) {
     await store.setJSON(CLOUD_STATE_KEY, merged);
@@ -1150,10 +1858,14 @@ export default async (request) => {
       const diagnosis = generateDiagnosis(assessment_id);
       const generated = await generateOpusPlanRows(assessment, diagnosis);
       const plans = createContentPlan(diagnosis.id, generated.rows, generated.meta);
-      return json({ assessment_id, assessment, diagnosis, plans }, 201);
+      const generation_meta = normalizeModelMeta(generated.meta);
+      return json({ assessment_id, assessment, diagnosis, plans, model_info: generation_meta, generation_meta }, 201);
     }
     if (request.method === 'POST' && path === '/state') {
       return json(await writeCloudState(payload), 201);
+    }
+    if (request.method === 'POST' && path === '/customer-growth-advice') {
+      return json(await createCustomerGrowthAdvice(payload), 200);
     }
     if (request.method === 'POST' && path === '/feedback') {
       const plan_id = Number(payload.content_plan_id);

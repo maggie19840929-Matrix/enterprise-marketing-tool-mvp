@@ -64,6 +64,29 @@ curl -s http://127.0.0.1:8787/api/dashboard
 
 Netlify 演示 API 使用内存数据，适合客户演示；正式版仍建议使用 Python 服务 + 持久化数据库部署。
 
+### 豆包 / 火山方舟文本模型
+
+客户 public 版默认通过 Netlify Function 后端调用火山方舟 OpenAI-compatible Chat Completions API，前端不会暴露 API Key。需要在 Netlify 环境变量中配置：
+
+```bash
+ARK_API_KEY=火山方舟 API Key
+ARK_MODEL=火山方舟模型 Endpoint ID，例如 ep-xxxxxxxxxxxxxxxxxxxxx
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+```
+
+可选兼容变量：
+
+```bash
+VOLCENGINE_ARK_API_KEY=
+DOUBAO_MODEL=
+VOLCENGINE_ARK_MODEL=
+CUSTOMER_PUBLIC_MODEL=
+```
+
+`ARK_BASE_URL` 可以填写 `https://ark.cn-beijing.volces.com/api/v3`，后端会自动拼接 `/chat/completions`；如果已填写完整 `/chat/completions` 地址也兼容。
+
+如果未配置 `ARK_API_KEY` 或 `ARK_MODEL`，接口不会报错，但会明确返回 `provider: "local"`、`actual_model: "rule_template"`、`fallback: true` 和具体 `fallback_reason`，用于验收区分真实模型调用和规则兜底。
+
 ## 第一版边界
 
 这是营销增长闭环 MVP，不是 CRM/ERP/管理系统。

@@ -1,5 +1,9 @@
-import handler, { shanghaiDateIso } from '../netlify/functions/api.mjs';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL'].forEach((key) => {
+  delete process.env[key];
+});
+const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
 
 const request = (method, path, body) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
   method,
@@ -8,7 +12,7 @@ const request = (method, path, body) => new Request(`http://localhost/.netlify/f
 });
 
 const payload = {
-  company_name: '企业内容增长测试号',
+  company_name: '企业内容增长验证号',
   industry: '企业内容增长 / 企业获客 / AI营销复盘',
   main_goal: '30天内验证一套企业内容获客 + 数据回流 + AI复盘的最小闭环',
   target_customer: '老板、本地生活服务商家、中小企业负责人、不懂内容运营但需要线上获客的人、已经发内容但不知道怎么复盘的人。',
@@ -17,17 +21,17 @@ const payload = {
   current_channels: '小红书、视频号、朋友圈，后续视数据扩展到抖音。',
   posting_frequency: '每周3条',
   biggest_problem: '不知道发什么',
-  content_assets: '企业真实服务案例、老板经验、客户常见问题、行业痛点、内容发布后的数据、私信/咨询记录、竞品爆款内容。',
+  content_assets: '企业真实服务案例、老板经验、客户常见问题、行业痛点、内容发布后的数据、咨询/咨询记录、竞品爆款内容。',
   monthly_budget: '低预算，优先靠老板认知内容、案例内容和AI辅助复盘，不做大额投流。',
   decision_cycle: '7天看内容反馈，14天看栏目方向，30天判断是否形成可复用增长闭环。',
   best_recent_content: '方法论类内容、老板真实误区拆解、AI营销复盘案例、企业账号为什么发了没咨询。',
   benchmark: {
     platform: '小红书',
     accounts: ['https://example.com/content-growth-benchmark'],
-    notes: '对标账号多用真实问题、避坑清单、复盘表方法论，收藏和私信反馈较高。',
-    sample_content: '代表内容：发了很多内容为什么还是没人咨询？数据摘要：收藏高于点赞，私信集中问复盘表。',
+    notes: '对标账号多用真实问题、避坑清单、复盘表方法论，收藏和咨询反馈较高。',
+    sample_content: '代表内容：发了很多内容为什么还是没人咨询？数据摘要：收藏高于点赞，咨询集中问复盘表。',
   },
-  contact: 'Cookie / 企业营销工具测试',
+  contact: ' / 企业营销工具验证',
 };
 
 const assert = (condition, message) => {
@@ -36,7 +40,7 @@ const assert = (condition, message) => {
 
 const assertNoUnsafeCommentCta = (label, value) => {
   const text = JSON.stringify(value);
-  ['评论区告诉我', '留言关键词', '留言“复盘”', '评论/私信“方案”', '可以留言你的情况'].forEach((word) => {
+  ['评论区告诉我', '留言关键词', '留言“复盘”', '评论/咨询“方案”', '可以留言你的情况'].forEach((word) => {
     assert(!text.includes(word), `${label} must not include unsafe comment CTA: ${word}`);
   });
 };
@@ -78,7 +82,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.36', `expected app_version 1.6.36, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.41', `expected app_version 1.6.41, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -90,6 +94,8 @@ assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', '
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
+assert(data.model_info && data.generation_meta, 'POST /assessments should return model_info and generation_meta');
+assert(data.generation_meta.provider === 'local' && data.generation_meta.actual_model === 'rule_template' && data.generation_meta.fallback === true && data.generation_meta.fallback_reason === 'missing_ark_api_key', 'missing Ark env should produce explicit local rule_template fallback evidence');
 const statePayload = {
   activeProjectId: 'project-smoke-sync',
   lastActiveProjectId: null,
@@ -119,12 +125,23 @@ const cloudState = await stateGet.json();
 assert(cloudState.project_store.projects.some((item) => item.id === 'project-smoke-sync'), 'GET /state should include saved cross-device project');
 assertNoUnsafeCommentCta('content decision diagnosis/plans', { diagnosis, plans });
 const appJs = readFileSync(new URL('../static/app.js', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.36'"), 'app should expose v1.6.36 internally/API-side');
-assert(appJs.includes("return '安标检测';"), 'app should collapse legacy/real 安标 project aliases into one dropdown item');
+const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
+const apiSource = readFileSync(new URL('../netlify/functions/api.mjs', import.meta.url), 'utf8');
+const apiSourceIncludes = (needle) => apiSource.includes(needle);
+const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
+const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
+assert(appJs.includes("const APP_VERSION = '1.6.41'"), 'app should expose v1.6.41 internally/API-side');
+assert(appJs.includes("return '检测合规服务';"), 'app should collapse legacy/real compliance project aliases into one dropdown item');
 assert(!appJs.includes('function isAnbiaoCustomerProject()') && !appJs.includes('renderAnbiaoCustomerData') && !appJs.includes('ANBIAO_CUSTOMER_ROWS'), 'anbiao publish-link refill module should be removed from internal app');
 assert(!appJs.includes('安标检测 / 发布链接回填') && !appJs.includes('查看回填链接表'), 'anbiao publish-link refill UI should not be rendered');
 assert(appJs.includes('function initCustomerTrial()') && appJs.includes('CUSTOMER_STORAGE_KEY'), 'default app should initialize the customer trial flow');
+assert(appJs.includes("location.replace('/internal/');") && !appJs.includes("params.get('mode') === 'internal'"), 'public ?mode=internal entries must not open the internal workbench');
+assert(appJs.includes("return path === '/internal';"), 'internal rendering must still be path-gated to the canonical /internal/ route');
+assert(redirects.includes('/internal /index.html 200') && redirects.includes('/internal/ /index.html 200') && !redirects.includes('/?mode=internal'), 'internal routes should rewrite to the app shell without a Netlify self-redirect loop');
+assert(!existsSync(new URL('../static/internal/index.html', import.meta.url)), 'static/internal/index.html must not exist because it shadows the /internal/ SPA rewrite on Netlify');
+assert(localDevServer.includes("pathname === '/internal'") && localDevServer.includes("location: '/internal/'") && localDevServer.includes("pathname === '/internal/'"), 'local dev server should mirror /internal -> /internal/ -> app-shell behavior');
 assert(appJs.includes('function syncCustomerChoicesBeforeSubmit') && appJs.includes("aria-pressed") && !appJs.includes('lastPointerSelect'), 'customer choice chips should use stable click handling and submit-time sync');
+assert(!appJs.includes('onpointerdown = handleButtonChoice') && !appJs.includes("addEventListener('pointerdown', handleChoiceEvent)") && appJs.includes("addEventListener('keydown'") && appJs.includes("if (typeof group.__applyChoice === 'function') {\n      return;"), 'customer choice chips must not double-toggle through pointer/capture fallback handlers');
 assert(appJs.includes('isInternalMode()') && appJs.includes('initInternalApp()'), 'internal workbench should be gated behind internal mode');
 assert(appJs.includes('function prefillFeedback(id)'), 'app should expose prefillFeedback for plan feedback buttons');
 assert(appJs.includes("[name=content_plan_id]"), 'prefillFeedback should target the content_plan_id field');
@@ -143,11 +160,21 @@ assert(appJs.includes('function resetForNewCustomer'), 'war-room should keep a r
 assert(appJs.includes('customerDisplayName') && !appJs.includes("a.company_name || '未命名客户'"), 'app should not render 未命名客户 as the customer title');
 
 assert(appJs.includes('function renderSmartDiagnosisModule') && appJs.includes('内测智能诊断内核') && appJs.includes("payload.client_mode = 'internal_test'"), 'internal mode should render the smart diagnosis kernel without changing customer entry');
-assert(appJs.includes('function buildCustomerNextAdvice') && appJs.includes('customerNextAdvice'), 'customer trial should generate immediate next-step advice after effect record save');
+assert(appJs.includes('function internalIntakeSnapshot') && appJs.includes('系统理解卡') && appJs.includes('组件 3 · 缺项补充卡') && appJs.includes('组件 4 · 项目误判风险卡') && appJs.includes('组件 5 · 确认继续') && appJs.includes('请先确认“系统理解正确”'), 'internal AI intake should render five project-understanding components and block generation until confirmation');
+assert(indexHtml.includes('id="aiExtractBtn"') && indexHtml.includes('分析项目') && indexHtml.includes('id="aiClearBtn"') && indexHtml.includes('清空重写'), 'internal AI intake should expose analyze and clear actions in the input card');
+assert(appJs.includes('id="aiIntakeUnderstanding"') || readFileSync(new URL('../static/index.html', import.meta.url), 'utf8').includes('id="aiIntakeUnderstanding"'), 'internal AI intake should have a dedicated understanding card container');
+assert(appJs.includes('function buildCustomerNextAdvice') && appJs.includes('function buildCustomerNextRoundPlan') && appJs.includes('customerNextAdvice'), 'customer trial should generate review judgment and next-round plan after effect record save');
+assert(indexHtml.includes('name="content_plan_id" type="hidden" required') && indexHtml.includes('id="customerSelectedPlan"'), 'customer daily refill must carry an explicit selected content_plan_id');
+assert(appJs.includes('data-customer-record-plan') && appJs.includes('selectCustomerEffectPlan') && appJs.includes('请先在上方 7 天计划里选择实际发布的那一条'), 'customer refill should require the customer to select the exact published plan');
+assert(!appJs.includes('const firstPlan = clientState.plans[0]') && !appJs.includes('content_plan_id: firstPlan.id'), 'customer refill must not default feedback to the first plan');
+assert(appJs.includes("api('/api/customer-growth-advice'") && appJs.includes('daily_advice') && appJs.includes('next_round') && appJs.includes('AI调用未完成'), 'customer next-round advice should call the daily AI advice endpoint and transparently show fallback');
+assert(apiSourceIncludes('callArkChatCompletion') && apiSourceIncludes('ARK_API_KEY') && apiSourceIncludes('VOLCENGINE_ARK_API_KEY') && apiSourceIncludes('ARK_MODEL') && apiSourceIncludes('DOUBAO_MODEL') && apiSourceIncludes('VOLCENGINE_ARK_MODEL') && apiSourceIncludes('CUSTOMER_PUBLIC_MODEL'), 'public customer generation should support Volcengine Ark/Doubao through backend env vars');
+assert(apiSourceIncludes('modelProviderFor') && apiSourceIncludes('model_provider') && apiSourceIncludes('model_mode') && apiSourceIncludes('CUSTOMER_STRATEGY_MODEL') && apiSourceIncludes('OPENAI_API_KEY') && apiSourceIncludes('CUSTOMER_COPY_MODEL') && apiSourceIncludes('ANTHROPIC_API_KEY'), 'internal mode should keep lightweight model routing for Ark/OpenAI/Anthropic/local');
+assert(apiSourceIncludes("path === '/customer-growth-advice'") && apiSourceIncludes('每日回填必须绑定具体内容计划'), 'API should expose customer-growth-advice and reject unbound daily refill');
 assert(appJs.includes('function buildVersionedProjectState') && appJs.includes('diagnosis_history') && appJs.includes('intake_history'), 'customer/internal submissions should create versioned project states');
 assert(appJs.includes('customer_public') && appJs.includes('saveLocal();') && appJs.includes('scheduleCloudSync'), 'customer public submissions should enter the same project store and cloud sync path');
 assert(appJs.includes('function regenerateCurrentDiagnosis') && appJs.includes('旧诊断已归档'), 'internal workbench should support rediagnosis with archived old diagnoses');
-assert(appJs.includes('已记录这条内容。根据这条数据，下一条建议先发'), 'effect save should tell customer the next content direction immediately');
+assert(appJs.includes('已记录这条内容。系统已生成复盘判断和下一轮 7 天计划'), 'effect save should tell customer the next-round plan was generated immediately');
 assert(appJs.includes('盆底肌修复'), 'customer offer extraction should recognize postpartum pelvic-floor repair instead of generic service wording');
 
 assert(appJs.includes('function autoReviewFromFeedback()'), 'app should auto-generate weekly review from existing feedback');
@@ -161,21 +188,26 @@ assert(appJs.includes('function renderOutcomeCards') && appJs.includes('war-metr
 assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeCards'), 'next decision should stay before outcome metrics');
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
-const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
 assert(indexHtml.includes('<title>企业内容增长助手 · 生成发布计划与效果复盘</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('企业内容增长助手') && indexHtml.includes('把你的业务变成可执行的内容增长计划'), 'default customer page should use a product title instead of a form instruction as hero title');
+assert(indexHtml.includes('企业内容增长助手') && indexHtml.includes('多平台内容增长助手') && indexHtml.includes('抖音/小红书/视频号等多平台内容建议') && !indexHtml.includes('给篮球培训客户的全平台内容矩阵'), 'default customer page should use a public multi-platform product title, not a single-customer static page title');
 assert(!indexHtml.includes('填 5 个问题，得到你的内容发布计划') && !indexHtml.includes('customer-hero-bullets') && !indexHtml.includes('customer-steps'), 'customer hero should remove noisy checklist-style guidance and duplicate step card');
 assert(indexHtml.includes('id="customerAssessmentForm"') && indexHtml.includes('data-customer-problems'), 'customer page should use the customer trial form and problem cards');
 assert(indexHtml.includes('id="internalApp" hidden') && indexHtml.includes('内测版 · 智能诊断内核'), 'internal workbench should be hidden by default but expose the internal smart diagnosis kernel label');
-assert(indexHtml.includes('id="customerGuide"') && indexHtml.includes('参考一个填写示例') && !indexHtml.includes('id="customerGuide" class="customer-guide-panel" open'), 'customer page should keep examples collapsed by default');
-assert(indexHtml.includes('本地美容美甲门店') && indexHtml.includes('让附近客户咨询美甲套餐') && indexHtml.includes('我知道怎么填了'), 'customer guide should show field-specific examples and a collapse action');
+assert(indexHtml.includes('id="customerGuide"') && indexHtml.includes('填写示例') && !indexHtml.includes('id="customerGuide" class="customer-guide-panel" open'), 'customer page should keep examples collapsed by default');
+assert(indexHtml.includes('本地服务机构，主要做专业服务和咨询转化') && indexHtml.includes('让目标客户看懂服务价值') && indexHtml.includes('填入通用示例') && indexHtml.includes('我知道怎么填了'), 'customer guide should show generic public examples and a sample-fill action');
 assert(!indexHtml.includes('id="heroPrimaryBtn"') && !indexHtml.includes('id="sampleBtn"'), 'hero should remove duplicate primary/sample buttons');
 assert(indexHtml.includes('id="topReturnProjectBtn"'), 'new project return action should sit next to the More button');
 assert(indexHtml.includes('先说清楚你的业务和目标') && indexHtml.includes('生成我的内容建议'), 'first form should keep the core customer path without using the form task as product title');
-assert(indexHtml.includes('你的目标客户是谁？*') && indexHtml.includes('required placeholder="如：附近3公里爱美女性'), 'target customer should be required because advice quality depends on audience');
-assert(indexHtml.includes('想让建议更准？补充这些信息') && indexHtml.includes('主推产品/服务和价格带') && indexHtml.includes('客户最常问的问题或顾虑') && indexHtml.includes('你现在手里有什么素材？') && indexHtml.includes('最近表现最好的一条内容/对标内容'), 'customer page should offer optional precision fields without overloading the first screen');
+assert(indexHtml.includes('开始填写/补充信息') && indexHtml.includes('href="#customerFormCard"'), 'customer hero should expose a clear start/fill info entry');
+assert(indexHtml.includes('你的目标客户是谁？*') && indexHtml.includes('required placeholder="如：附近客户'), 'target customer should be required because advice quality depends on audience');
+assert(indexHtml.includes('填写几个关键字段') && indexHtml.includes('公司/门店名') && indexHtml.includes('当前产品/服务') && indexHtml.includes('服务区域/交付方式') && indexHtml.includes('可预约时间/服务节奏') && indexHtml.includes('补充说明') && indexHtml.includes('可选补充，让内容更准') && indexHtml.includes('资质/服务保障（可选）') && indexHtml.includes('没有也可以先不填') && indexHtml.includes('客户最常问的问题或顾虑') && indexHtml.includes('你现在手里有什么素材？') && indexHtml.includes('最近表现最好的一条内容/对标内容'), 'customer page should make the information entry obvious and keep trust/detail fields optional');
+assert(appJs.includes('BASKETBALL_CUSTOMER_PROFILE') && appJs.includes('dedicatedCustomerKey') && appJs.includes('只需要补充上课地址和可预约时间') && appJs.includes('store_location') && appJs.includes('course_schedule') && appJs.includes('coach_credentials'), 'basketball prefill should be isolated behind a dedicated customer URL and keep detail fields optional');
 assert(appJs.includes('rawForm.offer || customerOfferFromGoal') && appJs.includes('rawForm.customer_pain || rawForm.biggest_problem'), 'customer submit should preserve optional precision fields instead of overwriting them');
+assert(appJs.includes('function fillGenericCustomerSample') && appJs.includes('customerGenericSampleBtn') && appJs.includes("current_channels: '抖音,小红书'") && appJs.includes('function prefillDedicatedCustomer') && appJs.includes('BASKETBALL_CUSTOMER_PROFILE'), 'customer page should include generic public sample fill and isolated dedicated prefill helpers');
 assert(indexHtml.includes('class="customer-choice-chip" type="button" data-value="有浏览没咨询"'), 'customer biggest problem should use checkbox-like chips');
+assert(indexHtml.includes('data-customer-platforms data-multi-select="true"') && indexHtml.indexOf('data-value="抖音"') < indexHtml.indexOf('data-value="小红书"') && indexHtml.includes('可多选'), 'customer platform choice should support Douyin/XHS/Video multi-select matrix');
+assert(indexHtml.includes('data-customer-content-mode') && indexHtml.includes('推荐模式：平台适配') && indexHtml.includes('省事模式：一稿多发') && indexHtml.includes('建议适配，不强迫适配'), 'customer page should let customers choose one-draft multi-posting or platform adaptation');
+assert(appJs.includes('function customerPlatformMatrixHtml') && appJs.includes('function customerContentModeHtml') && appJs.includes('一稿多发省时间') && appJs.includes('系统只建议适配，不强迫每个平台都写不同稿') && appJs.includes('短视频曝光 / 案例讲解 / 咨询承接') && appJs.includes('搜索沉淀 / 决策清单 / 案例信任') && appJs.includes('微信信任 / 专业说明 / 私域承接'), 'customer results should explain platform-specific content roles and mode tradeoffs');
 assert(indexHtml.includes('默认先看前三条，完整计划用卡片展开，避免密集表格。'), 'plan section should include a short plan hint');
 const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.meta.url), 'utf8');
 assert(warRoomCss.includes('.feedback-focus[hidden]') && warRoomCss.includes('display:none!important'), 'mobile css must not override hidden feedback/review workflow');
@@ -192,6 +224,8 @@ assert(appJs.includes('function renderCustomerRecordSummary') && appJs.includes(
 assert(appJs.includes('企业主发内容没咨询，通常不是内容太少') && !appJs.includes('发了很多内容为什么还是没人咨询'), 'internal sample plans should also use target-customer-facing topics');
 assert(indexHtml.includes('class="panel-head review-panel-head"') && indexHtml.includes('class="review-primary-btn"'), 'weekly review action should sit in the title row as an obvious primary button');
 assert(appJs.includes('review-metric-grid') && appJs.includes('review-decision-grid') && appJs.includes('review-next'), 'weekly review should render as visual cards instead of dense paragraphs');
+assert(indexHtml.includes('id="nextSevenDataPage"') && appJs.includes('function buildNextSevenData') && appJs.includes('function renderNextSevenDataPage'), 'internal view should expose a next 7 days data module after weekly review');
+assert(appJs.includes('下一个七天数据') && appJs.includes('不代发') && appJs.includes('预计曝光'), 'next 7 days module should be data/prediction focused and must not introduce auto publishing');
 assert(appJs.includes('client-snapshot-summary') && appJs.includes('完整客户输入') && appJs.includes('full-plan-card'), 'evidence and full plans should use readable cards instead of dense grids/tables');
 assert(appJs.includes("api('/api/state'") && appJs.includes('pullCloudProjectStore') && appJs.includes('pushCloudProjectStore') && appJs.includes('mergeProjectStores'), 'app should sync project store through /api/state for cross-device usage');
 assert(warRoomCss.includes('v1.6.13 readability completion') && warRoomCss.includes('.project-switcher span{white-space:nowrap'), 'v1.6.13 css should protect project switcher label and full readability');
@@ -206,6 +240,122 @@ assert(plans.some((p) => /企业主|老板|客户|选择|第一次了解|担心|
 assert(plans.every((p) => p.publish_quality), 'each plan should include publish_quality');
 assert(plans.some((p) => p.publish_quality.includes('可直接进入草稿')), 'plans should mark draft-ready items');
 assert(plans.some((p) => p.publish_quality.includes('仅为策略方向')), 'plans should mark data-dependent items');
+
+const basketballAdviceCase = await submitAssessment({
+  company_name: '星跃少儿篮球训练营',
+  industry: '少儿篮球培训',
+  main_goal: '连续3天验证内容是否能带来体验课咨询',
+  target_customer: '6-12岁孩子家长，担心孩子运动基础差、上课安全和教练专业度',
+  offer: '少儿篮球体验课，99元一次，适合零基础和基础薄弱孩子',
+  store_location: '星悦篮球社区训练馆，服务附近三公里家庭',
+  course_schedule: '周三/周五晚课，周末上午体验课，寒暑假可预约集训班',
+  coach_credentials: '持证教练带课，小班教学，课前热身拉伸，训练过程有安全保护，家长可旁听。',
+  customer_pain: '家长担心孩子跟不上、训练不安全、体验课只是推销、上课时间不合适',
+  current_channels: '小红书、视频号',
+  posting_frequency: '每天1条',
+  biggest_problem: '有浏览没咨询',
+  content_assets: '课堂训练片段、教练资质、孩子进步前后对比、家长反馈截图',
+  best_recent_content: '孩子第一次运球从怕球到敢拍球的课堂片段，家长评论问适合几岁',
+  contact: '篮球培训3天验收',
+});
+assert(basketballAdviceCase.assessment.company_name === '星跃少儿篮球训练营', 'basketball company_name should be treated as the brand name');
+assert(basketballAdviceCase.assessment.store_location === '星悦篮球社区训练馆，服务附近三公里家庭', 'basketball store location should be saved into assessment state');
+assert(basketballAdviceCase.assessment.course_schedule.includes('周末上午体验课'), 'basketball course schedule should be saved into assessment state');
+assert(basketballAdviceCase.assessment.coach_credentials.includes('安全保护'), 'basketball coach credentials/safety field should be saved into assessment state');
+
+const basketballWithoutOptionalTrust = await submitAssessment({
+  company_name: '星悦篮球',
+  industry: '少儿篮球培训',
+  main_goal: '让附近家长预约体验课',
+  target_customer: '附近三公里内6-12岁孩子家长',
+  offer: '少儿篮球体验课',
+  store_location: '星悦篮球社区训练馆',
+  course_schedule: '周末上午可预约',
+  current_channels: '抖音、小红书',
+  posting_frequency: '偶尔发布',
+  biggest_problem: '有浏览没咨询',
+});
+assert(basketballWithoutOptionalTrust.plans.length === 7 && basketballWithoutOptionalTrust.assessment.coach_credentials === '', 'missing optional coach/safety/case details must not block customer content generation');
+
+const basketballRecords = [];
+const dailyAdvice = [];
+for (const [index, metrics] of [
+  { views: 260, engagement: 8, consultations: 0, notes: '第一天曝光少，家长主要问几岁能学。' },
+  { views: 1260, engagement: 58, consultations: 0, notes: '第二天收藏多但没人预约，评论担心安全和孩子跟不上。' },
+  { views: 980, engagement: 46, consultations: 5, notes: '第三天有5个体验课咨询，集中问周末班和零基础。' },
+  { views: 1480, engagement: 90, consultations: 9, notes: '第四天咨询更多，家长集中问周末班名额和体验课安排。' },
+].entries()) {
+  const plan = basketballAdviceCase.plans[index];
+  const record = {
+    content_plan_id: plan.id,
+    plan_topic: plan.topic,
+    published_at: shanghaiDateIso(index),
+    created_at: shanghaiDateIso(index) + ' 10:00:00',
+    publish_link: 'https://example.com/basketball-day-' + (index + 1),
+    ...metrics,
+  };
+  const res = await handler(request('POST', 'customer-growth-advice', {
+    assessment: basketballAdviceCase.assessment,
+    diagnosis: basketballAdviceCase.diagnosis,
+    plans: basketballAdviceCase.plans,
+    records: [record, ...basketballRecords],
+    record,
+    selected_plan_id: plan.id,
+  }));
+  if (res.status !== 200) throw new Error('customer-growth-advice day ' + (index + 1) + ' expected 200, got ' + res.status + ': ' + await res.text());
+  const body = await res.json();
+  dailyAdvice.push(body);
+  basketballRecords.unshift(record);
+}
+assert(new Set(dailyAdvice.map((item) => item.advice.judgment)).size === 4, 'basketball 4-day advice judgment should change as daily data changes');
+assert(new Set(dailyAdvice.map((item) => item.context_used.selected_plan_id)).size === 4, 'basketball 4-day advice should bind each day to its explicit content plan');
+assert(new Set(dailyAdvice.map((item) => item.advice.nextTopic)).size >= 3, 'basketball 4-day next topics should progress instead of looping old plans');
+assert(dailyAdvice[0].context_used.history_feedback_count === 0 && dailyAdvice[1].context_used.history_feedback_count === 1 && dailyAdvice[2].context_used.history_feedback_count === 2 && dailyAdvice[3].context_used.history_feedback_count === 3, 'basketball advice should include growing historical feedback context');
+dailyAdvice.forEach((item, index) => {
+  const completedTopics = basketballAdviceCase.plans.slice(0, index + 1).map((plan) => plan.topic);
+  const historicalTopics = basketballAdviceCase.plans.slice(0, index).map((plan) => plan.topic);
+  assert(!completedTopics.some((topic) => item.context_used.unpublished_plan_topics.includes(topic)), 'unpublished plans should exclude completed basketball plan topics through day ' + (index + 1));
+  assert(!historicalTopics.includes(item.advice.nextTopic), 'nextTopic should not return to historical basketball plan topic on day ' + (index + 1));
+});
+const skippedFirstPlanRes = await handler(request('POST', 'customer-growth-advice', {
+  assessment: basketballAdviceCase.assessment,
+  diagnosis: basketballAdviceCase.diagnosis,
+  plans: basketballAdviceCase.plans,
+  records: [],
+  record: {
+    content_plan_id: basketballAdviceCase.plans[1].id,
+    plan_topic: basketballAdviceCase.plans[1].topic,
+    published_at: shanghaiDateIso(1),
+    created_at: shanghaiDateIso(1) + ' 12:00:00',
+    publish_link: 'https://example.com/basketball-skip-first',
+    views: 1320,
+    engagement: 64,
+    consultations: 6,
+    notes: '客户先发布第二条计划，下一条建议不能倒退回第一条。',
+  },
+  selected_plan_id: basketballAdviceCase.plans[1].id,
+}));
+if (skippedFirstPlanRes.status !== 200) throw new Error('customer-growth-advice skipped first plan expected 200, got ' + skippedFirstPlanRes.status + ': ' + await skippedFirstPlanRes.text());
+const skippedFirstPlanAdvice = await skippedFirstPlanRes.json();
+assert(!skippedFirstPlanAdvice.context_used.unpublished_plan_topics.includes(basketballAdviceCase.plans[0].topic), 'skipping to day 2 should not put day 1 back into unpublished candidates');
+assert(skippedFirstPlanAdvice.advice.nextTopic !== basketballAdviceCase.plans[0].topic, 'skipping to day 2 should not recommend day 1 as the next topic');
+assert(dailyAdvice[2].advice.judgment.includes('5个咨询') || dailyAdvice[2].advice.judgment.includes('咨询'), 'day 3 advice should react to consultation data');
+assert(dailyAdvice.every((item) => item.next_round && item.next_round.review_judgment && Array.isArray(item.next_round.next_7_day_plan) && item.next_round.next_7_day_plan.length === 7), 'customer-growth-advice should return a review judgment and full next-round 7-day plan');
+assert(dailyAdvice[2].next_round.review_judgment.type === '加码', `day 3 next-round judgment should 加码 after consultation data, got ${dailyAdvice[2].next_round.review_judgment.type}`);
+assert(dailyAdvice[2].customer_summary.includes('多发') && dailyAdvice[2].customer_summary.includes('少发'), 'customer summary should say what to post more and less next week');
+assert(dailyAdvice[2].next_7_day_plan.every((row) => row.target_metric && row.based_on), 'next-round plan rows should include target_metric and based_on evidence');
+assert(dailyAdvice.every((item) => item.model_info && item.generation_meta), 'customer-growth-advice should return model evidence');
+assert(dailyAdvice.every((item) => item.model_info.provider === 'local' && item.model_info.actual_model === 'rule_template' && item.model_info.fallback === true), 'without Ark env, customer-growth-advice should transparently fall back to rule_template');
+assert(dailyAdvice.every((item) => item.model_info.fallback_reason === 'missing_ark_api_key' && item.transparent_note.includes('missing_ark_api_key')), 'fallback model calls must expose missing Ark key reason');
+
+const unboundAdvice = await handler(request('POST', 'customer-growth-advice', {
+  assessment: basketballAdviceCase.assessment,
+  diagnosis: basketballAdviceCase.diagnosis,
+  plans: basketballAdviceCase.plans,
+  records: [],
+  record: { views: 100, engagement: 2, consultations: 0 },
+}));
+assert(unboundAdvice.status === 400, 'customer-growth-advice should reject records without explicit content_plan_id');
 
 const preferredName = await submitAssessment({
   ...payload,
@@ -275,10 +425,10 @@ assertCustomerFacingPlans('education service output', education);
 const accessory = await submitAssessment({
   company_name: '饰品零售客户',
   industry: '饰品店，主要卖耳饰、项链、手链、戒指等时尚配饰，也有新品上新和礼物款',
-  main_goal: '增加产品曝光度，带来私信询价和订单',
+  main_goal: '增加产品曝光度，带来咨询询价和订单',
   target_customer: '18-35岁爱美的女士，关注通勤穿搭、约会拍照、送礼和日常精致感',
   offer: '耳饰、项链、手链、戒指、礼物款饰品',
-  customer_pain: '不知道发什么，担心图片好看但没有人私信下单',
+  customer_pain: '不知道发什么，担心图片好看但没有人咨询下单',
   current_channels: '小红书、抖音、朋友圈',
   posting_frequency: '偶尔发布',
   biggest_problem: '不知道发什么',
@@ -288,7 +438,7 @@ assertCustomerFacingPlans('accessory retail output', accessory);
 
 const basketballGoods = await submitAssessment({
   company_name: '篮球销售客户',
-  industry: '篮球销售，卖篮球、训练篮球、比赛篮球、篮球用品，主要做线上曝光和私信订单',
+  industry: '篮球销售，卖篮球、训练篮球、比赛篮球、篮球用品，主要做线上曝光和咨询订单',
   main_goal: '增加产品曝光度，带来订单',
   target_customer: '学生、篮球运动爱好者',
   offer: '室内篮球、室外耐磨篮球、训练篮球、比赛篮球',
@@ -306,9 +456,14 @@ assert(basketballGoods.diagnosis.platform_recommendations.primary.map((x) => x.p
 assert(!basketballGoods.diagnosis.smart_context, 'customer/default assessment should not expose internal smart diagnosis context');
 const internalBasketballGoods = await submitAssessment({
   ...basketballGoods.assessment,
+  content_assets: '篮球产品实拍、材质对比图、学生使用场景、客户评价截图',
   client_mode: 'internal_test',
   source: 'internal_test',
 });
+const blockedInternal = await handler(request('POST', 'assessments', {...basketballGoods.assessment, offer: '', customer_pain: '', content_assets: '', best_recent_content: '', client_mode: 'internal_test', source: 'internal_test'}));
+assert(blockedInternal.status === 400, 'internal assessment should be blocked by the generation gate when precision fields are missing');
+const blockedText = await blockedInternal.text();
+assert(blockedText.includes('生成门禁') && blockedText.includes('主推产品/服务和价格带'), 'internal generation gate should explain missing precision fields');
 assert(internalBasketballGoods.diagnosis.smart_context?.module === 'internal_smart_diagnosis_kernel', 'internal assessment should include smart diagnosis kernel context');
 assert(internalBasketballGoods.diagnosis.smart_context.business_type === '商品零售/产品销售', 'internal smart diagnosis should classify basketball sales as product retail');
 assert(internalBasketballGoods.diagnosis.smart_context.risk_gates.some((x) => x.includes('禁止写成篮球培训')), 'internal smart diagnosis should include anti-cross-industry gate');
@@ -316,7 +471,7 @@ assert(internalBasketballGoods.diagnosis.insight.includes('商品零售/产品�
 assertCustomerFacingPlans('basketball goods output', basketballGoods);
 
 const safetyCompliance = await submitAssessment({
-  company_name: 'P03安标项目测试客户',
+  company_name: 'P03安标项目验证客户',
   industry: '安全生产标准化辅导，服务工厂、制造企业、仓储企业做安标、验厂和合规整改',
   main_goal: '通过抖音短视频获得企业负责人咨询，验证安全生产标准化辅导内容获客',
   target_customer: '制造企业老板、安全负责人、工厂管理者、需要做安标或验厂整改的企业负责人',
@@ -349,8 +504,10 @@ const basketball = await submitAssessment({
 const basketballText = JSON.stringify(basketball.plans.map((plan) => [plan.topic, plan.angle, plan.cta]));
 assert(/篮球|体能|体验课|6-12岁|家长|教练|班型|课堂|运球|投篮/.test(basketballText), 'basketball plans should speak to parents choosing youth basketball training');
 assert(!basketballText.includes('课程/体验课') && !basketballText.includes('家长报名前，最容易踩的3个坑') && !basketballText.includes('相关服务'), 'basketball plans should not fall back to generic education/service wording');
-assert(basketball.diagnosis.platform_recommendations.primary.map((x) => x.platform).join('|') === '小红书|视频号|朋友圈/私域', 'basketball should use dedicated parent/local training channel mix');
-assert(basketball.plans.every((plan) => plan.requested_model === 'rule_template' && plan.actual_model === 'rule_template' && plan.provider === 'local' && plan.fallback === false), 'tonight delivery should use original rule_template model without Opus fallback');
+assert(basketball.diagnosis.platform_recommendations.primary.map((x) => x.platform).join('|') === '抖音|小红书|视频号', 'basketball should use Douyin + Xiaohongshu + Shipinhao content matrix');
+assert(basketball.plans.slice(0, 3).map((p) => p.platform).join('|') === '抖音|小红书|视频号', 'basketball plans should rotate the full-platform matrix first');
+assert(basketball.generation_meta.provider === 'local' && basketball.generation_meta.actual_model === 'rule_template' && basketball.generation_meta.fallback === true && basketball.generation_meta.fallback_reason === 'missing_ark_api_key', 'without Ark env, assessment generation should expose rule_template fallback evidence');
+assert(basketball.plans.every((plan) => plan.actual_model === 'rule_template' && plan.provider === 'local' && plan.fallback === true && plan.fallback_reason === 'missing_ark_api_key'), 'without Ark env, plan rows should carry fallback model evidence');
 assertCustomerFacingPlans('basketball service output', basketball);
 
 const restaurant = await submitAssessment({
@@ -383,7 +540,7 @@ const oral = await submitAssessment({
     platform: '小红书',
     accounts: ['https://example.com/oral-benchmark'],
     notes: '同城口腔账号里，宝妈收藏儿童矫正时机、医生专业度、价格透明类内容。',
-    sample_content: '爆款标题：孩子几岁做牙齿矫正更合适？数据摘要：收藏高，私信问矫正周期。',
+    sample_content: '爆款标题：孩子几岁做牙齿矫正更合适？数据摘要：收藏高，咨询问矫正周期。',
   },
 });
 const oralText = JSON.stringify(oral);
@@ -468,7 +625,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
   app_version: diagnosis.app_version,
-  unsafe_comment_cta_count: JSON.stringify({ diagnosis, plans, beauty, education, restaurant, oral }).match(/评论区告诉我|留言关键词|留言“复盘”|评论\/私信“方案”|可以留言你的情况/g)?.length || 0,
+  unsafe_comment_cta_count: JSON.stringify({ diagnosis, plans, beauty, education, restaurant, oral }).match(/评论区告诉我|留言关键词|留言“复盘”|评论\/咨询“方案”|可以留言你的情况/g)?.length || 0,
   loop_score: diagnosis.loop_score,
   account_setup: diagnosis.account_setup,
   own_platforms: diagnosis.platform_recommendations.primary.map((x) => x.platform),
