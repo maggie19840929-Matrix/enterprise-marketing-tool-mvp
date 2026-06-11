@@ -499,7 +499,7 @@ function renderCustomerGeneratedState(saved = {}, options = {}){
 
 function editCustomerAssessment(){
   const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
-  fillCustomerFormFromAssessment(current.assessment || clientState.assessment || {});
+  fillCustomerFormFromAssessment(current.assessment || current.draft_assessment || clientState.assessment || {});
   setCustomerFormCollapsed(false);
   updateCustomerProgress(1);
   $('#customerFormCard')?.scrollIntoView({behavior:'smooth', block:'start'});
@@ -1492,6 +1492,21 @@ function saveCustomerTrialState(update){
   safeStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify({...current, ...update, updated_at: localTimestamp()}));
 }
 
+function loadCustomerTrialState(){
+  try {
+    return JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveCustomerDraft(payload = {}){
+  if (!payload || typeof payload !== 'object') return;
+  const draft = sanitizeCustomerPayload({...payload});
+  if (!Object.values(draft).some((value)=>String(value || '').trim())) return;
+  saveCustomerTrialState({draft_assessment: draft});
+}
+
 function initCustomerGuide(){
   const guide = $('#customerGuide');
   if (!guide) return;
@@ -1685,15 +1700,34 @@ function initCustomerTrial(){
   initCustomerChoices('[data-customer-problems]', 'biggest_problem');
   initCustomerGuide();
   renderCustomerEffects();
-  const savedCustomerState = dedicatedCustomerKey() ? {} : {};
+  const savedCustomerState = dedicatedCustomerKey() ? {} : loadCustomerTrialState();
   if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
+    clientState = buildVersionedProjectState(
+      {assessment: savedCustomerState.assessment, diagnosis: savedCustomerState.diagnosis, plans: savedCustomerState.plans || []},
+      savedCustomerState.assessment,
+      'customer_public',
+      clientState,
+      '浏览器恢复'
+    );
     renderCustomerGeneratedState(savedCustomerState);
+  } else if (savedCustomerState.draft_assessment || savedCustomerState.assessment) {
+    fillCustomerFormFromAssessment(savedCustomerState.draft_assessment || savedCustomerState.assessment);
   }
   prefillDedicatedCustomer();
   renderCustomerRecordSummary(savedCustomerState);
   renderCustomerNextAdvice(savedCustomerState);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
   $('#customerRegenerateBtn')?.addEventListener('click', editCustomerAssessment);
+  document.querySelectorAll('a[href="#customerFormCard"]').forEach((link)=>{
+    link.addEventListener('click', () => {
+      const current = loadCustomerTrialState();
+      if (current.assessment || current.draft_assessment) {
+        fillCustomerFormFromAssessment(current.assessment || current.draft_assessment);
+        setCustomerFormCollapsed(false);
+        updateCustomerProgress(1);
+      }
+    });
+  });
   $('#customerAssessmentForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorBox = '#customerFormError';
@@ -1712,6 +1746,7 @@ function initCustomerTrial(){
       setCustomerMessage(errorBox, validation);
       return;
     }
+    saveCustomerDraft(payload);
     await withBusy($('#customerGenerateBtn'), '正在生成建议...', async () => {
       try {
         const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
@@ -1720,7 +1755,7 @@ function initCustomerTrial(){
         saveLocal();
         const diagnosis = clientState.diagnosis || {};
         const plans = clientState.plans || [];
-        const generatedState = {assessment: clientState.assessment || payload, diagnosis, plans, suggestion: customerSuggestionText, project_id: clientState.project?.id, diagnosis_history: clientState.diagnosis_history};
+        const generatedState = {assessment: clientState.assessment || payload, draft_assessment: clientState.assessment || payload, diagnosis, plans, suggestion: customerSuggestionText, project_id: clientState.project?.id, diagnosis_history: clientState.diagnosis_history};
         saveCustomerTrialState(generatedState);
         renderCustomerGeneratedState(generatedState, {focus: true});
       } catch (error) {
