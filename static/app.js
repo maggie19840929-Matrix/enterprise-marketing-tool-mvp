@@ -2957,7 +2957,15 @@ function initInternalApp(){
 
   $('#feedbackForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    await withBusy(e.submitter, '保存中...', async () => {
+    const button = e.submitter || e.target.querySelector('button[type="submit"]');
+    const originalText = button?.textContent;
+    const setFeedbackSaveMessage = (message, tone = 'success') => setCustomerMessage('#feedbackSaveMessage', message, tone);
+    setFeedbackSaveMessage('正在保存反馈...', 'success');
+    if (button) {
+      button.disabled = true;
+      button.textContent = '保存中...';
+    }
+    try {
       const data = formData(e.target);
       if (!String(data.content_plan_id || '').trim()) throw new Error('请先从内容计划卡片选择一条计划，再保存反馈。');
       data.content_plan_id = String(data.content_plan_id || '').trim();
@@ -2986,10 +2994,26 @@ function initInternalApp(){
       e.target.reset();
       const planDisplay = $('#selectedPlanDisplay');
       if (planDisplay) planDisplay.textContent = '从计划卡片选择';
-      toast('反馈已保存，看板和复盘已更新。');
+      const successMessage = '反馈已保存，本地看板和周复盘已更新。';
+      setFeedbackSaveMessage(successMessage);
+      toast(successMessage);
       api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
-        .catch(() => toast('本地已保存；云端临时接口同步失败，不影响本浏览器查看'));
-    });
+        .then(() => setFeedbackSaveMessage('反馈已保存，并已同步云端临时接口。'))
+        .catch(() => {
+          const syncMessage = '本地已保存；云端临时接口同步失败，不影响本浏览器查看。';
+          setFeedbackSaveMessage(syncMessage);
+          toast(syncMessage);
+        });
+    } catch (error) {
+      const message = error.message || '保存反馈失败，请检查表单后重试。';
+      setFeedbackSaveMessage(message, 'error');
+      toast(message);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText || '保存反馈';
+      }
+    }
   });
 
   $('#reviewBtn')?.addEventListener('click', async ()=>{
