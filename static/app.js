@@ -467,6 +467,39 @@ function fillCustomerFormFromAssessment(assessment = {}){
   });
 }
 
+const CUSTOMER_ASSESSMENT_FIELDS = ['company_name','industry','main_goal','target_customer','offer','store_location','course_schedule','coach_credentials','extra_context','customer_pain','content_assets','best_recent_content','current_channels','content_mode','posting_frequency','biggest_problem'];
+function customerAssessmentSignature(assessment = {}){
+  const normalized = {};
+  CUSTOMER_ASSESSMENT_FIELDS.forEach((key)=>{
+    normalized[key] = String(assessment?.[key] || '')
+      .trim()
+      .replace(/[，、]/g, ',')
+      .replace(/\s+/g, ' ');
+  });
+  return JSON.stringify(normalized);
+}
+
+function hasDifferentCustomerDraft(saved = {}){
+  if (!saved?.draft_assessment) return false;
+  if (!saved.assessment) return true;
+  return customerAssessmentSignature(saved.draft_assessment) !== customerAssessmentSignature(saved.assessment);
+}
+
+function clearCustomerGeneratedView(){
+  const resultSection = $('#customerResultSection');
+  const effectSection = $('#customerEffectSection');
+  const planBlock = $('#customerPlanBlock');
+  if (resultSection) resultSection.hidden = true;
+  if (effectSection) effectSection.hidden = true;
+  if (planBlock) planBlock.hidden = true;
+  const result = $('#customerResult');
+  const planList = $('#customerPlanList');
+  if (result) result.innerHTML = '';
+  if (planList) planList.innerHTML = '';
+  customerSuggestionText = '';
+  updateCustomerProgress(1);
+}
+
 function setCustomerFormCollapsed(collapsed){
   const formCard = $('#customerFormCard');
   if (!formCard) return;
@@ -1507,6 +1540,25 @@ function saveCustomerDraft(payload = {}){
   saveCustomerTrialState({draft_assessment: draft});
 }
 
+function currentCustomerFormPayload(){
+  const form = $('#customerAssessmentForm');
+  if (!form) return {};
+  syncCustomerChoicesBeforeSubmit();
+  const payload = formData(form);
+  Object.keys(payload).forEach((key) => { payload[key] = String(payload[key] || '').trim(); });
+  return payload;
+}
+
+function hideStaleCustomerResultIfNeeded(){
+  const current = loadCustomerTrialState();
+  const draft = currentCustomerFormPayload();
+  if (!Object.values(draft).some((value)=>String(value || '').trim())) return;
+  saveCustomerDraft(draft);
+  if (customerAssessmentSignature(draft) !== customerAssessmentSignature(current.assessment || {})) {
+    clearCustomerGeneratedView();
+  }
+}
+
 function initCustomerGuide(){
   const guide = $('#customerGuide');
   if (!guide) return;
@@ -1701,7 +1753,11 @@ function initCustomerTrial(){
   initCustomerGuide();
   renderCustomerEffects();
   const savedCustomerState = dedicatedCustomerKey() ? {} : loadCustomerTrialState();
-  if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
+  if (hasDifferentCustomerDraft(savedCustomerState)) {
+    fillCustomerFormFromAssessment(savedCustomerState.draft_assessment);
+    clearCustomerGeneratedView();
+    setCustomerFormCollapsed(false);
+  } else if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
     clientState = buildVersionedProjectState(
       {assessment: savedCustomerState.assessment, diagnosis: savedCustomerState.diagnosis, plans: savedCustomerState.plans || []},
       savedCustomerState.assessment,
@@ -1718,6 +1774,8 @@ function initCustomerTrial(){
   renderCustomerNextAdvice(savedCustomerState);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
   $('#customerRegenerateBtn')?.addEventListener('click', editCustomerAssessment);
+  $('#customerAssessmentForm')?.addEventListener('input', hideStaleCustomerResultIfNeeded);
+  $('#customerAssessmentForm')?.addEventListener('change', hideStaleCustomerResultIfNeeded);
   document.querySelectorAll('a[href="#customerFormCard"]').forEach((link)=>{
     link.addEventListener('click', () => {
       const current = loadCustomerTrialState();
@@ -1747,6 +1805,7 @@ function initCustomerTrial(){
       return;
     }
     saveCustomerDraft(payload);
+    clearCustomerGeneratedView();
     await withBusy($('#customerGenerateBtn'), '正在生成建议...', async () => {
       try {
         const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});

@@ -301,6 +301,7 @@ const serviceTopicFor = (industry = '', offer = '') => {
   if (hasAny(text, ['口腔', '牙齿', '矫正', '正畸', '种植牙'])) return { service: '口腔项目', scene: '做牙齿矫正/种植牙前', owner: '口腔科普内容', type: 'dental' };
   if (hasAny(text, ['美甲', '甲片', '穿戴甲', '手部护理', '美甲套餐'])) return { service: '美甲款式', scene: '做美甲前', owner: '真实客照/款式合集', type: 'nail' };
   if (hasAny(text, ['饰品', '首饰', '耳饰', '耳环', '项链', '手链', '戒指', '发夹', '配饰', '珠宝', '银饰', '穿搭配件'])) return { service: '饰品款式', scene: '挑选饰品时', owner: '饰品款式/穿搭场景内容', type: 'fashion_accessory' };
+  if (hasAny(text, ['宠物店', '宠物洗护', '宠物美容', '宠物寄养', '宠物用品', '宠物护理', '洗护套餐', '寄养', '猫狗', '养猫', '养狗', '猫咪', '狗狗'])) return { service: '宠物洗护/寄养服务', scene: '给宠物洗护或寄养前', owner: '宠物门店环境/洗护案例内容', type: 'pet_service' };
   if (hasAny(text, ['女装', '服装', '穿搭', '包包', '鞋履', '香薰', '礼物', '买手店', '零售', '上新'])) return { service: '商品款式', scene: '挑选商品时', owner: '商品种草/场景搭配内容', type: 'aesthetic_retail' };
   if (hasAny(text, ['篮球销售', '卖篮球', '篮球售卖', '篮球零售', '篮球专卖', '篮球店', '篮球用品', '篮球器材', '篮球装备', '篮球商品', '训练篮球', '比赛篮球'])) return { service: '篮球商品', scene: '挑选篮球时', owner: '篮球商品/训练场景内容', type: 'basketball_goods' };
   if (hasAny(text, ['美睫'])) return { service: '美睫效果', scene: '做美睫前', owner: '美睫案例内容', type: 'lash' };
@@ -359,6 +360,17 @@ const naturalPlanTitles = ({ audience, industry, offer, painShort, goal }) => {
       `黑白灰穿搭太素？加一件饰品就有重点`,
       `第一次买饰品，别只看图片好不好看`,
       `本周新款里，最适合约会/拍照的3件饰品`,
+    ];
+  }
+  if (service.type === 'pet_service') {
+    return [
+      `小区周边宠物洗护怎么选`,
+      `宠物洗护应激怎么办`,
+      `宠物短期寄养怎么选`,
+      `宠物洗护套餐明码标价`,
+      `宠物洗护前后效果实拍`,
+      `上班族养宠省心攻略`,
+      `老客力荐的洗护套餐`,
     ];
   }
   if (service.type === 'aesthetic_retail') {
@@ -437,6 +449,17 @@ const customerPlanRowsFor = ({ titles, service, offer }) => {
       [titles[4], '穿搭教学：展示同一套衣服加饰品前后的精致度差异', '短视频/图文', '保存搭配思路，想要同款可以咨询款式编号。', '收藏/咨询', '需要人工润色', '适合用对比图提高收藏'],
       [titles[5], '购买避坑：讲清图片色差、材质、尺寸、过敏、保养和退换注意', '图文', '下单前不确定材质或尺寸，可以先咨询确认。', '收藏/咨询', '仅为策略方向', '需结合真实商品信息'],
       [titles[6], '上新转化：用本周新款、约会/拍照/节日场景推动询单', '图文/短视频', '喜欢新款可以咨询编号/截图确认库存和价格。', '咨询/订单', '可直接进入草稿', '适合带动新品曝光和订单'],
+    ];
+  }
+  if (service.type === 'pet_service') {
+    return [
+      [titles[0], '门店信任：展示洗护区、接待流程、接送半径和预约方式', '图文/短视频', '评论区发宠物品种和体重，帮你估洗护时间。', '收藏/咨询', '可直接进入草稿', '必须围绕宠物洗护/寄养，不写泛商品款式或其他行业模板'],
+      [titles[1], '顾虑处理：解释分步洗护、安抚方式和主人提前准备事项', '图文', '私信“洗护”发你第一次到店准备清单。', '收藏数', '可直接进入草稿', '重点降低宠物应激和新客不信任'],
+      [titles[2], '寄养选择：展示笼舍、活动区、喂养记录、消毒频次和每日反馈', '短视频/图文', '想看寄养环境可以预约到店参观。', '咨询数', '需要人工润色', '发布前补真实门店环境和照看记录'],
+      [titles[3], '价格透明：按体型、毛量、服务项目讲清套餐和可能加项', '图文', '发宠物体重，帮你确认适合套餐。', '咨询/订单', '可直接进入草稿', '避免客户担心到店临时加价'],
+      [titles[4], '案例证明：用同一只宠物的洗护前后对比和护理细节证明稳定性', '短视频/图文', '想看同品种案例可私信品种名。', '咨询数', '可直接进入草稿', '建议加入客户授权的前后对比素材'],
+      [titles[5], '省心方案：结合工作日接送、寄养、用品补给讲一站式安排', '图文/短视频', '评论你的通勤时间，帮你排预约建议。', '收藏/咨询', '需要人工润色', '适合上班族养宠人群'],
+      [titles[6], '老客反馈：引用复购原因、宠物适应情况和门店服务细节增强社交证明', '图文', '私信“老客套餐”领取本周预约档期。', '咨询数', '仅为策略方向', '需结合真实老客评价和服务信息'],
     ];
   }
   if (service.type === 'aesthetic_retail') {
@@ -653,6 +676,13 @@ const recommendPlatforms = (assessment) => {
     addPlatform(support, '淘宝/微信小店', '适合作为下单承接入口，不替代内容种草。');
     addPlatform(avoid, '美团/大众点评', '篮球商品销售不以到店评价为主，除非有强线下门店和同城取货。');
     addPlatform(avoid, 'B站', '测评内容可长期沉淀，但不适合作为第一轮拿订单主渠道。');
+  } else if (hasAny(accountText, ['宠物店', '宠物洗护', '宠物美容', '宠物寄养', '宠物用品', '宠物护理', '洗护套餐', '猫狗', '养猫', '养狗', '猫咪', '狗狗'])) {
+    addPlatform(primary, '小红书', '适合同城养宠人搜索洗护避坑、寄养环境、价格透明和真实案例。');
+    addPlatform(primary, '美团/大众点评', '适合承接附近搜索、评价、套餐和到店预约转化。');
+    addPlatform(primary, '朋友圈/私域', '适合老客复购、寄养档期、洗护预约和客户反馈维护。');
+    addPlatform(support, '视频号', '适合沉淀门店环境、服务过程和熟人信任。');
+    addPlatform(support, '抖音', '可用洗护前后对比和门店日常做同城曝光，但要承接到咨询预约。');
+    addPlatform(avoid, 'B站', '本地到店链路较长，不建议作为第一轮洗护/寄养咨询主阵地。');
   } else if (hasAny(accountText, ['饰品', '首饰', '耳饰', '耳环', '项链', '手链', '戒指', '发夹', '配饰', '珠宝', '银饰', '穿搭配件', '女装', '服装', '包包', '鞋履', '买手店', '香薰', '礼物', '零售', '上新'])) {
     addPlatform(primary, '小红书', '适合做款式种草、穿搭场景、礼物清单和搜索收藏。');
     addPlatform(primary, '抖音', '适合用短视频展示佩戴/上身效果、上新和场景搭配，放大曝光。');
@@ -741,7 +771,7 @@ const inferBusinessContext = (assessment = {}) => {
   const service = serviceTopicFor(text, assessment.offer || '');
   const target = shortAudience(assessment.target_customer || '目标客户');
   const isGoods = ['basketball_goods', 'fashion_accessory', 'aesthetic_retail'].includes(service.type);
-  const isLocalService = ['nail', 'lash', 'beauty', 'postpartum', 'photo', 'dental', 'localfood'].includes(service.type);
+  const isLocalService = ['nail', 'lash', 'beauty', 'postpartum', 'photo', 'dental', 'localfood', 'pet_service'].includes(service.type);
   const isTraining = ['youth_basketball', 'education'].includes(service.type);
   const isComplianceService = ['medical_device_compliance', 'safety_compliance'].includes(service.type);
   const isMeta = isMetaMarketingAccount(assessment);
@@ -794,6 +824,7 @@ const inferBusinessContext = (assessment = {}) => {
   const riskGates = [];
   if (service.type === 'basketball_goods') riskGates.push('禁止写成篮球培训、体验课、教练、班型或到店服务流程');
   if (service.type === 'youth_basketball') riskGates.push('必须写给家长，禁止写成篮球商品下单或器材销售');
+  if (service.type === 'pet_service') riskGates.push('必须围绕宠物洗护/寄养/门店信任，禁止写成泛商品款式或其他行业样例');
   if (service.type === 'medical_device_compliance') riskGates.push('必须写给企业决策/注册/质量负责人，禁止写成C端种草、到店预约或泛营销焦虑');
   if (isGoods) riskGates.push('商品零售类内容必须指向款式/参数/场景/询价/订单，不能套服务预约模板');
   if (!isMeta) riskGates.push('内容必须写给客户的目标客户，不能写老板经营焦虑或工具复盘话术');
