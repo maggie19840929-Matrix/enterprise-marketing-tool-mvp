@@ -8,6 +8,7 @@ const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.e
 const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUDE_OPUS_MODEL || 'claude-3-opus-20240229';
 const ARK_BASE_URL = process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
 const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 23000), 1000), 25000);
+const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 9000), 1000), MODEL_TIMEOUT_MS);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
 
@@ -117,7 +118,7 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = MODEL_TIMEOUT_MS)
     clearTimeout(timer);
   }
 };
-const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '' } = {}) => {
+const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '', timeoutMs = MODEL_TIMEOUT_MS } = {}) => {
   const requestedModel = arkModel(model);
   const started = Date.now();
   if (!arkApiKey()) {
@@ -143,7 +144,7 @@ const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxToke
         temperature,
         max_tokens: maxTokens,
       }),
-    });
+    }, timeoutMs);
     const latencyMs = Date.now() - started;
     if (!res.ok) {
       const meta = modelFailureMeta({ requestedModel, fallbackReason: `ark_api_error_${res.status}`, latencyMs });
@@ -1088,6 +1089,7 @@ const callArkPlanRows = async (assessment, diagnosis) => {
     purpose: 'initial_7_day_plan',
     temperature: 0.55,
     maxTokens: 450,
+    timeoutMs: CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS,
     messages: [
       {
         role: 'system',

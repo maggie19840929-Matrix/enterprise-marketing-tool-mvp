@@ -9,6 +9,9 @@ const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
+const CUSTOMER_DEDICATED_STORAGE_KEYS = {
+  basketball: 'enterpriseMarketingCustomerTrial.basketball.v1',
+};
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
 const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
   [forbiddenPattern('Co' + 'okie', 'gi'), ''],
@@ -88,10 +91,20 @@ let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 
 const api = async (url, opts={}) => {
-  const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
-  const data = await res.json().catch(() => ({}));
-  if(!res.ok) throw new Error(data.error || '请求失败');
-  return sanitizeCustomerPayload(data);
+  const {timeoutMs = 35000, ...fetchOptions} = opts;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...fetchOptions, signal: controller.signal});
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.error || '请求失败');
+    return sanitizeCustomerPayload(data);
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('生成时间过长，请稍后重试');
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 };
 const toast = (msg) => { const el=$('#toast'); el.textContent=sanitizeCustomerText(msg); el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2400); };
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
@@ -530,8 +543,30 @@ function renderCustomerGeneratedState(saved = {}, options = {}){
   return true;
 }
 
+function customerTrialStorageKey(){
+  return CUSTOMER_DEDICATED_STORAGE_KEYS[dedicatedCustomerKey()] || CUSTOMER_STORAGE_KEY;
+}
+
+function isBasketballDedicatedAssessment(assessment = {}){
+  const text = [
+    assessment.company_name,
+    assessment.industry,
+    assessment.main_goal,
+    assessment.target_customer,
+    assessment.offer,
+    assessment.extra_context,
+  ].filter(Boolean).join(' ');
+  return /星跃少儿篮球训练营|少儿篮球培训机构|篮球培训客户专属预填链路/.test(text);
+}
+
+function isDedicatedCustomerState(state = {}){
+  const marker = state.dedicated_customer || state.customer_key || state.assessment?.dedicated_customer || state.draft_assessment?.dedicated_customer;
+  if (marker) return true;
+  return isBasketballDedicatedAssessment(state.assessment || {}) || isBasketballDedicatedAssessment(state.draft_assessment || {});
+}
+
 function editCustomerAssessment(){
-  const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  const current = loadCustomerTrialState();
   fillCustomerFormFromAssessment(current.assessment || current.draft_assessment || clientState.assessment || {});
   setCustomerFormCollapsed(false);
   updateCustomerProgress(1);
@@ -850,6 +885,7 @@ function customerPickShort(text, fallback){
 function customerFriendlyError(error){
   const raw = String(error?.message || '');
   if (raw.includes('缺少必填字段')) return '刚刚生成失败了，请检查必填信息是否填写完整。';
+  if (raw.includes('生成时间过长') || raw.includes('timeout')) return '生成时间过长，请稍后重试；如果仍失败，请先检查网络后再提交。';
   return '刚刚生成失败了，请稍后再试一次，或检查信息是否填写完整。';
 }
 
@@ -1267,7 +1303,7 @@ function updateCustomerSelectedPlanDisplay(saved = {}){
 }
 
 function selectCustomerEffectPlan(planId){
-  const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  const current = loadCustomerTrialState();
   const plan = customerPlanById(current, planId);
   if (!plan) {
     setCustomerMessage('#customerEffectMessage', '没有找到这条内容计划，请先重新生成内容建议。', 'error');
@@ -1283,7 +1319,7 @@ function selectCustomerEffectPlan(planId){
 function renderCustomerEffects(){
   const box = $('#customerEffectList');
   if (!box) return;
-  const saved = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+  const saved = loadCustomerTrialState();
   const records = Array.isArray(saved.records) ? saved.records : [];
   if (!records.length) {
     box.innerHTML = '<div class="customer-record empty">还没有记录。发完第一条内容后，填一次链接和关键数据即可。</div>';
@@ -1521,13 +1557,22 @@ async function requestCustomerDailyAdvice(saved = {}, record = {}){
 }
 
 function saveCustomerTrialState(update){
-  const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
-  safeStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify({...current, ...update, updated_at: localTimestamp()}));
+  const current = loadCustomerTrialState({allowDedicatedFallback: true});
+  const dedicated = dedicatedCustomerKey();
+  const next = {
+    ...current,
+    ...update,
+    ...(dedicated ? {dedicated_customer: dedicated, customer_key: dedicated} : {}),
+    updated_at: localTimestamp(),
+  };
+  safeStorage.setItem(customerTrialStorageKey(), JSON.stringify(next));
 }
 
-function loadCustomerTrialState(){
+function loadCustomerTrialState(options = {}){
   try {
-    return JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+    const state = JSON.parse(safeStorage.getItem(customerTrialStorageKey()) || '{}');
+    if (!dedicatedCustomerKey() && !options.allowDedicatedFallback && isDedicatedCustomerState(state)) return {};
+    return state;
   } catch {
     return {};
   }
@@ -1536,6 +1581,11 @@ function loadCustomerTrialState(){
 function saveCustomerDraft(payload = {}){
   if (!payload || typeof payload !== 'object') return;
   const draft = sanitizeCustomerPayload({...payload});
+  const dedicated = dedicatedCustomerKey();
+  if (dedicated) {
+    draft.dedicated_customer = dedicated;
+    draft.customer_key = dedicated;
+  }
   if (!Object.values(draft).some((value)=>String(value || '').trim())) return;
   saveCustomerTrialState({draft_assessment: draft});
 }
@@ -1752,7 +1802,7 @@ function initCustomerTrial(){
   initCustomerChoices('[data-customer-problems]', 'biggest_problem');
   initCustomerGuide();
   renderCustomerEffects();
-  const savedCustomerState = dedicatedCustomerKey() ? {} : loadCustomerTrialState();
+  const savedCustomerState = loadCustomerTrialState();
   if (hasDifferentCustomerDraft(savedCustomerState)) {
     fillCustomerFormFromAssessment(savedCustomerState.draft_assessment);
     clearCustomerGeneratedView();
@@ -1814,7 +1864,18 @@ function initCustomerTrial(){
         saveLocal();
         const diagnosis = clientState.diagnosis || {};
         const plans = clientState.plans || [];
-        const generatedState = {assessment: clientState.assessment || payload, draft_assessment: clientState.assessment || payload, diagnosis, plans, suggestion: customerSuggestionText, project_id: clientState.project?.id, diagnosis_history: clientState.diagnosis_history};
+        const dedicated = dedicatedCustomerKey();
+        const stateAssessment = clientState.assessment || payload;
+        const generatedState = {
+          assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated, customer_key: dedicated} : stateAssessment,
+          draft_assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated, customer_key: dedicated} : stateAssessment,
+          diagnosis,
+          plans,
+          suggestion: customerSuggestionText,
+          project_id: clientState.project?.id,
+          diagnosis_history: clientState.diagnosis_history,
+          ...(dedicated ? {dedicated_customer: dedicated, customer_key: dedicated} : {}),
+        };
         saveCustomerTrialState(generatedState);
         renderCustomerGeneratedState(generatedState, {focus: true});
       } catch (error) {
@@ -1829,7 +1890,7 @@ function initCustomerTrial(){
   });
   $('#customerEffectForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const current = JSON.parse(safeStorage.getItem(CUSTOMER_STORAGE_KEY) || '{}');
+    const current = loadCustomerTrialState();
     const records = Array.isArray(current.records) ? current.records : [];
     const data = formData(e.target);
     const selectedPlan = customerPlanById(current, data.content_plan_id);
@@ -1859,7 +1920,7 @@ function initCustomerTrial(){
       };
       nextState = {...nextState, records: [record, ...records], updated_at: localTimestamp()};
     }
-    safeStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(nextState));
+    saveCustomerTrialState(nextState);
     if (clientState.plans?.length) {
       const selectedPlanId = planIdValue(selectedPlan);
       const livePlan = clientState.plans.find((plan)=>samePlanId(planIdValue(plan), selectedPlanId)) || selectedPlan;
