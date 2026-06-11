@@ -76,6 +76,21 @@ const submitAssessment = async (body) => {
   return res.json();
 };
 
+const submitAssessmentForClient = async (client_id, overrides = {}) => submitAssessment({
+  ...payload,
+  client_id,
+  customer_key: client_id,
+  company_name: overrides.company_name || `${client_id}客户`,
+  industry: overrides.industry || payload.industry,
+  main_goal: overrides.main_goal || payload.main_goal,
+  target_customer: overrides.target_customer || payload.target_customer,
+  offer: overrides.offer || payload.offer,
+  customer_pain: overrides.customer_pain || payload.customer_pain,
+  content_assets: overrides.content_assets || payload.content_assets,
+  current_channels: overrides.current_channels || payload.current_channels,
+  biggest_problem: overrides.biggest_problem || payload.biggest_problem,
+});
+
 const data = await submitAssessment(payload);
 const { assessment, diagnosis, plans } = data;
 
@@ -96,6 +111,97 @@ assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platfor
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
 assert(data.model_info && data.generation_meta, 'POST /assessments should return model_info and generation_meta');
 assert(data.generation_meta.provider === 'local' && data.generation_meta.actual_model === 'rule_template' && data.generation_meta.fallback === true && data.generation_meta.fallback_reason === 'missing_ark_api_key', 'missing Ark env should produce explicit local rule_template fallback evidence');
+
+const basketballData = await submitAssessmentForClient('basketball', {
+  company_name: '星跃少儿篮球训练营',
+  industry: '少儿篮球培训',
+  main_goal: '提升暑期班体验课预约',
+  target_customer: '6-12岁小学生家长',
+  offer: '少儿篮球体验课和暑期班',
+  customer_pain: '家长担心安全、孩子跟不上、时间不合适',
+  content_assets: '课堂训练视频、教练资质、家长反馈',
+  current_channels: '抖音,小红书,视频号',
+});
+const dentalData = await submitAssessmentForClient('dental', {
+  company_name: '社区口腔门诊',
+  industry: '口腔护理/牙科门诊',
+  main_goal: '提升洗牙和正畸咨询',
+  target_customer: '周边家庭和年轻白领',
+  offer: '洗牙套餐、儿童涂氟、正畸咨询',
+  customer_pain: '担心疼、价格不透明、医生不专业',
+  content_assets: '门诊环境、医生资质、客户评价',
+  current_channels: '小红书,视频号',
+});
+const floristData = await submitAssessmentForClient('florist', {
+  company_name: '清屿花艺工作室',
+  industry: '社区花店/鲜花订阅',
+  main_goal: '提升节日花束预订和企业客户咨询',
+  target_customer: '周边社区居民、情侣、企业行政',
+  offer: '节日花束、周花订阅、开业花篮',
+  customer_pain: '不知道选什么款式，担心配送不准时',
+  content_assets: '花束实拍、客户反馈、节日搭配案例',
+  current_channels: '小红书,朋友圈,视频号',
+});
+
+[
+  ['basketball', basketballData],
+  ['dental', dentalData],
+  ['florist', floristData],
+].forEach(([clientId, item]) => {
+  assert(item.assessment.client_id === clientId, `${clientId} assessment should echo client_id`);
+  assert(item.diagnosis.client_id === clientId, `${clientId} diagnosis should echo client_id`);
+  assert(item.plans.length === 7, `${clientId} should generate 7 plans`);
+  assert(item.plans.every((plan) => plan.client_id === clientId), `${clientId} plans should bind client_id`);
+});
+const dentalPlansGet = await handler(request('GET', 'plans?client_id=dental'));
+assert(dentalPlansGet.status === 200, 'GET /plans?client_id=dental should succeed');
+const dentalPlans = await dentalPlansGet.json();
+assert(dentalPlans.length >= 7 && dentalPlans.every((plan) => plan.client_id === 'dental'), 'GET /plans should filter to dental client_id');
+const basketballAssessmentsGet = await handler(request('GET', 'assessments?client_id=basketball'));
+const basketballAssessments = await basketballAssessmentsGet.json();
+assert(basketballAssessments.some((item) => item.company_name === '星跃少儿篮球训练营'), 'basketball assessments should include basketball client');
+assert(!basketballAssessments.some((item) => item.company_name === '社区口腔门诊' || item.company_name === '清屿花艺工作室'), 'basketball assessment list must not include dental/florist clients');
+const dentalStatePost = await handler(request('POST', 'state', {
+  client_id: 'dental',
+  project_store: {
+    activeProjectId: 'project-dental',
+    projects: [{
+      id: 'project-dental',
+      name: '社区口腔门诊',
+      state: {
+        client_id: 'dental',
+        project: { id: 'project-dental', client_id: 'dental', name: '社区口腔门诊' },
+        assessment: dentalData.assessment,
+        diagnosis: dentalData.diagnosis,
+        plans: dentalData.plans,
+        feedback: [],
+      },
+    }],
+  },
+}));
+assert(dentalStatePost.status === 201, 'POST /state should accept client_id');
+const dentalState = await dentalStatePost.json();
+assert(dentalState.client_id === 'dental' && dentalState.storage_key.includes('dental'), 'POST /state response should be scoped by client_id');
+const floristStateGet = await handler(request('GET', 'state?client_id=florist'));
+const floristState = await floristStateGet.json();
+assert(!floristState.project_store.projects.some((item) => item.id === 'project-dental'), 'GET /state?client_id=florist must not return dental project store');
+const dentalFeedbackPost = await handler(request('POST', 'feedback', {
+  client_id: 'dental',
+  content_plan_id: dentalData.plans[0].id,
+  publish_link: 'https://example.com/dental-post',
+  views: 120,
+  likes: 8,
+  comments: 1,
+  favorites: 4,
+  shares: 1,
+  consultations: 2,
+}));
+assert(dentalFeedbackPost.status === 201, 'POST /feedback should accept dental plan feedback');
+const dentalFeedbackBody = await dentalFeedbackPost.json();
+assert(dentalFeedbackBody.feedback.client_id === 'dental', 'POST /feedback should echo client_id');
+const floristFeedbackGet = await handler(request('GET', 'feedback?client_id=florist'));
+const floristFeedback = await floristFeedbackGet.json();
+assert(!floristFeedback.some((item) => item.publish_link === 'https://example.com/dental-post'), 'GET /feedback?client_id=florist must not return dental feedback');
 const statePayload = {
   activeProjectId: 'project-smoke-sync',
   lastActiveProjectId: null,

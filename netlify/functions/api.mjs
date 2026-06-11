@@ -1,5 +1,6 @@
 let state;
 let memoryCloudState = null;
+const memoryCloudStates = new Map();
 
 const APP_VERSION = '1.6.41';
 const VERSION_LABEL = 'v1.6.41 · 回填复盘与下轮7天计划版';
@@ -11,6 +12,16 @@ const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS |
 const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 9000), 1000), MODEL_TIMEOUT_MS);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
+const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+const normalizeClientId = (value = '') => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (['basketball-training', 'youth-basketball'].includes(raw)) return 'basketball';
+  const normalized = raw.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return CLIENT_ID_RE.test(normalized) ? normalized : '';
+};
+const clientIdFrom = (payload = {}, url = null, request = null) =>
+  normalizeClientId(payload.client_id || payload.customer_key || url?.searchParams?.get('client_id') || url?.searchParams?.get('customer') || request?.headers?.get('x-client-id') || 'anonymous');
+const clientScopedCloudStateKey = (clientId = 'anonymous') => `${CLOUD_STATE_KEY}.${normalizeClientId(clientId) || 'anonymous'}`;
 
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
 const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
@@ -901,7 +912,7 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
   return items;
 };
 
-const createAssessment = (payload) => {
+const createAssessment = (payload, clientId = clientIdFrom(payload)) => {
   const required = ['industry', 'main_goal', 'target_customer', 'current_channels', 'posting_frequency', 'biggest_problem'];
   const missing = required.filter((key) => !clean(payload, key));
   if (missing.length) throw new Error(`缺少必填字段：${missing.join(', ')}`);
@@ -918,6 +929,8 @@ const createAssessment = (payload) => {
 
   const assessment = {
     id: state.next.assessment++,
+    client_id: clientId,
+    customer_key: normalizeClientId(clean(payload, 'customer_key')) || clientId,
     company_name: clean(payload, 'company_name'),
     industry: clean(payload, 'industry'),
     main_goal: clean(payload, 'main_goal'),
@@ -963,6 +976,7 @@ const generateDiagnosis = (assessmentId) => {
   const benchmarkReference = benchmarkReferenceFor(assessment);
   const diagnosis = {
     id: state.next.diagnosis++,
+    client_id: assessment.client_id || 'anonymous',
     app_version: APP_VERSION,
     version_label: VERSION_LABEL,
     assessment_id: assessmentId,
@@ -1177,6 +1191,7 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   diagnosis.model_info = generation;
   const plans = sourceRows.map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
     id: state.next.plan++,
+    client_id: assessment?.client_id || diagnosis.client_id || 'anonymous',
     diagnosis_id: diagnosisId,
     planned_date: todayIso(index),
     platform: platforms[index % platforms.length],
@@ -1634,13 +1649,14 @@ const createCustomerGrowthAdvice = async (payload = {}) => {
   };
 };
 
-const recordFeedback = (planId, payload) => {
-  const plan = state.plans.find((item) => item.id === planId);
+const recordFeedback = (planId, payload, clientId = clientIdFrom(payload)) => {
+  const plan = state.plans.find((item) => item.id === planId && (!item.client_id || item.client_id === clientId));
   if (!plan) throw new Error('发布计划不存在');
   const publishLink = clean(payload, 'publish_link');
   if (!publishLink) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
   const feedback = {
     id: state.next.feedback++,
+    client_id: clientId,
     content_plan_id: planId,
     views: Number(payload.views || 0),
     likes: Number(payload.likes || 0),
@@ -1655,7 +1671,7 @@ const recordFeedback = (planId, payload) => {
   };
   plan.status = '已发布';
   if (feedback.publish_link) plan.publish_link = feedback.publish_link;
-  state.feedback = [feedback, ...state.feedback.filter((item) => !(Number(item.content_plan_id) === Number(planId) && String(item.feedback_stage || 'T+24') === String(feedback.feedback_stage)))];
+  state.feedback = [feedback, ...state.feedback.filter((item) => !(String(item.client_id || clientId) === String(clientId) && Number(item.content_plan_id) === Number(planId) && String(item.feedback_stage || 'T+24') === String(feedback.feedback_stage)))];
   return feedback;
 };
 
@@ -1831,18 +1847,20 @@ const cloudStore = async () => {
   }
 };
 
-const readCloudState = async () => {
+const readCloudState = async (clientId = 'anonymous') => {
+  const key = clientScopedCloudStateKey(clientId);
   const store = await cloudStore();
   if (store) {
-    const data = await store.get(CLOUD_STATE_KEY, { type: 'json' }).catch(() => null);
-    if (data) return {...cloudEnvelope(data.project_store || data, {storage: 'netlify-blobs'}), storage: 'netlify-blobs'};
+    const data = await store.get(key, { type: 'json' }).catch(() => null);
+    if (data) return {...cloudEnvelope(data.project_store || data, {client_id: clientId, storage_key: key, storage: 'netlify-blobs'}), storage: 'netlify-blobs'};
   }
-  if (!memoryCloudState) memoryCloudState = cloudEnvelope({projects: []}, {storage: 'memory-fallback'});
-  return {...memoryCloudState, storage: 'memory-fallback'};
+  if (!memoryCloudStates.has(key)) memoryCloudStates.set(key, cloudEnvelope({projects: []}, {client_id: clientId, storage_key: key, storage: 'memory-fallback'}));
+  return {...memoryCloudStates.get(key), storage: 'memory-fallback'};
 };
 
-const writeCloudState = async (payload = {}) => {
-  const current = await readCloudState();
+const writeCloudState = async (payload = {}, clientId = clientIdFrom(payload)) => {
+  const key = clientScopedCloudStateKey(clientId);
+  const current = await readCloudState(clientId);
   const incoming = normalizeCloudProjectStore(payload.project_store || payload);
   const byId = new Map();
   (current.project_store?.projects || []).forEach((item) => byId.set(String(item.id), item));
@@ -1854,13 +1872,14 @@ const writeCloudState = async (payload = {}) => {
     activeProjectId: incoming.activeProjectId || current.project_store?.activeProjectId || incoming.projects[0]?.id || null,
     lastActiveProjectId: incoming.lastActiveProjectId || current.project_store?.lastActiveProjectId || null,
     projects: [...byId.values()].sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || ''))),
-  }));
+  }, {client_id: clientId, storage_key: key}));
   const store = await cloudStore();
   if (store) {
-    await store.setJSON(CLOUD_STATE_KEY, merged);
+    await store.setJSON(key, merged);
     return {...merged, storage: 'netlify-blobs'};
   }
-  memoryCloudState = {...merged, storage: 'memory-fallback'};
+  memoryCloudStates.set(key, {...merged, storage: 'memory-fallback'});
+  memoryCloudState = memoryCloudStates.get(key);
   return memoryCloudState;
 };
 
@@ -1873,20 +1892,22 @@ export default async (request) => {
   );
   const path = `/${route.replace(/^\/+/, '')}`;
   try {
+    const requestClientId = clientIdFrom({}, url, request);
     if (request.method === 'GET') {
       if (path === '/health') return json({ ok: true, runtime: 'netlify-function', version: APP_VERSION, version_label: VERSION_LABEL });
-      if (path === '/state') return json(await readCloudState());
+      if (path === '/state') return json(await readCloudState(requestClientId));
       if (path === '/dashboard') return json(dashboard());
-      if (path === '/assessments') return json(state.assessments);
-      if (path === '/diagnoses') return json(state.diagnoses);
-      if (path === '/plans') return json(state.plans);
-      if (path === '/feedback') return json(state.feedback);
+      if (path === '/assessments') return json(state.assessments.filter((item) => !item.client_id || item.client_id === requestClientId));
+      if (path === '/diagnoses') return json(state.diagnoses.filter((item) => !item.client_id || item.client_id === requestClientId));
+      if (path === '/plans') return json(state.plans.filter((item) => !item.client_id || item.client_id === requestClientId));
+      if (path === '/feedback') return json(state.feedback.filter((item) => !item.client_id || item.client_id === requestClientId));
       if (path === '/reviews') return json(state.reviews);
     }
 
     const payload = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+    const payloadClientId = clientIdFrom(payload, url, request);
     if (request.method === 'POST' && path === '/assessments') {
-      const assessment_id = createAssessment(payload);
+      const assessment_id = createAssessment(payload, payloadClientId);
       const assessment = state.assessments.find((item) => item.id === assessment_id);
       const diagnosis = generateDiagnosis(assessment_id);
       const generated = await generateOpusPlanRows(assessment, diagnosis);
@@ -1895,14 +1916,14 @@ export default async (request) => {
       return json({ assessment_id, assessment, diagnosis, plans, model_info: generation_meta, generation_meta }, 201);
     }
     if (request.method === 'POST' && path === '/state') {
-      return json(await writeCloudState(payload), 201);
+      return json(await writeCloudState(payload, payloadClientId), 201);
     }
     if (request.method === 'POST' && path === '/customer-growth-advice') {
       return json(await createCustomerGrowthAdvice(payload), 200);
     }
     if (request.method === 'POST' && path === '/feedback') {
       const plan_id = Number(payload.content_plan_id);
-      const feedback = recordFeedback(plan_id, payload);
+      const feedback = recordFeedback(plan_id, payload, payloadClientId);
       return json({ feedback, dashboard: dashboard() }, 201);
     }
     if (request.method === 'POST' && path === '/reviews') {

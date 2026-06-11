@@ -9,8 +9,24 @@ const STORAGE_PREFIX = 'enterpriseMarketingMvpState.';
 const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
-const CUSTOMER_DEDICATED_STORAGE_KEYS = {
-  basketball: 'enterpriseMarketingCustomerTrial.basketball.v1',
+const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+const normalizeClientId = (value = '') => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (['basketball-training', 'youth-basketball'].includes(raw)) return 'basketball';
+  const normalized = raw.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return CLIENT_ID_RE.test(normalized) ? normalized : '';
+};
+const readSessionClientId = () => {
+  try {
+    const stored = window.sessionStorage?.getItem(CUSTOMER_SESSION_KEY);
+    if (stored) return normalizeClientId(stored);
+    const next = 'anonymous-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    window.sessionStorage?.setItem(CUSTOMER_SESSION_KEY, next);
+    return next;
+  } catch {
+    return 'anonymous-fallback';
+  }
 };
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
 const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
@@ -126,7 +142,8 @@ const customerDisplayName = (assessment = {}, project = null) => {
   return name ? withWorkbenchSuffix(name) : '我的内容增长作战台';
 };
 const makeProject = (assessment = {}, existing = null) => existing || {
-  id: assessment.project_id || `project-${Date.now()}`,
+  id: assessment.project_id || `project-${assessment.client_id || 'customer'}-${Date.now()}`,
+  client_id: assessment.client_id || customerClientId(),
   name: customerDisplayName(assessment),
   created_at: localTimestamp(),
 };
@@ -148,6 +165,7 @@ const normalizeState = (state = {}) => {
   }));
   return {
     project,
+    client_id: state.client_id || assessment?.client_id || project?.client_id || customerClientId(),
     project_stage: state.project_stage || inferProjectStage({plans: state.plans, feedback: state.feedback, review: state.review, diagnosis: state.diagnosis}),
     current_cycle_id,
     assessment,
@@ -310,7 +328,7 @@ function preferProjectItem(candidate, existing){
 }
 function loadProjectStore(){
   try {
-    const parsed = JSON.parse(safeStorage.getItem(PROJECTS_KEY) || 'null');
+    const parsed = JSON.parse(safeStorage.getItem(projectsStorageKey()) || 'null');
     if (parsed && Array.isArray(parsed.projects)) {
       projectStore = {
         activeProjectId: parsed.activeProjectId || parsed.projects[0]?.id || null,
@@ -324,7 +342,7 @@ function loadProjectStore(){
   return projectStore;
 }
 function saveProjectStore(){
-  return safeStorage.setItem(PROJECTS_KEY, JSON.stringify(projectStore));
+  return safeStorage.setItem(projectsStorageKey(), JSON.stringify(projectStore));
 }
 function normalizeProjectStoreShape(store = {}){
   const projects = Array.isArray(store.projects) ? store.projects : [];
@@ -367,7 +385,7 @@ function mergeProjectStores(localStore = projectStore, cloudStore = {}){
 let cloudSyncTimer = null;
 async function pullCloudProjectStore({silent = true} = {}){
   try {
-    const result = await api('/api/state');
+    const result = await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}`);
     if (result?.project_store?.projects) {
       mergeProjectStores(projectStore, result.project_store);
       if (!silent) toast(`已同步云端项目：${projectStore.projects.length} 个`);
@@ -381,7 +399,7 @@ async function pullCloudProjectStore({silent = true} = {}){
 async function pushCloudProjectStore({silent = true} = {}){
   try {
     loadProjectStore();
-    await api('/api/state', {method:'POST', body: JSON.stringify({project_store: projectStore})});
+    await api('/api/state', {method:'POST', body: JSON.stringify({client_id: customerClientId(), project_store: projectStore})});
     if (!silent) toast('已同步到云端，手机和电脑刷新后可见');
     return true;
   } catch (error) {
@@ -409,7 +427,7 @@ const saveLocal = () => {
   clientState.saved_at = localTimestamp();
   clientState = sanitizeCustomerPayload(clientState);
   upsertCurrentProjectState();
-  const saved = safeStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
+  const saved = safeStorage.setItem(appStateStorageKey(), JSON.stringify(clientState));
   scheduleCloudSync();
   return saved;
 };
@@ -418,6 +436,8 @@ function buildVersionedProjectState(result = {}, payload = {}, source = 'custome
   const existing = existingState || blankClientState();
   const assessment = {
     ...(result.assessment || payload),
+    client_id: (result.assessment || payload).client_id || payload.client_id || customerClientId(),
+    customer_key: (result.assessment || payload).customer_key || payload.customer_key || explicitCustomerClientId() || customerClientId(),
     source,
     submitted_by: source === 'customer_public' ? '客户' : '团队人员',
     app_version: APP_VERSION,
@@ -429,6 +449,7 @@ function buildVersionedProjectState(result = {}, payload = {}, source = 'custome
   const diagnosisVersion = previousDiagnoses.length + 1;
   const diagnosis = {
     ...(result.diagnosis || {}),
+    client_id: (result.diagnosis || {}).client_id || assessment.client_id,
     diagnosis_version: diagnosisVersion,
     reason_for_regeneration: reason,
     is_active: true,
@@ -543,8 +564,37 @@ function renderCustomerGeneratedState(saved = {}, options = {}){
   return true;
 }
 
-function customerTrialStorageKey(){
-  return CUSTOMER_DEDICATED_STORAGE_KEYS[dedicatedCustomerKey()] || CUSTOMER_STORAGE_KEY;
+function explicitCustomerClientId(){
+  const params = new URLSearchParams(window.location.search || '');
+  return normalizeClientId(params.get('client_id') || params.get('customer') || params.get('client') || params.get('prefill') || '');
+}
+
+function customerClientId(){
+  return explicitCustomerClientId() || readSessionClientId();
+}
+
+function customerTrialStorageKey(clientId = customerClientId()){
+  return `enterpriseMarketingCustomerTrial.${normalizeClientId(clientId) || 'anonymous-fallback'}.v1`;
+}
+
+function projectsStorageKey(clientId = customerClientId()){
+  if (isInternalMode()) return PROJECTS_KEY;
+  return `enterpriseMarketingMvpProjects.${normalizeClientId(clientId) || 'anonymous-fallback'}.v1`;
+}
+
+function appStateStorageKey(clientId = customerClientId()){
+  if (isInternalMode()) return STORAGE_KEY;
+  return `enterpriseMarketingMvpState.${normalizeClientId(clientId) || 'anonymous-fallback'}.v5`;
+}
+
+function customerScopedPayload(payload = {}){
+  const client_id = customerClientId();
+  const customer_key = dedicatedCustomerKey() || explicitCustomerClientId() || client_id;
+  return sanitizeCustomerPayload({
+    ...payload,
+    client_id,
+    customer_key,
+  });
 }
 
 function isBasketballDedicatedAssessment(assessment = {}){
@@ -580,7 +630,7 @@ const loadLocal = () => {
   if (active?.state && hasRestorableState(active.state)) {
     projectStore.activeProjectId = active.id;
     saveProjectStore();
-    safeStorage.setItem(STORAGE_KEY, JSON.stringify(active.state));
+    safeStorage.setItem(appStateStorageKey(), JSON.stringify(active.state));
     return active.state;
   }
   const candidates = [];
@@ -600,7 +650,7 @@ const loadLocal = () => {
   const best = candidates[0];
   clientState = best.state;
   upsertCurrentProjectState();
-  if (best.key !== STORAGE_KEY) safeStorage.setItem(STORAGE_KEY, JSON.stringify(best.state));
+  if (best.key !== appStateStorageKey()) safeStorage.setItem(appStateStorageKey(), JSON.stringify(best.state));
   return best.state;
 };
 function switchProject(projectId){
@@ -611,7 +661,7 @@ function switchProject(projectId){
   projectStore.activeProjectId = project.id;
   clientState = normalizeState(project.state);
   saveProjectStore();
-  safeStorage.setItem(STORAGE_KEY, JSON.stringify(clientState));
+  safeStorage.setItem(appStateStorageKey(), JSON.stringify(clientState));
   renderAllFromClient();
   toast(`已切换到：${project.name}`);
 }
@@ -623,7 +673,7 @@ function startNewProject(){
   projectStore.activeProjectId = null;
   saveProjectStore();
   safeStorage.setItem(DEMO_DISABLED_KEY, '1');
-  safeStorage.removeItem(STORAGE_KEY);
+  safeStorage.removeItem(appStateStorageKey());
   renderAllFromClient();
   closeMoreActions();
   showDiagnosisWorkflow();
@@ -786,7 +836,7 @@ async function loadContentDecisionSample({silent = false} = {}){
 async function loadAll(){
   const params = new URLSearchParams(location.search);
   if (params.get('empty') === '1' || params.get('reset') === '1') {
-    safeStorage.removeItem(STORAGE_KEY); safeStorage.removeItem(DEMO_DISABLED_KEY);
+    safeStorage.removeItem(appStateStorageKey()); safeStorage.removeItem(DEMO_DISABLED_KEY);
     clientState = blankClientState();
     renderAllFromClient();
     return;
@@ -1546,6 +1596,7 @@ async function requestCustomerDailyAdvice(saved = {}, record = {}){
   return api('/api/customer-growth-advice', {
     method:'POST',
     body: JSON.stringify({
+      client_id: customerClientId(),
       assessment: saved.assessment || clientState.assessment || {},
       diagnosis: saved.diagnosis || clientState.diagnosis || {},
       plans: customerPlans(saved),
@@ -1557,20 +1608,25 @@ async function requestCustomerDailyAdvice(saved = {}, record = {}){
 }
 
 function saveCustomerTrialState(update){
+  const client_id = customerClientId();
   const current = loadCustomerTrialState({allowDedicatedFallback: true});
   const dedicated = dedicatedCustomerKey();
   const next = {
     ...current,
     ...update,
-    ...(dedicated ? {dedicated_customer: dedicated, customer_key: dedicated} : {}),
+    client_id,
+    customer_key: dedicated || explicitCustomerClientId() || client_id,
+    ...(dedicated ? {dedicated_customer: dedicated} : {}),
     updated_at: localTimestamp(),
   };
-  safeStorage.setItem(customerTrialStorageKey(), JSON.stringify(next));
+  safeStorage.setItem(customerTrialStorageKey(client_id), JSON.stringify(next));
 }
 
 function loadCustomerTrialState(options = {}){
   try {
-    const state = JSON.parse(safeStorage.getItem(customerTrialStorageKey()) || '{}');
+    const client_id = customerClientId();
+    const state = JSON.parse(safeStorage.getItem(customerTrialStorageKey(client_id)) || '{}');
+    if (state.client_id && String(state.client_id) !== String(client_id)) return {};
     if (!dedicatedCustomerKey() && !options.allowDedicatedFallback && isDedicatedCustomerState(state)) return {};
     return state;
   } catch {
@@ -1581,10 +1637,11 @@ function loadCustomerTrialState(options = {}){
 function saveCustomerDraft(payload = {}){
   if (!payload || typeof payload !== 'object') return;
   const draft = sanitizeCustomerPayload({...payload});
+  draft.client_id = customerClientId();
+  draft.customer_key = dedicatedCustomerKey() || explicitCustomerClientId() || draft.client_id;
   const dedicated = dedicatedCustomerKey();
   if (dedicated) {
     draft.dedicated_customer = dedicated;
-    draft.customer_key = dedicated;
   }
   if (!Object.values(draft).some((value)=>String(value || '').trim())) return;
   saveCustomerTrialState({draft_assessment: draft});
@@ -1678,9 +1735,7 @@ const BASKETBALL_CUSTOMER_PROFILE = {
 };
 
 function dedicatedCustomerKey(){
-  const params = new URLSearchParams(window.location.search || '');
-  const value = (params.get('customer') || params.get('client') || params.get('prefill') || '').trim().toLowerCase();
-  if (['basketball', 'basketball-training', 'youth-basketball'].includes(value)) return 'basketball';
+  if (explicitCustomerClientId() === 'basketball') return 'basketball';
   return '';
 }
 
@@ -1854,27 +1909,30 @@ function initCustomerTrial(){
       setCustomerMessage(errorBox, validation);
       return;
     }
-    saveCustomerDraft(payload);
+    const scopedPayload = customerScopedPayload(payload);
+    saveCustomerDraft(scopedPayload);
     clearCustomerGeneratedView();
     await withBusy($('#customerGenerateBtn'), '正在生成建议...', async () => {
       try {
-        const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(payload)});
+        const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(scopedPayload)});
         const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
-        clientState = buildVersionedProjectState(result, payload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
+        clientState = buildVersionedProjectState(result, scopedPayload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
         saveLocal();
         const diagnosis = clientState.diagnosis || {};
         const plans = clientState.plans || [];
         const dedicated = dedicatedCustomerKey();
-        const stateAssessment = clientState.assessment || payload;
+        const stateAssessment = customerScopedPayload(clientState.assessment || scopedPayload);
         const generatedState = {
-          assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated, customer_key: dedicated} : stateAssessment,
-          draft_assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated, customer_key: dedicated} : stateAssessment,
+          assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
+          draft_assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
           diagnosis,
           plans,
           suggestion: customerSuggestionText,
           project_id: clientState.project?.id,
           diagnosis_history: clientState.diagnosis_history,
-          ...(dedicated ? {dedicated_customer: dedicated, customer_key: dedicated} : {}),
+          client_id: stateAssessment.client_id,
+          customer_key: stateAssessment.customer_key,
+          ...(dedicated ? {dedicated_customer: dedicated} : {}),
         };
         saveCustomerTrialState(generatedState);
         renderCustomerGeneratedState(generatedState, {focus: true});
@@ -1900,7 +1958,7 @@ function initCustomerTrial(){
       return;
     }
     const engagement = toNonNegative(data.engagement) || (toNonNegative(data.likes) + toNonNegative(data.favorites) + toNonNegative(data.comments) + toNonNegative(data.shares));
-    let record = {...data, engagement, content_plan_id: planIdValue(selectedPlan), plan_topic: selectedPlan.topic || '', created_at: localTimestamp()};
+    let record = {...data, client_id: customerClientId(), engagement, content_plan_id: planIdValue(selectedPlan), plan_topic: selectedPlan.topic || '', created_at: localTimestamp()};
     let nextState = {...current, records: [record, ...records], selected_plan_id: planIdValue(selectedPlan), updated_at: localTimestamp()};
     try {
       const dailyAdvice = await requestCustomerDailyAdvice(nextState, record);
@@ -1926,6 +1984,7 @@ function initCustomerTrial(){
       const livePlan = clientState.plans.find((plan)=>samePlanId(planIdValue(plan), selectedPlanId)) || selectedPlan;
       const feedback = {
         id: Date.now(),
+        client_id: customerClientId(),
         project_id: clientState.project?.id || current.project_id || 'customer-project',
         cycle_id: clientState.current_cycle_id || 'cycle-1',
         content_plan_id: selectedPlanId,
@@ -2118,8 +2177,8 @@ function resetForNewCustomer(){
 }
 window.resetForNewCustomer = resetForNewCustomer;
 function clearAllLocalData(){
-  safeStorage.removeItem(STORAGE_KEY);
-  safeStorage.removeItem(PROJECTS_KEY);
+  safeStorage.removeItem(appStateStorageKey());
+  safeStorage.removeItem(projectsStorageKey());
   safeStorage.setItem(DEMO_DISABLED_KEY, '1');
   projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
   clientState = blankClientState();
@@ -2976,6 +3035,7 @@ function initInternalApp(){
       if (!plan) throw new Error('发布计划ID不存在，请先生成计划');
       const feedback = {
         id: Date.now(),
+        client_id: clientState.client_id || clientState.assessment?.client_id || 'internal',
         project_id: clientState.project?.id || 'default-project',
         cycle_id: clientState.current_cycle_id || 'cycle-1',
         ...data,
@@ -2997,7 +3057,7 @@ function initInternalApp(){
       const successMessage = '反馈已保存，本地看板和周复盘已更新。';
       setFeedbackSaveMessage(successMessage);
       toast(successMessage);
-      api('/api/feedback', {method:'POST', body: JSON.stringify(data)})
+      api('/api/feedback', {method:'POST', body: JSON.stringify({...data, client_id: feedback.client_id, project_id: feedback.project_id, cycle_id: feedback.cycle_id})})
         .then(() => setFeedbackSaveMessage('反馈已保存，并已同步云端临时接口。'))
         .catch(() => {
           const syncMessage = '本地已保存；云端临时接口同步失败，不影响本浏览器查看。';
