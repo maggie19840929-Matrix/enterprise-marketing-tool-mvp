@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>企业内容增长助手 · 生成发布计划与效果复盘</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.38" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.38" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.46" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.46" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -233,7 +233,7 @@
         <form id="customerEffectForm" class="customer-effect-form">
           <input name="content_plan_id" type="hidden" required />
           <div id="customerSelectedPlan" class="customer-selected-plan customer-wide" data-empty="true">先从上方 7 天计划中选择你实际发布的那一条，再保存数据。</div>
-          <label>发布链接<input name="publish_link" type="url" placeholder="粘贴小红书 / 抖音 / 视频号等已发布链接" /></label>
+          <label>发布链接<input name="publish_link" type="text" inputmode="url" placeholder="粘贴小红书 / 抖音 / 视频号等已发布链接" /></label>
           <label>发布日期<input name="published_at" type="date" /></label>
           <label>浏览 / 曝光<input name="views" type="number" min="0" value="0" /></label>
           <label>点赞<input name="likes" type="number" min="0" value="0" /></label>
@@ -310,18 +310,20 @@
       <div class="customer-section-head">
         <p>STEP 1 · 业务信息</p>
         <h2>先说清楚客户业务和目标</h2>
-        <span>内测版可先用一段话分析，再手动修正字段；确认系统理解后再生成内容建议。</span>
+        <span>内测版主流程与客户版一致：确认业务字段后生成内容建议；AI 采集和风险判断放在折叠面板里。</span>
       </div>
       <div class="customer-intake-layout internal-intake-layout">
       <article class="internal-new-project-panel">
         <div class="panel-head compact-head">
           <div>
-            <p class="eyebrow">新增项目 / AI采集</p>
-            <h2>先说业务，系统再追问</h2>
-            <p class="hint">不用先填表。把客户业务、目标、客群、产品和现有素材用一段话告诉系统；系统会先提取关键信息，不足的再补问。</p>
+            <p class="eyebrow">新增项目 / 业务信息</p>
+            <h2>先确认业务信息</h2>
+            <p class="hint">主流程对齐客户版：确认业务、目标、客群、平台和素材后生成 7 天内容建议；内部采集和误判风险默认折叠。</p>
           </div>
         </div>
         <form id="assessmentForm" class="assessment-form compact-form customer-form internal-intake-form ai-intake-form" novalidate>
+          <details class="customer-more-fields advanced-fields internal-ai-fold">
+            <summary>内部 AI 采集 / 理解校验 / 误判风险</summary>
           <div class="ai-brief-card wide-field">
             <div class="ai-brief-head">
               <span>AI项目助手</span>
@@ -335,12 +337,13 @@
             </div>
           </div>
           <div id="aiIntakeUnderstanding" class="ai-intake-understanding wide-field" aria-live="polite"></div>
+          </details>
 
           <details class="customer-more-fields advanced-fields internal-structured-fields" open>
             <summary>查看/手动修正系统提取的信息</summary>
             <div class="customer-more-grid advanced-grid">
               <label>公司/门店名<input name="company_name" placeholder="可选，用于项目命名" /></label>
-              <label>你的行业/业务是什么？*<input name="industry" required placeholder="如：美甲店、产康门店、本地服务机构；行业较大时，下方补充具体卖什么" /></label>
+              <label>你的行业/业务是什么？*<input name="industry" required placeholder="如：本地服务、教育咨询、零售电商、企业服务；行业较大时，下方补充具体卖什么" /></label>
               <label>你现在最想达成什么目标？*<input name="main_goal" required placeholder="如：让附近客户咨询套餐 / 提升小红书咨询量" /></label>
               <label>你的目标客户是谁？*<input name="target_customer" required placeholder="如：附近3公里爱美女性 / 准备留学的学生家长" /></label>
               <label>当前产品/服务<input name="offer" placeholder="如：主推服务、体验产品、咨询方案或套餐" /></label>
@@ -462,11 +465,18 @@
         <h2>内容数据回填</h2>
         <span>从计划卡片进入：查看/曝光是基础，点赞/收藏/评论是互动，咨询才是转化判断。</span>
       </div>
-      <div class="internal-feedback-layout">
-      <article>
+      <div id="refillCockpit" class="refill-cockpit" aria-live="polite"></div>
+      <div class="internal-feedback-dashboard" data-dashboard="content-refill">
+      <article class="refill-zone refill-zone-pool" data-zone="A">
+        <div class="refill-zone-head"><span>A · 样本池</span><h3>已发布内容选择</h3><p>数据来源：已发布计划与历史反馈链接。选择后自动绑定内容计划。</p></div>
+        <div id="publishedLinkPicker" class="published-link-picker" hidden></div>
+      </article>
+
+      <article class="refill-zone refill-zone-input" data-zone="B">
+        <div class="refill-zone-head"><span>B · 输入</span><h3>本次回填输入</h3><p>数据来源：客户后台/平台数据，保存后进入回填记录与复盘判断。</p></div>
         <form id="feedbackForm" class="customer-effect-form">
           <label>发布计划<input name="content_plan_id" required type="hidden" /><span id="selectedPlanDisplay" class="selected-plan-display">从计划卡片选择</span></label>
-          <label>发布链接<input name="publish_link" required type="url" placeholder="粘贴已发布内容链接" /></label>
+          <label>发布链接<input name="publish_link" required type="text" inputmode="url" placeholder="粘贴已发布内容链接" /></label>
           <label>反馈时间点
             <select name="feedback_stage" required>
               <option value="T+24">T+24｜发布后24小时</option>
@@ -488,29 +498,40 @@
         </form>
       </article>
 
-      <article>
+      <article class="refill-zone refill-zone-review" data-zone="D">
         <div class="panel-head review-panel-head">
           <div>
-            <h2>周复盘</h2>
-            <span>先看结论，再展开证据</span>
+            <span class="zone-kicker">D · 复盘判断依据</span>
+            <h2>系统判断与下一步</h2>
+            <span>首屏只放结论和关键指标，长依据在下方折叠。</span>
           </div>
           <button id="reviewBtn" class="review-primary-btn" type="button">↻ 更新复盘</button>
         </div>
         <div id="reviewBox" class="empty">保存反馈后，系统会自动生成周复盘。</div>
-        <section id="nextSevenDataPage" class="next-seven-data-page" aria-label="下一个七天数据"></section>
-        <h3>回填记录</h3>
+      </article>
+
+      <article class="refill-zone refill-zone-records" data-zone="C">
+        <div class="refill-zone-head"><span>C · 记录</span><h3>回填记录</h3><p>数据来源：已保存反馈。按内容标题、平台、时间点和指标做对比。</p></div>
         <div id="feedbackList" class="list"></div>
+      </article>
+
+      <article class="refill-zone refill-zone-evidence" data-zone="E">
+        <div class="refill-zone-head"><span>E · 依据</span><h3>客户输入与诊断依据</h3><p>数据来源：客户表单、系统诊断、发布反馈。内容表现和诊断依据分开追溯。</p></div>
         <div class="evidence-review-zone">
-          <h3>复盘与判断依据</h3>
-          <details id="reviewEvidencePanel" class="review-evidence-entry collapsible-panel">
-            <summary>内容复盘依据</summary>
+          <details id="reviewEvidencePanel" class="review-evidence-entry collapsible-panel" open>
+            <summary>内容表现依据</summary>
             <div id="reviewEvidenceBox" class="empty">保存反馈后，这里会汇总回填记录和复盘判断。</div>
           </details>
           <details id="clientEvidencePanel" class="client-snapshot-panel compact-client-panel collapsible-panel">
-            <summary>客户输入与诊断依据</summary>
+            <summary>客户输入 / 系统诊断依据</summary>
             <div id="clientSnapshot" class="empty">暂无客户数据，先提交一次营销体检。</div>
           </details>
         </div>
+      </article>
+
+      <article class="refill-zone refill-zone-next" data-zone="F">
+        <div class="refill-zone-head"><span>F · 下一轮</span><h3>下一轮 7 天建议</h3><p>数据来源：当前计划、已回填指标和复盘结论；只做决策建议，不代发。</p></div>
+        <section id="nextSevenDataPage" class="next-seven-data-page" aria-label="下一个七天数据"></section>
       </article>
       </div>
     </section>
@@ -518,6 +539,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.38"></script>
+  <script src="/app.js?v=1.6.46"></script>
 </body>
 </html>

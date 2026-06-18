@@ -97,7 +97,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.41', `expected app_version 1.6.41, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.46', `expected app_version 1.6.46, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -109,6 +109,8 @@ assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', '
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
+assert(diagnosis.strategy_mvp && diagnosis.strategy_mvp.seven_day_flywheel.length === 7, 'diagnosis should expose platform strategy MVP and 7-day flywheel');
+assert(plans.every((plan) => plan.experiment_type && plan.why_platform_fit && Array.isArray(plan.observe_metrics) && plan.observe_metrics.length >= 3 && plan.next_adjustment && plan.content_hypothesis), 'plans should include experiment type, platform fit, metrics, next adjustment and hypothesis');
 assert(data.model_info && data.generation_meta, 'POST /assessments should return model_info and generation_meta');
 assert(data.generation_meta.provider === 'local' && data.generation_meta.actual_model === 'rule_template' && data.generation_meta.fallback === true && data.generation_meta.fallback_reason === 'missing_ark_api_key', 'missing Ark env should produce explicit local rule_template fallback evidence');
 
@@ -122,6 +124,30 @@ const basketballData = await submitAssessmentForClient('basketball', {
   content_assets: '课堂训练视频、教练资质、家长反馈',
   current_channels: '抖音,小红书,视频号',
 });
+const basketballPlanText = JSON.stringify({assessment: basketballData.assessment, diagnosis: basketballData.diagnosis, plans: basketballData.plans});
+['安标', '医疗器械', 'PTE', 'SunPace', 'Sunny', 'P01', 'P02', 'P03'].forEach((word) => {
+  assert(!basketballPlanText.includes(word), `basketball strategy output must not leak cross-project term: ${word}`);
+});
+['抖音', '小红书', '视频号'].forEach((platform) => {
+  assert(basketballData.plans.some((plan) => plan.platform === platform), `basketball plans should include ${platform}`);
+});
+const basketballPlatformStrategies = new Map(basketballData.plans.map((plan) => [plan.platform, [plan.why_platform_fit, plan.platform_expression, plan.next_adjustment, (plan.observe_metrics || []).join('/')].join('|')]));
+assert(basketballPlatformStrategies.get('抖音') && basketballPlatformStrategies.get('小红书') && basketballPlatformStrategies.get('视频号'), 'basketball should have strategies for Douyin/XHS/Video Account');
+assert(new Set([...basketballPlatformStrategies.values()]).size >= 3, 'Douyin/XHS/Video Account strategy text should be clearly different');
+assert(new Set(basketballData.plans.map((plan) => plan.experiment_type)).size >= 5, 'basketball 7-day plan should cover multiple experiment types, not average posting');
+assert(Array.isArray(basketballData.diagnosis.strategy_mvp.growth_gaps), 'basketball diagnosis should expose growth gap prompts as a non-blocking array');
+const lowInfoBasketball = await submitAssessment({
+  client_id: 'basketball-low-info',
+  customer_key: 'basketball-low-info',
+  industry: '少儿篮球培训',
+  main_goal: '提升体验课预约',
+  target_customer: '6-12岁孩子家长',
+  current_channels: '抖音,小红书,视频号',
+  biggest_problem: '不知道发什么',
+});
+assert(lowInfoBasketball.plans.length === 7, 'low-info basketball payload should still generate a 7-day plan without posting_frequency/offer/pain/assets');
+assert(lowInfoBasketball.diagnosis.strategy_mvp.growth_gaps.length >= 3, 'low-info basketball payload should show non-blocking growth gap prompts');
+assert(lowInfoBasketball.plans.every((plan) => plan.why_platform_fit && plan.next_adjustment), 'low-info basketball plans should still include platform strategy and adjustment advice');
 const dentalData = await submitAssessmentForClient('dental', {
   company_name: '社区口腔门诊',
   industry: '口腔护理/牙科门诊',
@@ -185,6 +211,12 @@ assert(dentalState.client_id === 'dental' && dentalState.storage_key.includes('d
 const floristStateGet = await handler(request('GET', 'state?client_id=florist'));
 const floristState = await floristStateGet.json();
 assert(!floristState.project_store.projects.some((item) => item.id === 'project-dental'), 'GET /state?client_id=florist must not return dental project store');
+const internalStateGet = await handler(request('GET', 'state?client_id=internal&mode=internal'));
+assert(internalStateGet.status === 200, 'GET /state?client_id=internal&mode=internal should succeed');
+const internalState = await internalStateGet.json();
+assert(Array.isArray(internalState.project_store.projects), 'internal state should return a project store array');
+assert(!internalState.project_store.projects.some((item) => String(item.id || '').includes('project-p03') || String(item.name || '').includes('安标') || String(item.state?.source || '').includes('feishu_bitable_p03')), 'internal state must not auto-inject P03/安标 seed content');
+assert(!floristState.project_store.projects.some((item) => String(item.name || '').includes('安标')), 'non-internal state must not receive unrelated internal seed content');
 const dentalFeedbackPost = await handler(request('POST', 'feedback', {
   client_id: 'dental',
   content_plan_id: dentalData.plans[0].id,
@@ -233,10 +265,12 @@ assertNoUnsafeCommentCta('content decision diagnosis/plans', { diagnosis, plans 
 const appJs = readFileSync(new URL('../static/app.js', import.meta.url), 'utf8');
 const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
 const apiSource = readFileSync(new URL('../netlify/functions/api.mjs', import.meta.url), 'utf8');
+const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.meta.url), 'utf8');
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.41'"), 'app should expose v1.6.41 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.46'"), 'app should expose v1.6.46 internally/API-side');
+assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('isInternalMode() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state');
 assert(appJs.includes("return '检测合规服务';"), 'app should collapse legacy/real compliance project aliases into one dropdown item');
 assert(!appJs.includes('function isAnbiaoCustomerProject()') && !appJs.includes('renderAnbiaoCustomerData') && !appJs.includes('ANBIAO_CUSTOMER_ROWS'), 'anbiao publish-link refill module should be removed from internal app');
 assert(!appJs.includes('安标检测 / 发布链接回填') && !appJs.includes('查看回填链接表'), 'anbiao publish-link refill UI should not be rendered');
@@ -253,11 +287,14 @@ assert(appJs.includes('function prefillFeedback(id)'), 'app should expose prefil
 assert(appJs.includes("[name=content_plan_id]"), 'prefillFeedback should target the content_plan_id field');
 assert(appJs.includes('function samePlanId') && appJs.includes('function planIdValue'), 'plan feedback matching should preserve the original plan.id instead of coercing all ids to numbers');
 assert(appJs.includes('js-prefill-feedback') && appJs.includes('data-plan-id="${esc(planIdValue(p))}"'), 'all plan feedback buttons should carry the exact plan.id in data-plan-id');
-assert(appJs.includes('planInput.value = planId;'), 'prefillFeedback must write the exact plan.id into #feedbackForm [name=content_plan_id]');
-assert(appJs.includes('planDisplay.textContent = displayNumber ? `计划 #${displayNumber}`'), 'prefillFeedback must update #selectedPlanDisplay to 计划 #N');
+assert(appJs.includes('function setInternalFeedbackPlan') && appJs.includes('planInput.value = selectedPlanId;'), 'prefillFeedback must write the exact plan.id into #feedbackForm [name=content_plan_id]');
+assert(appJs.includes('function resolveInternalFeedbackPlan') && appJs.includes('auto_visible_first_fallback'), 'internal feedback submit should auto-bind a visible plan instead of blocking on an empty hidden selector');
+assert(appJs.includes('planDisplay.textContent = displayNumber ? `计划 #${displayNumber}${topic}`'), 'prefillFeedback must update #selectedPlanDisplay to the selected plan label');
 assert(appJs.includes('initPlanFeedbackButtons();'), 'plan feedback buttons should use stable delegated click binding');
 assert(appJs.includes("[name=publish_link]") && appJs.includes('linkInput?.focus()'), 'prefillFeedback should focus the publish link field');
-assert(appJs.includes('existingFeedback?.publish_link || plan?.publish_link'), 'prefillFeedback should prefill existing publish links');
+assert(appJs.includes('normalizeExternalUrl(existingFeedback?.publish_link || plan?.publish_link'), 'prefillFeedback should prefill existing publish links with protocol-normalized URLs');
+assert(appJs.includes('function normalizeExternalUrl') && appJs.includes('https://${text}'), 'app should normalize bare external URLs to https:// before display/save');
+assert(indexHtml.includes('name="publish_link" required type="text" inputmode="url"'), 'publish link input should accept bare domains so the app can normalize them');
 assert(appJs.includes('scrollIntoView'), 'prefillFeedback should scroll to the feedback form area');
 assert(appJs.includes('is-highlighted'), 'prefillFeedback should highlight the feedback area');
 assert(appJs.includes('已选择计划 #'), 'prefillFeedback should show a business toast after locating the form');
@@ -266,8 +303,12 @@ assert(appJs.includes('function resetForNewCustomer'), 'war-room should keep a r
 assert(appJs.includes('customerDisplayName') && !appJs.includes("a.company_name || '未命名客户'"), 'app should not render 未命名客户 as the customer title');
 
 assert(appJs.includes('function renderSmartDiagnosisModule') && appJs.includes('内测智能诊断内核') && appJs.includes("payload.client_mode = 'internal_test'"), 'internal mode should render the smart diagnosis kernel without changing customer entry');
-assert(appJs.includes('function internalIntakeSnapshot') && appJs.includes('系统理解卡') && appJs.includes('组件 3 · 缺项补充卡') && appJs.includes('组件 4 · 项目误判风险卡') && appJs.includes('组件 5 · 确认继续') && appJs.includes('请先确认“系统理解正确”'), 'internal AI intake should render five project-understanding components and block generation until confirmation');
+assert(appJs.includes('function internalIntakeSnapshot') && appJs.includes('系统理解卡') && appJs.includes('组件 3 · 缺项补充卡') && appJs.includes('组件 4 · 项目误判风险卡') && appJs.includes('组件 5 · 确认继续') && appJs.includes('业务字段已齐，可以生成'), 'internal AI intake should render project-understanding components while keeping generation aligned with the customer flow');
 assert(indexHtml.includes('id="aiExtractBtn"') && indexHtml.includes('分析项目') && indexHtml.includes('id="aiClearBtn"') && indexHtml.includes('清空重写'), 'internal AI intake should expose analyze and clear actions in the input card');
+assert(indexHtml.includes('id="publishedLinkPicker"') && indexHtml.includes('internal-ai-fold') && appJs.includes('function renderPublishedLinkPicker') && appJs.includes('function selectPublishedLink') && appJs.includes('published_link_picker'), 'internal feedback should keep AI/debug collection folded and let testers select existing published links');
+assert(indexHtml.includes('id="refillCockpit"') && indexHtml.includes('data-zone="A"') && indexHtml.includes('data-zone="F"'), 'internal refill UI should expose a cockpit and A-F dashboard zones');
+assert(appJs.includes('function renderRefillCockpit') && appJs.includes('function feedbackMetricSet') && appJs.includes('feedback-compare-card'), 'internal refill UI should render cockpit metrics and comparison cards');
+assert(warRoomCss.includes('.internal-feedback-dashboard') && warRoomCss.includes('.refill-cockpit') && warRoomCss.includes('.refill-metric.is-missing'), 'internal refill CSS should style dashboard zones, cockpit, and missing metrics');
 assert(appJs.includes('id="aiIntakeUnderstanding"') || readFileSync(new URL('../static/index.html', import.meta.url), 'utf8').includes('id="aiIntakeUnderstanding"'), 'internal AI intake should have a dedicated understanding card container');
 assert(appJs.includes('function buildCustomerNextAdvice') && appJs.includes('function buildCustomerNextRoundPlan') && appJs.includes('customerNextAdvice'), 'customer trial should generate review judgment and next-round plan after effect record save');
 assert(indexHtml.includes('name="content_plan_id" type="hidden" required') && indexHtml.includes('id="customerSelectedPlan"'), 'customer daily refill must carry an explicit selected content_plan_id');
@@ -287,7 +328,7 @@ assert(appJs.includes('function autoReviewFromFeedback()'), 'app should auto-gen
 assert(appJs.includes('保存至少 1 条发布链接和反馈后') || appJs.includes('这里会自动生成周复盘'), 'weekly review empty state should explain auto review');
 assert(appJs.includes('function planUiMeta'), 'plan cards should classify priority/pending/done states');
 assert(appJs.includes('plan-next') && appJs.includes('今日优先'), 'first pending plan should be visually distinguished in-place');
-assert(appJs.includes('openClientEvidence') && appJs.includes('客户输入') && appJs.includes('系统判断') && appJs.includes('内容复盘依据'), 'evidence should be reachable with customer-facing labels');
+assert(appJs.includes('openClientEvidence') && appJs.includes('客户输入') && appJs.includes('系统判断') && (appJs.includes('内容复盘依据') || indexHtml.includes('内容表现依据')), 'evidence should be reachable with customer-facing labels');
 assert(appJs.includes('查看判断依据') && !appJs.includes('为什么？') && !appJs.includes('依据 ${evidenceLink'), 'duplicate evidence labels should be collapsed into one action');
 assert(appJs.includes('war-main-row') && appJs.includes('war-decision-main'), 'next decision should stay in the top war-room layout');
 assert(appJs.includes('function renderOutcomeCards') && appJs.includes('war-metrics'), 'outcome metrics should live inside the top war-room layout');
@@ -315,14 +356,13 @@ assert(indexHtml.includes('data-customer-platforms data-multi-select="true"') &&
 assert(indexHtml.includes('data-customer-content-mode') && indexHtml.includes('推荐模式：平台适配') && indexHtml.includes('省事模式：一稿多发') && indexHtml.includes('建议适配，不强迫适配'), 'customer page should let customers choose one-draft multi-posting or platform adaptation');
 assert(appJs.includes('function customerPlatformMatrixHtml') && appJs.includes('function customerContentModeHtml') && appJs.includes('一稿多发省时间') && appJs.includes('系统只建议适配，不强迫每个平台都写不同稿') && appJs.includes('短视频曝光 / 案例讲解 / 咨询承接') && appJs.includes('搜索沉淀 / 决策清单 / 案例信任') && appJs.includes('微信信任 / 专业说明 / 私域承接'), 'customer results should explain platform-specific content roles and mode tradeoffs');
 assert(indexHtml.includes('默认先看前三条，完整计划用卡片展开，避免密集表格。'), 'plan section should include a short plan hint');
-const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.meta.url), 'utf8');
 assert(warRoomCss.includes('.feedback-focus[hidden]') && warRoomCss.includes('display:none!important'), 'mobile css must not override hidden feedback/review workflow');
 assert(warRoomCss.includes('body.customer-mode') && warRoomCss.includes('.customer-choice-chip span') && warRoomCss.includes('.customer-problem-grid button.is-selected'), 'customer page should separate checkbox-like choices from primary buttons');
 assert(warRoomCss.includes('.customer-more-fields') && warRoomCss.includes('.customer-more-grid') && warRoomCss.includes('越具体越准'), 'optional precision fields should be styled as a collapsed low-noise section');
 assert(warRoomCss.includes('.customer-guide-panel') && warRoomCss.includes('.guide-row p::before'), 'customer filling guide should look like an annotated form card');
-assert(indexHtml.includes('<h2>内容数据回填</h2>') && indexHtml.includes('回填记录') && indexHtml.includes('内容复盘依据'), 'review evidence should sit next to feedback records');
-assert(indexHtml.indexOf('内容复盘依据') > indexHtml.indexOf('回填记录'), 'review evidence should appear after feedback records');
-assert(indexHtml.indexOf('客户输入与诊断依据') > indexHtml.indexOf('周复盘') && indexHtml.indexOf('客户输入与诊断依据') > indexHtml.indexOf('内容复盘依据'), 'customer/diagnosis evidence should be grouped inside the weekly review evidence area instead of interrupting plan execution');
+assert(indexHtml.includes('<h2>内容数据回填</h2>') && indexHtml.includes('回填记录') && indexHtml.includes('内容表现依据'), 'review evidence should sit next to feedback records');
+assert(indexHtml.indexOf('内容表现依据') > indexHtml.indexOf('回填记录'), 'review evidence should appear after feedback records');
+assert(indexHtml.lastIndexOf('客户输入与诊断依据') > indexHtml.indexOf('系统判断与下一步') && indexHtml.includes('客户输入 / 系统诊断依据'), 'customer/diagnosis evidence should be grouped inside the weekly review evidence area instead of interrupting plan execution');
 assert(indexHtml.includes('保存反馈') && indexHtml.includes('↻ 更新复盘'), 'feedback buttons should be clear');
 assert(indexHtml.includes('id="customerRecordSummary"') && indexHtml.includes('本期只做轻量记录，不做复杂运营跟踪'), 'customer result after saving should show record summary while clarifying P0 is not full operations tracking');
 assert(indexHtml.includes('id="customerRegenerateBtn"') && indexHtml.includes('修改信息并重新生成'), 'customer side should provide a lightweight regenerate entry without exposing internal version history');
@@ -448,8 +488,9 @@ assert(skippedFirstPlanAdvice.advice.nextTopic !== basketballAdviceCase.plans[0]
 assert(dailyAdvice[2].advice.judgment.includes('5个咨询') || dailyAdvice[2].advice.judgment.includes('咨询'), 'day 3 advice should react to consultation data');
 assert(dailyAdvice.every((item) => item.next_round && item.next_round.review_judgment && Array.isArray(item.next_round.next_7_day_plan) && item.next_round.next_7_day_plan.length === 7), 'customer-growth-advice should return a review judgment and full next-round 7-day plan');
 assert(dailyAdvice[2].next_round.review_judgment.type === '加码', `day 3 next-round judgment should 加码 after consultation data, got ${dailyAdvice[2].next_round.review_judgment.type}`);
+assert(dailyAdvice[2].next_round.review_judgment.decision === '加码', 'day 3 next-round judgment should explicitly decide to amplify after consultation data');
 assert(dailyAdvice[2].customer_summary.includes('多发') && dailyAdvice[2].customer_summary.includes('少发'), 'customer summary should say what to post more and less next week');
-assert(dailyAdvice[2].next_7_day_plan.every((row) => row.target_metric && row.based_on), 'next-round plan rows should include target_metric and based_on evidence');
+assert(dailyAdvice[2].next_7_day_plan.every((row) => row.target_metric && row.based_on && row.experiment_type && row.why_platform_fit && Array.isArray(row.observe_metrics) && row.next_adjustment), 'next-round plan rows should include target_metric, based_on, experiment type, platform fit, metrics and adjustment');
 assert(dailyAdvice.every((item) => item.model_info && item.generation_meta), 'customer-growth-advice should return model evidence');
 assert(dailyAdvice.every((item) => item.model_info.provider === 'local' && item.model_info.actual_model === 'rule_template' && item.model_info.fallback === true), 'without Ark env, customer-growth-advice should transparently fall back to rule_template');
 assert(dailyAdvice.every((item) => item.model_info.fallback_reason === 'missing_ark_api_key' && item.transparent_note.includes('missing_ark_api_key')), 'fallback model calls must expose missing Ark key reason');
@@ -679,9 +720,9 @@ assert(dashboardAfterMissingLink.feedback_rate === 0, `missing publish_link must
 
 const feedbackRes = await handler(request('POST', 'feedback', {
   content_plan_id: oral.plans[0].id,
-  publish_link: 'https://example.com/first-post',
+  publish_link: 'example.com/first-post',
   feedback_stage: 'T+24',
-  views: 1200,
+  backend_views: 1200,
   likes: 36,
   comments: 8,
   favorites: 22,
@@ -691,7 +732,7 @@ const feedbackRes = await handler(request('POST', 'feedback', {
 }));
 if (feedbackRes.status !== 201) throw new Error(`feedback expected 201, got ${feedbackRes.status}: ${await feedbackRes.text()}`);
 const feedbackData = await feedbackRes.json();
-assert(feedbackData.feedback.publish_link === 'https://example.com/first-post', 'feedback must preserve first publish link');
+assert(feedbackData.feedback.publish_link === 'https://example.com/first-post', 'feedback must normalize bare publish links to https://');
 assert(feedbackData.feedback.feedback_stage === 'T+24', 'feedback must preserve T+24 stage');
 assert(feedbackData.dashboard.published_plans === 1, `published_plans should be 1, got ${feedbackData.dashboard.published_plans}`);
 assert(feedbackData.dashboard.feedback_rate === 1 / 7, `feedback_rate should be 1/7, got ${feedbackData.dashboard.feedback_rate}`);

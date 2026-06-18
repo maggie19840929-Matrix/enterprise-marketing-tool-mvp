@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.41';
-const VERSION_LABEL = 'v1.6.41 · 回填复盘与下轮7天计划版';
+const APP_VERSION = '1.6.46';
+const VERSION_LABEL = 'v1.6.46 · 平台策略飞轮 MVP';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -10,6 +10,7 @@ const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const INTERNAL_CLIENT_ID = 'internal';
 const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 const normalizeClientId = (value = '') => {
   const raw = String(value || '').trim().toLowerCase();
@@ -141,6 +142,21 @@ const customerDisplayName = (assessment = {}, project = null) => {
   const name = cleanDisplayName(project?.name) || cleanDisplayName(data.company_name) || cleanDisplayName(data.industry);
   return name ? withWorkbenchSuffix(name) : '我的内容增长作战台';
 };
+const explicitInternalClientName = () => {
+  if (!isInternalMode()) return '';
+  const id = explicitCustomerClientId();
+  if (id === 'del-doctor-share') return '德尔医生';
+  return '';
+};
+const visibleClientName = () => {
+  const assessment = clientState.assessment || {};
+  const project = clientState.project || {};
+  const raw = cleanDisplayName(assessment.company_name)
+    || cleanDisplayName(project.name).replace(/作战台$/g, '')
+    || cleanDisplayName(assessment.industry)
+    || explicitInternalClientName();
+  return raw || '';
+};
 const makeProject = (assessment = {}, existing = null) => existing || {
   id: assessment.project_id || `project-${assessment.client_id || 'customer'}-${Date.now()}`,
   client_id: assessment.client_id || customerClientId(),
@@ -257,21 +273,27 @@ const safeStorage = {
   },
   setItem(key, value){
     const area = storageArea();
+    if (area) {
+      try {
+        area.setItem(key, value);
+        return true;
+      } catch {}
+    }
     const store = readFallbackStore();
     store[key] = String(value);
-    const wroteFallback = writeFallbackStore(store);
-    let wroteArea = false;
-    if (area) { try { area.setItem(key, value); wroteArea = true; } catch {} }
-    return wroteArea || wroteFallback;
+    return writeFallbackStore(store);
   },
   removeItem(key){
     const area = storageArea();
+    if (area) {
+      try {
+        area.removeItem(key);
+        return true;
+      } catch {}
+    }
     const store = readFallbackStore();
     delete store[key];
-    const wroteFallback = writeFallbackStore(store);
-    let wroteArea = false;
-    if (area) { try { area.removeItem(key); wroteArea = true; } catch {} }
-    return wroteArea || wroteFallback;
+    return writeFallbackStore(store);
   },
 };
 function projectSummaryFromState(state = clientState){
@@ -301,6 +323,20 @@ const canonicalProjectName = (item = {}) => {
     .replace(/作战台$/g, '')
     .trim();
 };
+const projectLeakText = (item = {}) => [
+  item.id,
+  item.name,
+  item.source,
+  item.state?.source,
+  item.state?.project?.id,
+  item.state?.project?.name,
+  item.state?.assessment?.company_name,
+  item.state?.assessment?.industry,
+  item.state?.assessment?.offer,
+  item.state?.diagnosis?.insight,
+].filter(Boolean).join(' ');
+const isKnownCrossProjectState = (item = {}) => /P0[123]|安标|安规|医疗器械|注册送检|EMC|SunPace|Sunny|PTE|德尔医生|del-doctor|feishu_bitable_p03/i.test(projectLeakText(item));
+const keepProjectForCurrentEntry = (item = {}) => !(isInternalMode() && !explicitCustomerClientId() && isKnownCrossProjectState(item));
 function normalizeProjectItem(item = {}){
   const state = normalizeState(item.state || {});
   const name = customerDisplayName(state.assessment, state.project) || item.name || '我的内容增长作战台';
@@ -333,7 +369,7 @@ function loadProjectStore(){
       projectStore = {
         activeProjectId: parsed.activeProjectId || parsed.projects[0]?.id || null,
         lastActiveProjectId: parsed.lastActiveProjectId || null,
-        projects: parsed.projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state)),
+        projects: parsed.projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state) && keepProjectForCurrentEntry(item)),
       };
     }
   } catch {
@@ -349,12 +385,13 @@ function normalizeProjectStoreShape(store = {}){
   return {
     activeProjectId: store.activeProjectId || projects[0]?.id || null,
     lastActiveProjectId: store.lastActiveProjectId || null,
-    projects: projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state)),
+    projects: projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state) && keepProjectForCurrentEntry(item)),
   };
 }
 function mergeProjectStores(localStore = projectStore, cloudStore = {}){
   const local = normalizeProjectStoreShape(localStore);
   const cloud = normalizeProjectStoreShape(cloudStore);
+  const preferExplicitInternalCloud = isInternalMode() && Boolean(explicitCustomerClientId());
   const byId = new Map();
   [...local.projects, ...cloud.projects].forEach((item)=>{
     const key = String(item.id);
@@ -375,7 +412,7 @@ function mergeProjectStores(localStore = projectStore, cloudStore = {}){
     return nameKey ? projects.find((item)=>canonicalProjectName(item) === nameKey)?.id || null : null;
   };
   projectStore = {
-    activeProjectId: resolveProjectId(local.activeProjectId) || resolveProjectId(cloud.activeProjectId) || projects[0]?.id || null,
+    activeProjectId: (preferExplicitInternalCloud ? resolveProjectId(cloud.activeProjectId) : null) || resolveProjectId(local.activeProjectId) || resolveProjectId(cloud.activeProjectId) || projects[0]?.id || null,
     lastActiveProjectId: resolveProjectId(local.lastActiveProjectId) || resolveProjectId(cloud.lastActiveProjectId) || null,
     projects,
   };
@@ -385,7 +422,9 @@ function mergeProjectStores(localStore = projectStore, cloudStore = {}){
 let cloudSyncTimer = null;
 async function pullCloudProjectStore({silent = true} = {}){
   try {
-    const result = await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}`);
+    const internalMode = isInternalMode();
+    const modeQuery = internalMode ? '&mode=internal' : '';
+    const result = await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}${modeQuery}`);
     if (result?.project_store?.projects) {
       mergeProjectStores(projectStore, result.project_store);
       if (!silent) toast(`已同步云端项目：${projectStore.projects.length} 个`);
@@ -570,7 +609,7 @@ function explicitCustomerClientId(){
 }
 
 function customerClientId(){
-  return explicitCustomerClientId() || readSessionClientId();
+  return explicitCustomerClientId() || (isInternalMode() ? INTERNAL_CLIENT_ID : readSessionClientId());
 }
 
 function customerTrialStorageKey(clientId = customerClientId()){
@@ -641,7 +680,7 @@ const loadLocal = () => {
       const parsed = JSON.parse(safeStorage.getItem(key) || 'null');
       if (parsed && typeof parsed === 'object') {
         const normalized = normalizeState(parsed);
-        if (hasRestorableState(normalized)) candidates.push({key, state: normalized});
+        if (hasRestorableState(normalized) && keepProjectForCurrentEntry({id: normalized.project?.id, name: normalized.project?.name, state: normalized})) candidates.push({key, state: normalized});
       }
     } catch {}
   }
@@ -855,7 +894,24 @@ async function loadAll(){
 
 function pct(n){ return `${Math.round((Number(n)||0)*100)}%`; }
 function esc(v){ return String(v ?? '').replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+function hasUrlProtocol(value = ''){
+  return /^[a-z][a-z0-9+.-]*:/i.test(String(value || '').trim());
+}
+function looksLikeExternalUrl(value = ''){
+  const text = String(value || '').trim();
+  if (!text || hasUrlProtocol(text) || text.startsWith('/') || text.startsWith('#')) return false;
+  if (/^www\./i.test(text)) return true;
+  return /^[\w-]+(?:\.[\w-]+)+(?:[/?#:]|$)/i.test(text);
+}
+function normalizeExternalUrl(value = ''){
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return looksLikeExternalUrl(text) ? `https://${text}` : text;
+}
 function num(v){ return Number(v || 0); }
+function playbackValue(item = {}){
+  return num(item.backend_views ?? item.backend_play_count ?? item.play_count ?? item.playback_count ?? item.views);
+}
 function cycleLabel(value = 'cycle-1'){
   const n = Number(String(value || '').match(/cycle-(\d+)/)?.[1] || 1);
   return `第${n}轮增长周期`;
@@ -894,10 +950,19 @@ function setAppShell(){
   const internal = isInternalMode();
   const customerApp = $('#customerApp');
   const internalApp = $('#internalApp');
-  if (customerApp) customerApp.hidden = internal;
-  if (internalApp) internalApp.hidden = !internal;
+  if (customerApp) {
+    customerApp.hidden = internal;
+    customerApp.toggleAttribute('inert', internal);
+    customerApp.setAttribute('aria-hidden', String(internal));
+  }
+  if (internalApp) {
+    internalApp.hidden = !internal;
+    internalApp.toggleAttribute('inert', !internal);
+    internalApp.setAttribute('aria-hidden', String(!internal));
+  }
   document.body.classList.toggle('customer-mode', !internal);
   document.body.classList.toggle('internal-mode', internal);
+  document.body.dataset.activeMode = internal ? 'internal' : 'customer';
 }
 
 function customerText(value){
@@ -914,6 +979,8 @@ function customerText(value){
     .replace(/数据飞轮/g, '数据积累')
     .replace(/小老板/g, '老板/企业主/商家')
     .replace(/v1\.\d+(?:\.\d+)*/g, '')
+    .replace(/记录效果效果/g, '记录效果')
+    .replace(/效果记录效果/g, '效果记录')
     .trim();
 }
 
@@ -966,7 +1033,6 @@ function customerRequired(payload){
   if (!payload.target_customer) return '请先填写你的目标客户。';
   if (dedicatedCustomerKey() === 'basketball' && !payload.store_location) return '请补充上课地址/服务范围。';
   if (dedicatedCustomerKey() === 'basketball' && !payload.course_schedule) return '请补充可预约时间。';
-  if (customerNeedsOfferDetail(payload)) return '你的行业比较宽，请在“想让建议更准”里补充主推产品/服务和价格带，例如：门店体验服务 199-499 元，避免系统把商品、课程或到店服务混成泛模板。';
   if (!payload.current_channels) return '请选择你主要想做的平台。';
   if (!payload.biggest_problem) return '请选择当前最大的内容问题。';
   return '';
@@ -1010,8 +1076,7 @@ function internalIntakeSnapshot(payload = {}){
 
 function internalGenerationGate(payload = {}){
   const snapshot = internalIntakeSnapshot(payload);
-  if (snapshot.ready && payload.ai_understanding_confirmed === 'yes') return '';
-  if (snapshot.ready) return '请先确认“系统理解正确”，再进入内容增长建议生成。';
+  if (snapshot.ready) return '';
   return `生成门禁：请先补齐「${snapshot.missing.map((item)=>item.field).join('、')}」。这些不是多余字段，是防止系统误判业务和生成泛模板的最小信息。`;
 }
 
@@ -1019,8 +1084,8 @@ function setInternalSubmitGate(form, snapshot){
   const submit = form?.querySelector('button[type="submit"]');
   if (!submit) return;
   const confirmed = form.dataset.aiConfirmed === 'yes';
-  submit.disabled = !(snapshot.ready && confirmed);
-  submit.textContent = confirmed ? '生成我的内容增长建议' : '先确认系统理解，再生成建议';
+  submit.disabled = !snapshot.ready;
+  submit.textContent = snapshot.ready ? '生成我的内容增长建议' : '补齐业务信息后生成';
 }
 
 function renderInternalIntakeSnapshot(form = $('#assessmentForm')){
@@ -1040,7 +1105,7 @@ function renderInternalIntakeSnapshot(form = $('#assessmentForm')){
     : '<li><strong>信息足够</strong><span>已具备进入下一步的最小信息，但仍需你确认系统理解是否正确。</span></li>';
   const risks = snapshot.risks.map((item)=>`<li><strong>${esc(item.title)}</strong><span>${esc(item.desc)}</span></li>`).join('');
   const confirmed = form.dataset.aiConfirmed === 'yes';
-  const actionHint = snapshot.ready ? (confirmed ? '已确认理解正确，可以生成。' : '请先确认理解正确，再生成建议。') : '请先补齐缺项，再确认继续。';
+  const actionHint = snapshot.ready ? (confirmed ? '已确认理解正确，可以生成。' : '业务字段已齐，可以生成；也可以展开这里复核系统理解。 ') : '请先补齐缺项，再确认继续。';
   el.innerHTML = `<div class="ai-intake-components ${analyzed ? 'is-analyzed' : 'is-empty'}">
     <section class="ai-understanding-card ${snapshot.ready ? 'is-ready' : 'is-blocked'}">
       <div class="ai-understanding-head"><span>组件 2 · 系统理解卡</span><strong>${snapshot.ready ? '理解基本完整' : '理解未完成'}</strong></div>
@@ -1303,12 +1368,19 @@ function buildCustomerPlanList(payload, plans){
     const topic = customerText(plan.topic || '');
     const angle = customerText(plan.angle || customerPlatformAngle(platform, plan) || '用客户听得懂的话说清服务价值');
     const cta = customerText(plan.cta || '引导客户咨询具体情况或主页咨询');
+    const experiment = customerText(plan.experiment_type || ['痛点型','效果型','信任型','场景型','转化型','异议处理型','复盘型'][index % 7]);
+    const whyPlatform = customerText(plan.why_platform_fit || customerPlatformAngle(platform, plan));
+    const observe = Array.isArray(plan.observe_metrics) ? plan.observe_metrics.join(' / ') : customerText(plan.target_metric || '曝光/播放 / 收藏 / 咨询');
+    const nextAdjustment = customerText(plan.next_adjustment || '数据不好时，下一条先换标题/开头，再补真实证据和咨询入口。');
     return `<article class="customer-plan-item" data-customer-plan-id="${esc(planId)}">
       <div class="plan-day"><strong>D${index + 1}</strong><span>${esc(day)}</span></div>
       <div class="plan-body">
         <p class="plan-topic">${esc(topic)}</p>
+        <div class="plan-meta"><span>${esc(platform)}</span><span>${esc(contentType)}</span><span>${esc(experiment)}</span></div>
         <p class="plan-cta">${esc(angle)}</p>
-        <div class="plan-meta"><span>${esc(platform)}</span><span>${esc(contentType)}</span></div>
+        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">为什么适合这个平台：</strong>${esc(whyPlatform)}</p>
+        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">发布后重点看：</strong>${esc(observe)}</p>
+        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">数据不好时：</strong>${esc(nextAdjustment)}</p>
         <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">结尾引导：</strong>${esc(cta)}</p>
         <button class="customer-plan-select" type="button" data-customer-record-plan="${esc(planId)}">记录这条内容</button>
       </div>
@@ -1380,7 +1452,7 @@ function renderCustomerEffects(){
     return `<div class="customer-record">
     <strong>${esc(item.plan_topic || item.published_at || item.created_at || '已记录')}</strong>
     <span>浏览/曝光 ${esc(nums.views)} · 互动 ${esc(nums.engagement)} · 咨询 ${esc(nums.consultations)} · 预约 ${esc(nums.appointments)}</span>
-    ${item.publish_link ? `<a href="${esc(item.publish_link)}" target="_blank" rel="noreferrer">查看发布链接</a>` : ''}
+    ${item.publish_link ? `<a href="${esc(normalizeExternalUrl(item.publish_link))}" target="_blank" rel="noreferrer">查看发布链接</a>` : ''}
     <p>${esc(item.notes || '未填写观察')}</p>
   </div>`;}).join('');
 }
@@ -1391,7 +1463,8 @@ function customerRecordNumbers(record = {}){
   const comments = Number(record.comments || 0);
   const shares = Number(record.shares || 0);
   return {
-    views: Number(record.views || 0),
+    views: playbackValue(record),
+    backend_views: playbackValue(record),
     likes,
     favorites,
     comments,
@@ -1521,6 +1594,13 @@ function buildCustomerNextRoundPlan(saved = {}, record = {}, advice = {}){
     less = '抽象行业词和服务清单';
     why = '曝光不低但互动弱，说明打开后没有击中决策问题。';
   }
+  const decision = type === '加码'
+    ? '加码'
+    : type === '换角度'
+      ? '改角度'
+      : nums.views === 0 && nums.engagement === 0 && nums.consultations === 0
+        ? '暂停原表达，重写标题/开头'
+        : '继续小样本验证';
   const actions = type === '加码'
     ? ['复制有效结构', '补充案例证据', '回答价格/周期', '展示过程细节', '处理适合人群', '集中答疑', '复盘最高咨询主题']
     : type === '换角度'
@@ -1528,22 +1608,27 @@ function buildCustomerNextRoundPlan(saved = {}, record = {}, advice = {}){
       : ['重写标题', '强化第一句话', '换客户视角', '减少服务堆叠', '加入具体问题', '增加证据', '复盘点击原因'];
   const rows = Array.from({length: 7}, (_, index)=>{
     const base = candidates[index % Math.max(candidates.length, 1)] || {};
+    const platform = base.platform || selectedPlan?.platform || '小红书/视频号';
     return {
       day: 'Day ' + (index + 1),
       planned_date: nextSevenDate(index + 1),
       topic: base.topic || advice.nextTopic || (audience + '关心的' + offer + '问题'),
       angle: base.angle || actions[index],
-      platform: base.platform || selectedPlan?.platform || '小红书/视频号',
+      platform,
+      experiment_type: ['痛点型','效果型','信任型','场景型','转化型','异议处理型','复盘型'][index % 7],
       action: actions[index],
       reason: index === 0 ? ('承接本次回填判断：' + type) : '延续同一轮复盘结论，避免每天推倒重来。',
       target_metric: nums.consultations > 0 || nums.appointments > 0 ? '咨询/预约' : (nums.views >= 800 ? '收藏/私信咨询' : '曝光/播放'),
       based_on: selectedPlan?.topic || record.plan_topic || '',
       cta: base.cta || '引导客户咨询是否适合',
+      why_platform_fit: customerPlatformAngle(platform, base),
+      observe_metrics: platform === '抖音' ? ['播放完成率','主页访问','咨询','预约'] : platform === '小红书' ? ['曝光','收藏','评论提问','咨询'] : ['播放','转发','咨询','预约'],
+      next_adjustment: nums.consultations > 0 || nums.appointments > 0 ? '继续补案例、价格/周期和适合人群。' : '先换标题/开头，再补真实证据和咨询入口。',
     };
   });
   return {
-    review_judgment: {type, more, less, why},
-    customer_summary: '下周多发：' + more + '；少发：' + less + '。原因：' + why,
+    review_judgment: {type, decision, more, less, why},
+    customer_summary: '判断：' + decision + '。下周多发：' + more + '；少发：' + less + '。原因：' + why,
     next_7_day_plan: rows,
     source: 'local_rule',
   };
@@ -1790,7 +1875,23 @@ function customerPlatformRole(platform = ''){
 
 function customerPlatformAngle(platform = '', plan = {}){
   const topic = customerText(plan.topic || '检测合规咨询');
-  if (platform === '抖音') return `用真实问题、送检误区或整改案例做短视频钩子，标题围绕「${topic}」。`;
+  const context = customerText([
+    plan.topic,
+    plan.angle,
+    plan.content_brief,
+    plan.target_customer,
+    plan.growth_goal,
+    plan.why_platform_fit,
+  ].filter(Boolean).join(' '));
+  if (platform === '抖音') {
+    if (/检测|送检|医疗器械|注册检验|安标|安规|合规|整改|验厂/.test(context)) {
+      return `用真实问题、送检误区或整改案例做短视频钩子，标题围绕「${topic}」。`;
+    }
+    if (/产后|产康|盆底肌|腹直肌|骨盆|宝妈|腰疼|漏尿|气血/.test(context)) {
+      return `用产后真实问题、恢复误区、评估流程或客户体验做短视频钩子，标题围绕「${topic}」。`;
+    }
+    return `用真实问题、服务过程、客户体验或常见顾虑做短视频钩子，标题围绕「${topic}」。`;
+  }
   if (platform === '小红书') return `用清单、流程和避坑说明承接搜索需求，帮助客户理解「${topic}」。`;
   if (platform === '视频号') return `用专业说明、案例复盘和微信生态信任承接咨询，主题围绕「${topic}」。`;
   return `围绕「${topic}」补充真实素材和明确咨询入口。`;
@@ -1958,6 +2059,7 @@ function initCustomerTrial(){
       return;
     }
     const engagement = toNonNegative(data.engagement) || (toNonNegative(data.likes) + toNonNegative(data.favorites) + toNonNegative(data.comments) + toNonNegative(data.shares));
+    data.publish_link = normalizeExternalUrl(data.publish_link || '');
     let record = {...data, client_id: customerClientId(), engagement, content_plan_id: planIdValue(selectedPlan), plan_topic: selectedPlan.topic || '', created_at: localTimestamp()};
     let nextState = {...current, records: [record, ...records], selected_plan_id: planIdValue(selectedPlan), updated_at: localTimestamp()};
     try {
@@ -1990,7 +2092,9 @@ function initCustomerTrial(){
         content_plan_id: selectedPlanId,
         publish_link: record.publish_link || '',
         feedback_stage: 'T+24',
-        views: toNonNegative(record.views),
+        views: playbackValue(record),
+        backend_views: playbackValue(record),
+        backend_play_count: playbackValue(record),
         likes: toNonNegative(record.likes),
         comments: toNonNegative(record.comments),
         favorites: toNonNegative(record.favorites),
@@ -2049,7 +2153,7 @@ function normalizeBenchmark(payload){
     .filter(Boolean);
   return {
     platform: String(payload.benchmark_platform || '').trim(),
-    accounts,
+    accounts: accounts.map((item)=>normalizeExternalUrl(item)),
     notes: String(payload.benchmark_notes || '').trim(),
     sample_content: String(payload.benchmark_sample_content || '').trim(),
   };
@@ -2075,7 +2179,7 @@ function clientDashboard(){
   const total_plans = clientState.plans.length;
   const published_plans = clientState.plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
   const rows = latestFeedbackRows();
-  const total_views = rows.reduce((sum, item) => sum + num(item.views), 0);
+  const total_views = rows.reduce((sum, item) => sum + playbackValue(item), 0);
   const total_interactions = rows.reduce((sum, item) => sum + interactions(item), 0);
   const total_consultations = rows.reduce((sum, item) => sum + num(item.consultations), 0);
   let next_suggestion = '先执行：发布第一条内容，并把首次发布链接回填到系统，否则不算闭环。';
@@ -2113,7 +2217,7 @@ function stageMeta(stage){
 function bestContent(){
   const rows = latestFeedbackRows();
   if (!rows.length) return null;
-  const winner = rows.slice().sort((a,b)=>(num(b.consultations)-num(a.consultations)) || (interactions(b)-interactions(a)) || (num(b.views)-num(a.views)))[0];
+  const winner = rows.slice().sort((a,b)=>(num(b.consultations)-num(a.consultations)) || (interactions(b)-interactions(a)) || (playbackValue(b)-playbackValue(a)))[0];
   const plan = clientState.plans.find((p)=>Number(p.id)===Number(winner.content_plan_id));
   return {feedback:winner, plan};
 }
@@ -2196,6 +2300,14 @@ function scrollToSection(selector){
   el.scrollIntoView({behavior:'smooth', block:'start'});
 }
 window.scrollToSection = scrollToSection;
+function settleInternalHashTarget(){
+  if (!isInternalMode()) return;
+  const hash = String(location.hash || '');
+  if (hash !== '#planSection' && hash !== '#internalResultSection') return;
+  const target = document.querySelector(hash);
+  if (!target || target.hidden) return;
+  window.setTimeout(() => target.scrollIntoView({behavior:'auto', block:'start'}), 40);
+}
 
 function renderProjectSwitcher(){
   loadProjectStore();
@@ -2283,6 +2395,8 @@ window.startNextCycle = startNextCycle;
 
 function renderAllFromClient(){
   syncProjectStage();
+  hydrateInternalFormValuesFromState();
+  renderInternalClientIdentity();
   renderLifecycleWorkbench();
   renderWorkflowVisibility();
   renderDashboard(clientDashboard());
@@ -2291,10 +2405,55 @@ function renderAllFromClient(){
   renderDiagnosis(clientState.diagnosis);
   renderPlans(clientState.plans);
   renderFeedback(clientState.feedback);
+  renderPublishedLinkPicker();
+  renderRefillCockpit();
   renderReview(clientState.review || autoReviewFromFeedback());
   renderNextSevenDataPage();
   renderReviewEvidencePanel();
   renderTopReturnProjectAction();
+  settleInternalHashTarget();
+}
+
+function hydrateInternalFormValuesFromState(){
+  if (!isInternalMode()) return;
+  const form = $('#assessmentForm');
+  const assessment = clientState.assessment || {};
+  if (!form || !assessment) return;
+  CUSTOMER_ASSESSMENT_FIELDS.forEach((key) => {
+    const input = form.querySelector(`[name="${key}"]`);
+    if (!input) return;
+    const value = String(assessment[key] || '');
+    input.value = value;
+    input.defaultValue = value;
+    if (input.tagName === 'TEXTAREA') input.textContent = value;
+    else input.setAttribute('value', value);
+  });
+  const name = visibleClientName();
+  const companyInput = form.querySelector('[name="company_name"]');
+  if (companyInput && name && !String(companyInput.value || '').trim()) {
+    companyInput.value = name;
+    companyInput.defaultValue = name;
+    companyInput.setAttribute('value', name);
+  }
+}
+
+function renderInternalClientIdentity(){
+  if (!isInternalMode()) return;
+  const name = visibleClientName();
+  if (!name) return;
+  const targets = ['#planSection', '#internalResultSection'];
+  targets.forEach((selector) => {
+    const section = document.querySelector(selector);
+    if (!section) return;
+    let badge = section.querySelector('.internal-client-identity');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'internal-client-identity';
+      const head = section.querySelector('.customer-section-head');
+      section.insertBefore(badge, head || section.firstChild);
+    }
+    badge.innerHTML = `<span>当前客户</span><strong>${esc(name)}</strong><em>${esc(customerClientId())}</em>`;
+  });
 }
 
 
@@ -2356,6 +2515,58 @@ function fieldRow(label, value){
   return `<div class="kv"><span>${esc(label)}</span><strong>${esc(value || '未填写')}</strong></div>`;
 }
 
+function hasMetricValue(value){
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+function metricDisplay(value){
+  return hasMetricValue(value) ? compactNumber(value) : '未提供';
+}
+function feedbackMetricPill(label, value, type = ''){
+  const missing = !hasMetricValue(value);
+  return `<span class="refill-metric ${esc(type)} ${missing ? 'is-missing' : ''}"><em>${esc(label)}</em><strong>${esc(metricDisplay(value))}</strong></span>`;
+}
+function feedbackMetricSet(item = {}){
+  return [
+    feedbackMetricPill('曝光', playbackValue(item), 'exposure'),
+    feedbackMetricPill('点赞', item.likes, 'like'),
+    feedbackMetricPill('收藏', item.favorites, 'favorite'),
+    feedbackMetricPill('评论', item.comments, 'comment'),
+    feedbackMetricPill('分享', item.shares, 'share'),
+    feedbackMetricPill('咨询', item.consultations, 'consult'),
+  ].join('');
+}
+function feedbackConclusion(item = {}){
+  if (!hasMetricValue(item.publish_link)) return '缺少发布链接，暂不进入闭环判断';
+  if (num(item.consultations) > 0) return '有咨询信号：优先复制同类角度并补信任证据';
+  if (interactions(item) > 0) return '有互动无咨询：下一轮强化痛点表达和咨询入口';
+  if (playbackValue(item) > 0) return '有曝光但互动弱：优先调整标题、封面或开头';
+  return '样本不足：等待补齐曝光和互动数据';
+}
+function selectedRefillPlan(){
+  const planId = $('#feedbackForm [name=content_plan_id]')?.value || latestFeedbackRows()[0]?.content_plan_id || clientState.plans.find((plan)=>plan.publish_link)?.id || clientState.plans[0]?.id;
+  return internalPlanById(planId) || clientState.plans[0] || null;
+}
+function selectedRefillFeedback(plan = selectedRefillPlan()){
+  if (!plan) return latestFeedbackRows()[0] || null;
+  return latestFeedbackRows().find((item)=>samePlanId(item.content_plan_id, plan.id)) || null;
+}
+function renderRefillCockpit(){
+  const box = $('#refillCockpit');
+  if (!box || !isInternalMode()) return;
+  const plan = selectedRefillPlan();
+  const feedback = selectedRefillFeedback(plan);
+  const review = clientState.review || autoReviewFromFeedback();
+  const stage = $('#feedbackForm [name=feedback_stage]')?.value || feedback?.feedback_stage || 'T+24';
+  const action = (review?.next_actions || clientDashboard().next_suggestion || '先选择已发布内容并补齐回填指标').replace('加码「」同类角度', '加码「最高咨询内容」同类角度');
+  const judgment = review?.winner_topic || feedbackConclusion(feedback || {});
+  box.innerHTML = `<div class="refill-cockpit-main">
+    <div><span>当前选中内容</span><strong>${esc(plan ? `#${planDisplayNumber(plan)} ${plan.topic || '未命名内容'}` : '尚未选择内容')}</strong><em>${esc(plan?.platform || '数据来源：内容计划')}</em></div>
+    <div><span>回填时间点</span><strong>${esc(stage)}</strong><em>来源：本次回填表单 / 最新记录</em></div>
+    <div><span>系统判断</span><strong>${esc(judgment || '等待回填数据')}</strong><em>来源：周复盘 / 回填指标</em></div>
+    <div><span>下一步动作</span><strong>${esc(action)}</strong><em>来源：复盘结论</em></div>
+  </div><div class="refill-cockpit-metrics">${feedback ? feedbackMetricSet(feedback) : feedbackMetricSet({})}</div>`;
+}
+
 function renderFeedbackEvidenceRows(){
   const rows = latestFeedbackRows().slice().sort((a,b)=>(stageRank(b.feedback_stage)-stageRank(a.feedback_stage)) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
   const visibleRows = rows.slice(0, 5);
@@ -2366,7 +2577,7 @@ function renderFeedbackEvidenceRows(){
     const plan = clientState.plans.find((p)=>Number(p.id) === Number(f.content_plan_id));
     return `<div class="feedback-evidence-row">
       <div><strong>#${esc(planDisplayNumber(f.content_plan_id))} ${esc(plan?.topic || '已回填内容')}</strong><span>${esc(f.feedback_stage || 'T+24')} · ${esc(f.created_at || '')}</span></div>
-      <div class="feedback-evidence-metrics"><span>曝光 ${compactNumber(f.views)}</span><span>互动 ${compactNumber(interactions(f))}</span><span>咨询 ${num(f.consultations)}</span></div>
+      <div class="feedback-evidence-metrics"><span>后台播放 ${compactNumber(playbackValue(f))}</span><span>互动 ${compactNumber(interactions(f))}</span><span>咨询 ${num(f.consultations)}</span></div>
       <p>${esc(f.notes || '无备注')}</p>
     </div>`;
   }).join('');
@@ -2478,6 +2689,30 @@ function renderSmartDiagnosisModule(context){
   </div>`;
 }
 
+function renderInternalPublicResult(d, benchmarkModule = '', extraModules = ''){
+  const assessment = clientState.assessment || {};
+  const publicSuggestion = buildCustomerSuggestion(assessment, d, clientState.plans || []);
+  return '<div class="internal-public-result">'
+    + '<div class="customer-result">' + publicSuggestion + '</div>'
+    + '<details class="diagnosis-more internal-diagnosis-evidence">'
+    + '<summary>查看内部诊断依据、AI采集和误判风险</summary>'
+    + '<div class="diagnosis-card compact-diagnosis">'
+    + '<div class="small">' + esc(d.version_label || VERSION_LABEL) + '</div>'
+    + '<div class="score-row">'
+    + '<div class="score"><span>策略清晰度</span><strong>' + esc(d.strategy_score ?? d.score) + '</strong><em>/100</em></div>'
+    + '<div class="score"><span>动态闭环分</span><strong>' + esc(dynamicLoopScore()) + '</strong><em>/100</em></div>'
+    + '<span class="badge">' + esc(d.stage) + '</span>'
+    + '</div>'
+    + '<div><div class="small">当前最大问题</div><div class="big-action">' + esc(d.priority_problem) + '</div></div>'
+    + '<div><div class="small">核心诊断</div><p>' + esc(d.insight) + '</p></div>'
+    + '<div><div class="small">下一步</div><p><strong>' + esc(d.next_step || d.weekly_action) + '</strong></p></div>'
+    + '<div class="warning"><div class="small">评分说明</div><p>' + esc(d.score_note || '闭环分必须由发布反馈和复盘数据驱动。 ') + '</p></div>'
+    + benchmarkModule + extraModules
+    + '<div><div class="small">本周动作</div><p><strong>' + esc(d.weekly_action) + '</strong></p></div>'
+    + '<div class="warning"><div class="small">风险提醒</div><p>' + esc(d.risk_warning) + '</p></div>'
+    + '</div></details></div>';
+}
+
 function renderDiagnosis(d){
   if(!d){ $('#latestDiagnosis').innerHTML='<div class="empty">填写左侧 5 个问题后，这里会生成内容方向、7天发布计划和发布后要看的关键数据。</div>'; return; }
   const platformRecommendations = parsePlatformRecommendations(d.platform_recommendations);
@@ -2492,6 +2727,10 @@ function renderDiagnosis(d){
   const benchmarkModule = renderBenchmarkReference(d.benchmark_reference);
   const smartModule = renderSmartDiagnosisModule(d.smart_context);
   const extraModules = `${smartModule}${renderAccountSetup(d.account_setup)}${platformModule}`;
+  if (isInternalMode()) {
+    $('#latestDiagnosis').innerHTML = renderInternalPublicResult(d, benchmarkModule, extraModules);
+    return;
+  }
   $('#latestDiagnosis').innerHTML = `<div class="diagnosis-card compact-diagnosis">
     <div class="small">${esc(d.version_label || VERSION_LABEL)}</div>
     <div class="score-row">
@@ -2553,9 +2792,9 @@ function renderPlans(plans){
     summaryEl.innerHTML = plans.slice(0, 3).map((p)=>{
       const meta = planUiMeta(p, firstOpen?.id);
       const f = feedbackByPlan(p.id);
-      const stats = f ? `<div class="experiment-stats"><span>曝光 <b>${compactNumber(f.views)}</b></span><span>收藏 <b>${num(f.favorites)}</b></span><span>咨询 <b>${num(f.consultations)}</b></span></div>` : `<div class="experiment-stats"><span>日期 <b>${esc(p.planned_date || '待定')}</b></span></div>`;
+      const stats = f ? `<div class="experiment-stats"><span>后台播放 <b>${compactNumber(playbackValue(f))}</b></span><span>收藏 <b>${num(f.favorites)}</b></span><span>咨询 <b>${num(f.consultations)}</b></span></div>` : `<div class="experiment-stats"><span>日期 <b>${esc(p.planned_date || '待定')}</b></span></div>`;
       return `<article class="experiment-card ${meta.className}">
-        <div><div class="experiment-title">#${planDisplayNumber(p)} ${esc(p.topic)}</div><div class="experiment-meta"><span class="war-tag">${esc(p.platform)}</span><span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span></div><details class="experiment-detail"><summary>查看发布角度</summary><p>${esc(p.angle || '')}</p><p class="small">目标：${esc(p.target_metric || '待观察')}</p></details></div>
+        <div><div class="experiment-title">#${planDisplayNumber(p)} ${esc(p.topic)}</div><div class="experiment-meta"><span class="war-tag">${esc(p.platform)}</span><span class="war-tag">${esc(p.experiment_type || '策略测试')}</span><span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span></div><details class="experiment-detail"><summary>查看发布角度</summary><p>${esc(p.angle || '')}</p><p class="small">平台理由：${esc(p.why_platform_fit || '')}</p><p class="small">目标：${esc(Array.isArray(p.observe_metrics) ? p.observe_metrics.join(' / ') : (p.target_metric || '待观察'))}</p></details></div>
         <div class="experiment-side">${stats}<button class="small-btn js-prefill-feedback" type="button" data-plan-id="${esc(planIdValue(p))}">${esc(meta.action)}</button></div>
       </article>`;
     }).join('') || '<div class="empty">暂无计划，先提交一次快速体检。</div>';
@@ -2563,7 +2802,8 @@ function renderPlans(plans){
   $('#plansBody').innerHTML = plans.map(p=>{
     const meta = planUiMeta(p, firstOpen?.id);
     const quality = [p.publish_quality, p.quality_note].filter(Boolean).join('：');
-    const linkHtml = p.publish_link ? `<a href="${esc(p.publish_link)}" target="_blank">发布链接已回填</a>` : '发布后需回填链接';
+    const publishLink = normalizeExternalUrl(p.publish_link);
+    const linkHtml = publishLink ? `<a href="${esc(publishLink)}" target="_blank">发布链接已回填</a>` : '发布后需回填链接';
     return `<article class="full-plan-card ${meta.className}">
       <div class="full-plan-head">
         <div><span class="plan-index">#${planDisplayNumber(p)}</span><strong>${esc(p.topic)}</strong></div>
@@ -2572,8 +2812,10 @@ function renderPlans(plans){
       <div class="full-plan-meta"><span>${esc(p.planned_date)}</span><span>${esc(p.platform)}</span><span>${esc(p.content_type || '')}</span></div>
       <div class="full-plan-body">
         <section><span>发布角度</span><p>${esc(p.angle)}</p></section>
+        <section><span>平台策略</span><p>${esc(p.experiment_type || '策略测试')}｜${esc(p.why_platform_fit || '')}</p><em>${esc(p.platform_expression || '')}</em></section>
+        <section><span>观察与调整</span><p>${esc(Array.isArray(p.observe_metrics) ? p.observe_metrics.join(' / ') : (p.target_metric || ''))}</p><em>${esc(p.next_adjustment || '')}</em></section>
         <section><span>合规承接</span><p>${esc(p.cta || '')}</p>${quality ? `<em>${esc(quality)}</em>` : ''}</section>
-        <section><span>观察目标</span><p>${esc(p.target_metric || '')}</p><em>${linkHtml}</em></section>
+        <section><span>观察目标</span><p>${esc(p.content_hypothesis || p.target_metric || '')}</p><em>${linkHtml}</em></section>
       </div>
       <div class="full-plan-actions"><button class="secondary js-prefill-feedback" type="button" data-plan-id="${esc(planIdValue(p))}">${esc(meta.action)}</button></div>
     </article>`;
@@ -2582,13 +2824,93 @@ function renderPlans(plans){
 
 function renderFeedback(items){
   const sorted = (items || []).slice().sort((a,b)=>String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  $('#feedbackList').innerHTML = sorted.map(f=>`<div class="list-item feedback-record-card">
-    <div class="feedback-record-head"><strong>计划 #${planDisplayNumber(f.content_plan_id)}</strong><span class="badge">${esc(f.feedback_stage || '未标注')}</span></div>
-    <div class="feedback-record-metrics"><span>曝光 ${f.views}</span><span>点赞 ${f.likes}</span><span>收藏 ${f.favorites}</span><span>评论 ${f.comments}</span><span>咨询 ${f.consultations}</span></div>
-    ${f.publish_link ? `<div><a href="${esc(f.publish_link)}" target="_blank">查看发布链接</a></div>` : '<div class="warning">缺少发布链接：本条不算完整闭环</div>'}
-    <div class="small">${esc(f.notes || '无备注')} · ${esc(f.created_at)}</div>
-  </div>`).join('') || '<div class="empty">暂无记录。保存至少1条发布反馈后，系统会自动更新看板和周复盘。</div>';
+  $('#feedbackList').innerHTML = sorted.map(f=>{
+    const plan = internalPlanById(f.content_plan_id) || {};
+    const link = normalizeExternalUrl(f.publish_link || plan.publish_link || '');
+    return `<article class="feedback-compare-card">
+      <div class="feedback-compare-head">
+        <div><span>内容标题</span><strong>#${esc(planDisplayNumber(f.content_plan_id))} ${esc(f.plan_topic || plan.topic || '已回填内容')}</strong></div>
+        <em>${esc(plan.platform || f.platform || '未标注平台')}</em>
+      </div>
+      <div class="feedback-compare-meta"><span>${esc(f.feedback_stage || '未标注时间点')}</span><span>${esc(f.created_at || '保存时间未标注')}</span><span>数据源：回填记录</span></div>
+      <div class="feedback-compare-metrics">${feedbackMetricSet(f)}</div>
+      <div class="feedback-compare-bottom"><p>${esc(feedbackConclusion(f))}</p>${link ? `<a href="${esc(link)}" target="_blank" rel="noreferrer">查看发布链接</a>` : '<span class="warning">缺少发布链接</span>'}</div>
+      <details class="feedback-record-detail"><summary>备注与来源</summary><p>${esc(f.notes || '无备注')}</p><span>content_plan_id=${esc(f.content_plan_id || '未绑定')}｜plan_binding_source=${esc(f.plan_binding_source || '未标注')}</span></details>
+    </article>`;
+  }).join('') || '<div class="empty">暂无记录。保存至少1条发布反馈后，系统会自动更新看板和周复盘。</div>';
 }
+
+function internalPublishedLinkOptions(){
+  const options = [];
+  const seen = new Set();
+  const add = (item = {}, plan = {}, source = 'feedback') => {
+    const link = normalizeExternalUrl(item.publish_link || plan.publish_link || '');
+    const planId = planIdValue(plan?.id || item.content_plan_id);
+    if (!link || !planId) return;
+    const key = `${planId}|${link}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    options.push({
+      key,
+      planId,
+      link,
+      title: item.plan_topic || plan.topic || `计划 #${planDisplayNumber(planId)}`,
+      platform: plan.platform || item.platform || '未标注平台',
+      publishedAt: item.published_at || item.created_at || plan.published_at || plan.planned_date || '',
+      feedbackStage: item.feedback_stage || '',
+      source,
+    });
+  };
+  (clientState.plans || []).forEach((plan) => add(plan, plan, 'plan'));
+  (clientState.feedback || []).forEach((feedback) => {
+    const plan = internalPlanById(feedback.content_plan_id) || {};
+    add(feedback, plan, 'feedback');
+  });
+  return options.sort((a, b) => String(b.publishedAt || '').localeCompare(String(a.publishedAt || '')));
+}
+
+function renderPublishedLinkPicker(){
+  const box = $('#publishedLinkPicker');
+  if (!box || !isInternalMode()) return;
+  const options = internalPublishedLinkOptions();
+  if (!options.length) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  const select = options.length > 1
+    ? `<label class="published-link-select-label">选择已发布链接<select id="publishedLinkSelect"><option value="">选择已绑定链接后只补数据</option>${options.map((option)=>`<option value="${esc(option.key)}">${esc(option.title)}｜${esc(option.platform)}｜${esc(option.publishedAt || '发布时间未标注')}</option>`).join('')}</select></label>`
+    : '';
+  const cards = options.map((option)=>`<button class="published-link-card" type="button" data-published-link-key="${esc(option.key)}">
+    <span class="published-link-card-top"><strong>${esc(option.title)}</strong><em>${esc(option.platform)}</em></span>
+    <span class="published-link-url">${esc(normalizeExternalUrl(option.link))}</span>
+    <span class="published-link-meta"><b>${esc(option.feedbackStage || '待补数据')}</b><i>发布时间：${esc(option.publishedAt || '未标注')}</i><i>来源：${esc(option.source === 'feedback' ? '历史回填' : '已发布计划')}</i></span>
+  </button>`).join('');
+  box.innerHTML = `<div class="published-link-picker-head"><strong>已发布样本池</strong><span>选择后自动绑定计划和链接，只补本次数据。</span></div>${select}<div class="published-link-card-list">${cards}</div>`;
+}
+
+function selectPublishedLink(key){
+  const option = internalPublishedLinkOptions().find((item) => item.key === key);
+  if (!option) return null;
+  const form = $('#feedbackForm');
+  const linkInput = form?.querySelector('[name=publish_link]');
+  if (!form || !linkInput) return null;
+  const plan = setInternalFeedbackPlan(option.planId, 'published_link_picker');
+  linkInput.value = normalizeExternalUrl(option.link);
+  linkInput.dispatchEvent(new Event('input', {bubbles:true}));
+  linkInput.dispatchEvent(new Event('change', {bubbles:true}));
+  form.dataset.selectedPublishedLinkKey = option.key;
+  $$('#publishedLinkPicker [data-published-link-key]').forEach((card) => card.classList.toggle('is-selected', card.dataset.publishedLinkKey === option.key));
+  const select = $('#publishedLinkSelect');
+  if (select) select.value = option.key;
+  const display = $('#selectedPlanDisplay');
+  if (display) display.textContent = `已绑定：${option.title}｜${option.platform}｜${option.publishedAt || '发布时间未标注'}`;
+  renderRefillCockpit();
+  toast('已选择已发布链接，本次只需补充反馈数据。');
+  return { option, plan };
+}
+window.selectPublishedLink = selectPublishedLink;
 
 function renderReviewEvidencePanel(){
   const box = $('#reviewEvidenceBox');
@@ -2674,7 +2996,7 @@ function nextSevenDate(offset = 1){
 
 function planScoreFromFeedback(plan = {}, feedback = null){
   if (!feedback) return 0;
-  return num(feedback.consultations) * 100 + interactions(feedback) * 4 + Math.round(num(feedback.views) / 80);
+  return num(feedback.consultations) * 100 + interactions(feedback) * 4 + Math.round(playbackValue(feedback) / 80);
 }
 
 function topicVariant(topic = '', index = 0, review = null){
@@ -2711,7 +3033,7 @@ function buildNextSevenData(){
     const key = String(plan.id || plan.topic || unique.length);
     if (!unique.some((item) => String(item.id || item.topic) === key)) unique.push(plan);
   });
-  const totalViews = feedback.reduce((sum, item) => sum + num(item.views), 0);
+  const totalViews = feedback.reduce((sum, item) => sum + playbackValue(item), 0);
   const totalConsults = feedback.reduce((sum, item) => sum + num(item.consultations), 0);
   const best = winners[0];
   const strategy = totalConsults > 0
@@ -2722,7 +3044,7 @@ function buildNextSevenData(){
   const rows = Array.from({length: 7}, (_, index) => {
     const basePlan = unique[index % Math.max(unique.length, 1)] || {};
     const sourceFeedback = byPlan.get(String(basePlan.id)) || best?.feedback || null;
-    const expectedViews = sourceFeedback ? Math.max(300, Math.round(num(sourceFeedback.views) * (index < 3 ? 1.08 : 0.86))) : 300 + index * 80;
+    const expectedViews = sourceFeedback ? Math.max(300, Math.round(playbackValue(sourceFeedback) * (index < 3 ? 1.08 : 0.86))) : 300 + index * 80;
     const expectedConsultations = sourceFeedback ? Math.max(0, Math.round(num(sourceFeedback.consultations) * (index < 3 ? 1.15 : 0.75))) : 0;
     return {
       day: 'D+' + (index + 1),
@@ -2730,7 +3052,7 @@ function buildNextSevenData(){
       topic: topicVariant(basePlan.topic, index, review),
       platform: basePlan.platform || (index % 3 === 0 ? '抖音' : index % 3 === 1 ? '小红书' : '视频号'),
       experiment: index < 3 ? '复制/加码' : index < 5 ? '平台适配' : '修正重测',
-      evidence: sourceFeedback ? '参考回填：曝光 ' + compactNumber(sourceFeedback.views) + ' / 咨询 ' + compactNumber(sourceFeedback.consultations) : '缺少回填样本，按当前计划预测',
+      evidence: sourceFeedback ? '参考回填：后台播放 ' + compactNumber(playbackValue(sourceFeedback)) + ' / 咨询 ' + compactNumber(sourceFeedback.consultations) : '缺少回填样本，按当前计划预测',
       expected_views: expectedViews,
       expected_consultations: expectedConsultations,
     };
@@ -2788,10 +3110,8 @@ function prefillFeedback(id){
   const notesInput = form?.querySelector('[name=notes]');
   if (!form || !planInput) return;
   if (workflow) workflow.hidden = false;
-  planInput.value = planId;
-  const displayNumber = planDisplayNumber(planId);
-  if (planDisplay) planDisplay.textContent = displayNumber ? `计划 #${displayNumber}` : '从计划卡片选择';
-  if (linkInput) linkInput.value = existingFeedback?.publish_link || plan?.publish_link || '';
+  setInternalFeedbackPlan(planId, 'manual_card');
+  if (linkInput) linkInput.value = normalizeExternalUrl(existingFeedback?.publish_link || plan?.publish_link || '');
   if (stageInput && existingFeedback?.feedback_stage) stageInput.value = existingFeedback.feedback_stage;
   ['views','likes','comments','favorites','shares','consultations'].forEach((key) => {
     const input = form.querySelector(`[name=${key}]`);
@@ -2800,6 +3120,7 @@ function prefillFeedback(id){
   if (notesInput && existingFeedback?.notes) notesInput.value = existingFeedback.notes;
   planInput.dispatchEvent(new Event('input', {bubbles:true}));
   planInput.dispatchEvent(new Event('change', {bubbles:true}));
+  const displayNumber = planDisplayNumber(planId);
   workflow?.classList.remove('is-highlighted');
   void workflow?.offsetWidth;
   workflow?.classList.add('is-highlighted');
@@ -2812,12 +3133,85 @@ function prefillFeedback(id){
 }
 window.prefillFeedback = prefillFeedback;
 
+function internalPlanById(planId){
+  const id = planIdValue(planId);
+  return clientState.plans.find((item) => samePlanId(item.id, id)) || null;
+}
+
+function renderedInternalPlanIds(){
+  const ids = [];
+  $$('#plansSummary .js-prefill-feedback[data-plan-id], #plansBody .js-prefill-feedback[data-plan-id]').forEach((button) => {
+    const id = planIdValue(button.dataset.planId);
+    if (id && !ids.some((item) => samePlanId(item, id))) ids.push(id);
+  });
+  return ids;
+}
+
+function setInternalFeedbackPlan(planId, source = 'manual_card'){
+  const plan = internalPlanById(planId);
+  const form = $('#feedbackForm');
+  const planInput = form?.querySelector('[name=content_plan_id]');
+  const planDisplay = $('#selectedPlanDisplay');
+  if (!form || !planInput || !plan) return null;
+  const selectedPlanId = planIdValue(plan);
+  planInput.value = selectedPlanId;
+  form.dataset.planBindingSource = source;
+  const displayNumber = planDisplayNumber(selectedPlanId);
+  if (planDisplay) {
+    const topic = plan.topic ? ` · ${plan.topic}` : '';
+    planDisplay.textContent = displayNumber ? `计划 #${displayNumber}${topic}` : customerPlanLabel(plan);
+  }
+  $$('#plansSummary .experiment-card, #plansBody .full-plan-card').forEach((card) => {
+    const button = card.querySelector('.js-prefill-feedback[data-plan-id]');
+    card.classList.toggle('is-selected', Boolean(button && samePlanId(button.dataset.planId, selectedPlanId)));
+  });
+  planInput.dispatchEvent(new Event('input', {bubbles:true}));
+  planInput.dispatchEvent(new Event('change', {bubbles:true}));
+  renderRefillCockpit();
+  return plan;
+}
+
+function resolveInternalFeedbackPlan(data = {}){
+  const currentPlan = internalPlanById(data.content_plan_id);
+  if (currentPlan) return {plan: currentPlan, source: $('#feedbackForm')?.dataset.planBindingSource || 'manual_card'};
+  const link = normalizeExternalUrl(data.publish_link || '');
+  if (link) {
+    const byPlanLink = clientState.plans.find((plan) => normalizeExternalUrl(plan.publish_link || '') === link);
+    if (byPlanLink) return {plan: byPlanLink, source: 'auto_publish_link_plan'};
+    const byFeedbackLink = latestFeedbackRows().find((item) => normalizeExternalUrl(item.publish_link || '') === link);
+    const linkedPlan = byFeedbackLink ? internalPlanById(byFeedbackLink.content_plan_id) : null;
+    if (linkedPlan) return {plan: linkedPlan, source: 'auto_publish_link_feedback'};
+  }
+  const visibleIds = renderedInternalPlanIds();
+  const visiblePlans = visibleIds.map(internalPlanById).filter(Boolean);
+  const unfinishedPublished = visiblePlans.find((plan) =>
+    (plan.publish_link || plan.status === '已发布') &&
+    !latestFeedbackRows().some((item) => samePlanId(item.content_plan_id, plan.id))
+  );
+  if (unfinishedPublished) return {plan: unfinishedPublished, source: 'auto_visible_published_unfilled'};
+  const firstOpen = visiblePlans.find((plan) => !latestFeedbackRows().some((item) => samePlanId(item.content_plan_id, plan.id)));
+  if (firstOpen) return {plan: firstOpen, source: 'auto_visible_unfilled'};
+  if (visiblePlans.length === 1) return {plan: visiblePlans[0], source: 'auto_single_visible_plan'};
+  if (visiblePlans[0]) return {plan: visiblePlans[0], source: 'auto_visible_first_fallback'};
+  return {plan: null, source: ''};
+}
+
 function initPlanFeedbackButtons(){
   document.addEventListener('click', (event) => {
+    const linkCard = event.target?.closest?.('#publishedLinkPicker .published-link-card[data-published-link-key]');
+    if (linkCard) {
+      event.preventDefault();
+      selectPublishedLink(linkCard.dataset.publishedLinkKey);
+      return;
+    }
     const button = event.target?.closest?.('.js-prefill-feedback[data-plan-id]');
     if (!button) return;
     event.preventDefault();
     prefillFeedback(button.dataset.planId);
+  });
+  document.addEventListener('change', (event) => {
+    if (event.target?.id !== 'publishedLinkSelect') return;
+    if (event.target.value) selectPublishedLink(event.target.value);
   });
 }
 
@@ -2827,13 +3221,13 @@ function createLocalReview(){
     topic: clientState.plans.find((plan) => plan.id === Number(feedback.content_plan_id))?.topic || '',
   }));
   const total_posts = rows.length;
-  const total_views = rows.reduce((sum, item) => sum + num(item.views), 0);
+  const total_views = rows.reduce((sum, item) => sum + playbackValue(item), 0);
   const total_interactions = rows.reduce((sum, item) => sum + interactions(item), 0);
   const total_consultations = rows.reduce((sum, item) => sum + num(item.consultations), 0);
   const winner = rows.slice().sort((a, b) =>
     (num(b.consultations) - num(a.consultations)) ||
     ((num(b.favorites) + num(b.comments)) - (num(a.favorites) + num(a.comments))) ||
-    (num(b.views) - num(a.views))
+    (playbackValue(b) - playbackValue(a))
   )[0];
   const day = new Date();
   const shDay = new Date(day.toLocaleString('en-US', {timeZone:'Asia/Shanghai'}));
@@ -3026,13 +3420,18 @@ function initInternalApp(){
     }
     try {
       const data = formData(e.target);
-      if (!String(data.content_plan_id || '').trim()) throw new Error('请先从内容计划卡片选择一条计划，再保存反馈。');
-      data.content_plan_id = String(data.content_plan_id || '').trim();
-      ['views','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=toNonNegative(data[k]));
-      data.publish_link = String(data.publish_link || '').trim();
+      ['views','backend_views','backend_play_count','play_count','likes','comments','favorites','shares','consultations'].forEach(k=>data[k]=toNonNegative(data[k]));
+      data.views = playbackValue(data);
+      data.backend_views = playbackValue(data);
+      data.backend_play_count = playbackValue(data);
+      data.publish_link = normalizeExternalUrl(data.publish_link || '');
       if (!data.publish_link) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
-      const plan = clientState.plans.find((item) => samePlanId(item.id, data.content_plan_id));
-      if (!plan) throw new Error('发布计划ID不存在，请先生成计划');
+      const binding = resolveInternalFeedbackPlan(data);
+      if (!binding.plan) throw new Error('请先从内容计划卡片选择一条计划，再保存反馈。');
+      const plan = setInternalFeedbackPlan(binding.plan.id, binding.source) || binding.plan;
+      data.content_plan_id = planIdValue(plan);
+      data.plan_topic = plan.topic || '';
+      data.plan_binding_source = binding.source || 'manual_card';
       const feedback = {
         id: Date.now(),
         client_id: clientState.client_id || clientState.assessment?.client_id || 'internal',
@@ -3054,7 +3453,10 @@ function initInternalApp(){
       e.target.reset();
       const planDisplay = $('#selectedPlanDisplay');
       if (planDisplay) planDisplay.textContent = '从计划卡片选择';
-      const successMessage = '反馈已保存，本地看板和周复盘已更新。';
+      const cloudSynced = await pushCloudProjectStore({silent:true});
+      const successMessage = cloudSynced
+        ? '反馈已保存，后台项目态、回填记录和下一轮 7 天建议已更新。'
+        : '反馈已保存，本地看板和下一轮 7 天建议已更新；云端项目态同步失败。';
       setFeedbackSaveMessage(successMessage);
       toast(successMessage);
       api('/api/feedback', {method:'POST', body: JSON.stringify({...data, client_id: feedback.client_id, project_id: feedback.project_id, cycle_id: feedback.cycle_id})})

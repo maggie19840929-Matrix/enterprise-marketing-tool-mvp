@@ -2,14 +2,15 @@ let state;
 let memoryCloudState = null;
 const memoryCloudStates = new Map();
 
-const APP_VERSION = '1.6.41';
-const VERSION_LABEL = 'v1.6.41 · 回填复盘与下轮7天计划版';
+const APP_VERSION = '1.6.46';
+const VERSION_LABEL = 'v1.6.46 · 平台策略飞轮 MVP';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
 const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUDE_OPUS_MODEL || 'claude-3-opus-20240229';
 const ARK_BASE_URL = process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
-const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 23000), 1000), 25000);
-const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 9000), 1000), MODEL_TIMEOUT_MS);
+const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 23000), 1000), 32000);
+const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 30000), 8000), 32000);
+const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 30000), 8000), 32000);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
 const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -22,6 +23,11 @@ const normalizeClientId = (value = '') => {
 const clientIdFrom = (payload = {}, url = null, request = null) =>
   normalizeClientId(payload.client_id || payload.customer_key || url?.searchParams?.get('client_id') || url?.searchParams?.get('customer') || request?.headers?.get('x-client-id') || 'anonymous');
 const clientScopedCloudStateKey = (clientId = 'anonymous') => `${CLOUD_STATE_KEY}.${normalizeClientId(clientId) || 'anonymous'}`;
+const isInternalStateRequest = (url = null) => {
+  const mode = String(url?.searchParams?.get('mode') || url?.searchParams?.get('source') || '').toLowerCase();
+  const internal = String(url?.searchParams?.get('internal') || '').toLowerCase();
+  return mode === 'internal' || ['1', 'true', 'yes'].includes(internal);
+};
 
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
 const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
@@ -129,7 +135,7 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = MODEL_TIMEOUT_MS)
     clearTimeout(timer);
   }
 };
-const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '', timeoutMs = MODEL_TIMEOUT_MS } = {}) => {
+const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '', timeoutMs = MODEL_TIMEOUT_MS, responseFormat = null } = {}) => {
   const requestedModel = arkModel(model);
   const started = Date.now();
   if (!arkApiKey()) {
@@ -154,6 +160,7 @@ const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxToke
         messages,
         temperature,
         max_tokens: maxTokens,
+        ...(responseFormat ? { response_format: responseFormat } : {}),
       }),
     }, timeoutMs);
     const latencyMs = Date.now() - started;
@@ -188,6 +195,18 @@ const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxToke
 };
 
 const clean = (data, key, fallback = '') => String(data?.[key] ?? fallback).trim();
+const hasUrlProtocol = (value = '') => /^[a-z][a-z0-9+.-]*:/i.test(String(value || '').trim());
+const looksLikeExternalUrl = (value = '') => {
+  const text = String(value || '').trim();
+  if (!text || hasUrlProtocol(text) || text.startsWith('/') || text.startsWith('#')) return false;
+  if (/^www\./i.test(text)) return true;
+  return /^[\w-]+(?:\.[\w-]+)+(?:[/?#:]|$)/i.test(text);
+};
+const normalizeExternalUrl = (value = '') => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return looksLikeExternalUrl(text) ? `https://${text}` : text;
+};
 const pad2 = (n) => String(n).padStart(2, '0');
 const utcDateIso = (date) => `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`;
 const shanghaiClock = (base = new Date(), offset = 0) => {
@@ -507,7 +526,7 @@ const normalizeBenchmark = (payload = {}) => {
     clean(source, 'benchmark_account_1'),
     clean(source, 'benchmark_account_2'),
     clean(source, 'benchmark_account_3'),
-  ].map((item) => String(item || '').trim()).filter(Boolean);
+  ].map((item) => normalizeExternalUrl(item)).filter(Boolean);
   return {
     platform: clean(source, 'platform') || clean(source, 'benchmark_platform'),
     accounts: [...new Set(accounts)].slice(0, 3),
@@ -581,6 +600,101 @@ const platformStyleRulesFor = (platform) => {
     '知乎': '适合专业问题搜索和方案型信任，重逻辑与证据，不追求小红书式精致感。',
   };
   return rules[platform] || '按该平台用户语境调整表达，不把小红书规则生搬硬套到所有平台。';
+};
+
+const growthExperimentTypes = [
+  '痛点型',
+  '效果型',
+  '信任型',
+  '场景型',
+  '转化型',
+  '异议处理型',
+  '复盘型',
+];
+
+const platformStrategyFor = (platform = '', ctx = {}) => {
+  const service = ctx.category || ctx.primary_offer || '当前服务';
+  const audience = shortAudience(ctx.target_customer || '目标客户');
+  const conversion = ctx.conversion_action || '咨询具体情况';
+  if (platform === '抖音') {
+    return {
+      content_type: '短视频',
+      why: '适合用3秒开头、真实场景和过程画面快速验证' + audience + '是否对「' + service + '」有兴趣。',
+      expression: '开头先抛具体顾虑，中段给课堂/服务/案例画面，结尾只承接一次咨询动作。',
+      observe_metrics: ['播放完成率', '主页访问', '私信/咨询', '预约/到店'],
+      next_adjustment: '播放高但咨询低时，下一条补信任证据、价格/周期边界和「' + conversion + '」入口。',
+    };
+  }
+  if (platform === '小红书') {
+    return {
+      content_type: '图文/短视频',
+      why: '适合承接搜索和收藏决策，把' + audience + '关心的避坑、清单、效果边界讲清楚。',
+      expression: '标题像真实问题，正文用清单/对比/案例分段，封面突出一个可保存判断点。',
+      observe_metrics: ['曝光', '收藏', '评论提问', '私信/咨询'],
+      next_adjustment: '收藏高但咨询低时，下一条把案例、流程、价格区间或适合人群写得更具体。',
+    };
+  }
+  if (platform === '视频号') {
+    return {
+      content_type: '口播短视频',
+      why: '适合在微信生态建立专业信任，用负责人/老师/顾问口播承接熟人转发和咨询。',
+      expression: '表达更稳，少用夸张网感，重点说清为什么可信、适合谁、下一步怎么问。',
+      observe_metrics: ['播放', '转发', '评论/咨询', '微信咨询/预约'],
+      next_adjustment: '播放低时先换开头问题；有咨询但少预约时补案例复盘和明确下一步。',
+    };
+  }
+  if (platform.includes('朋友圈')) {
+    return {
+      content_type: '短文/案例记录',
+      why: '适合做信任维护和老客转介绍，承接已认识客户的轻咨询。',
+      expression: '少营销腔，多真实案例、过程记录、客户常见问题和可咨询入口。',
+      observe_metrics: ['互动', '咨询', '转介绍', '预约/下单'],
+      next_adjustment: '互动弱时减少硬广，多用真实案例和客户问答；咨询弱时明确可咨询事项。',
+    };
+  }
+  return {
+    content_type: '图文/短视频',
+    why: '适合补充验证「' + service + '」在该平台的客户反馈。',
+    expression: '按平台语境调整标题、开头、封面和咨询入口。',
+    observe_metrics: ['曝光/播放', '互动', '咨询', '预约/到店'],
+    next_adjustment: '数据不好时先换标题/开头，再判断是否暂停该平台。',
+  };
+};
+
+const growthGapPromptsFor = (assessment = {}, ctx = inferBusinessContext(assessment)) => {
+  const gaps = [];
+  if (!assessment.offer) gaps.push('转化入口缺失：未填写主推产品/服务，已按业务目标推断；发布前建议补一句“咨询什么/预约什么/怎么买”。');
+  if (!assessment.content_assets && !assessment.best_recent_content) gaps.push('信任资产缺失：缺少真实案例、过程素材或客户反馈，第一轮内容只能先验证方向，不能冒充强背书。');
+  if (!assessment.customer_pain) gaps.push('客户顾虑缺失：系统会按行业常见问题生成，但下一轮应补真实咨询问题。');
+  if (!assessment.current_channels || assessment.current_channels.includes('还不确定')) gaps.push('平台选择缺失：先用抖音/小红书/视频号做小样本，不把单个平台结果当最终结论。');
+  if (!assessment.best_recent_content) gaps.push('复盘数据缺失：没有历史胜出内容，7天计划会覆盖多种测试方向，发布后必须回填数据再判断。');
+  if (ctx.confidence < 0.7) gaps.push('差异化缺口：业务信息较少，建议补充服务特色、价格边界或真实案例，避免内容像通用模板。');
+  return gaps;
+};
+
+const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
+  const ctx = diagnosis?.smart_context || inferBusinessContext(assessment || {});
+  const experimentType = growthExperimentTypes[index % growthExperimentTypes.length];
+  const strategy = platformStrategyFor(platform, ctx);
+  const title = row[0];
+  const angle = row[1];
+  const contentType = row[2] || strategy.content_type;
+  const cta = row[3] || '引导' + (ctx.conversion_action || '咨询具体情况');
+  const targetMetric = row[4] || strategy.observe_metrics.join(' / ');
+  return {
+    experiment_type: experimentType,
+    target_customer: assessment?.target_customer || ctx.target_customer || '目标客户',
+    growth_goal: assessment?.main_goal || '获得更多有效咨询',
+    content_hypothesis: experimentType + '测试：如果「' + title + '」能击中' + (ctx.customer_decision_scene || '客户决策场景') + '，' + platform + '应出现' + strategy.observe_metrics.slice(0, 2).join('和') + '信号。',
+    recommended_platform: platform,
+    why_platform_fit: strategy.why,
+    platform_expression: strategy.expression,
+    observe_metrics: strategy.observe_metrics,
+    next_adjustment: strategy.next_adjustment,
+    content_brief: platform + '｜' + experimentType + '｜' + angle + '｜' + cta,
+    content_type: contentType,
+    target_metric: targetMetric,
+  };
 };
 
 const accountSetupFor = (assessment, recommendations) => {
@@ -913,7 +1027,7 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
 };
 
 const createAssessment = (payload, clientId = clientIdFrom(payload)) => {
-  const required = ['industry', 'main_goal', 'target_customer', 'current_channels', 'posting_frequency', 'biggest_problem'];
+  const required = ['industry', 'main_goal', 'target_customer', 'current_channels', 'biggest_problem'];
   const missing = required.filter((key) => !clean(payload, key));
   if (missing.length) throw new Error(`缺少必填字段：${missing.join(', ')}`);
   const mode = clean(payload, 'client_mode') || clean(payload, '_mode') || clean(payload, 'source');
@@ -974,6 +1088,8 @@ const generateDiagnosis = (assessmentId) => {
   const frequency = assessment.posting_frequency || '当前发布频率';
   const platformRecommendations = recommendPlatforms(assessment);
   const benchmarkReference = benchmarkReferenceFor(assessment);
+  const businessContext = inferBusinessContext(assessment);
+  const growthGaps = growthGapPromptsFor(assessment, businessContext);
   const diagnosis = {
     id: state.next.diagnosis++,
     client_id: assessment.client_id || 'anonymous',
@@ -990,6 +1106,31 @@ const generateDiagnosis = (assessmentId) => {
     weekly_action: '',
     next_step: '',
     platform_recommendations: platformRecommendations,
+    strategy_mvp: {
+      target_customer: assessment.target_customer || businessContext.target_customer,
+      growth_goal: goal,
+      content_hypothesis: '第一轮7天不是平均发内容，而是用痛点型、效果型、信任型、场景型、转化型等方向验证哪个角度能带来真实咨询。',
+      recommended_platforms: planPlatforms(platformRecommendations, assessment.current_channels),
+      growth_gaps: growthGaps,
+      seven_day_flywheel: growthExperimentTypes.map((type, index) => ({
+        day: 'Day ' + (index + 1),
+        experiment_type: type,
+        purpose: type === '痛点型'
+          ? '验证客户最在意的问题是否成立'
+          : type === '效果型'
+            ? '验证效果/变化/结果是否能提升兴趣'
+            : type === '信任型'
+              ? '补资质、案例、流程和风险边界'
+              : type === '场景型'
+                ? '把服务放进真实使用/决策场景'
+                : type === '转化型'
+                  ? '明确咨询、预约、到店或下单入口'
+                  : type === '异议处理型'
+                    ? '处理价格、周期、适不适合等顾虑'
+                    : '用回填数据决定下轮加码或暂停',
+      })),
+      post_publish_review: '发布后回填曝光/播放、点赞、收藏、评论、私信/咨询、预约/到店，系统再判断加码、暂停、改角度或下一轮7天计划。',
+    },
     benchmark_reference: benchmarkReference,
     account_setup: accountSetupFor(assessment, platformRecommendations),
     created_at: nowIso(),
@@ -1189,30 +1330,50 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   diagnosis.content_generation = generation;
   diagnosis.generation_meta = generation;
   diagnosis.model_info = generation;
-  const plans = sourceRows.map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => ({
-    id: state.next.plan++,
-    client_id: assessment?.client_id || diagnosis.client_id || 'anonymous',
-    diagnosis_id: diagnosisId,
-    planned_date: todayIso(index),
-    platform: platforms[index % platforms.length],
-    topic,
-    angle,
-    content_type,
-    cta,
-    target_metric,
-    publish_quality,
-    quality_note,
-    requested_model: generation.requested_model,
-    actual_model: generation.actual_model,
-    provider: generation.provider,
-    fallback: generation.fallback,
-    fallback_reason: generation.fallback_reason,
-    model_info: generation,
-    owner: '客户负责人',
-    status: '待发布',
-    publish_link: '',
-    created_at: nowIso(),
-  }));
+  const plans = sourceRows.map(([topic, angle, content_type, cta, target_metric, publish_quality, quality_note], index) => {
+    const platform = platforms[index % platforms.length];
+    const enriched = enrichPlanRow({
+      row: [topic, angle, content_type, cta, target_metric, publish_quality, quality_note],
+      index,
+      platform,
+      assessment,
+      diagnosis,
+    });
+    return {
+      id: state.next.plan++,
+      client_id: assessment?.client_id || diagnosis.client_id || 'anonymous',
+      diagnosis_id: diagnosisId,
+      planned_date: todayIso(index),
+      platform,
+      topic,
+      angle,
+      content_type: enriched.content_type,
+      cta,
+      target_metric: enriched.target_metric,
+      publish_quality,
+      quality_note,
+      experiment_type: enriched.experiment_type,
+      target_customer: enriched.target_customer,
+      growth_goal: enriched.growth_goal,
+      content_hypothesis: enriched.content_hypothesis,
+      recommended_platform: enriched.recommended_platform,
+      why_platform_fit: enriched.why_platform_fit,
+      platform_expression: enriched.platform_expression,
+      observe_metrics: enriched.observe_metrics,
+      next_adjustment: enriched.next_adjustment,
+      content_brief: enriched.content_brief,
+      requested_model: generation.requested_model,
+      actual_model: generation.actual_model,
+      provider: generation.provider,
+      fallback: generation.fallback,
+      fallback_reason: generation.fallback_reason,
+      model_info: generation,
+      owner: '客户负责人',
+      status: '待发布',
+      publish_link: '',
+      created_at: nowIso(),
+    };
+  });
   state.plans = [...plans, ...state.plans.filter((plan) => plan.diagnosis_id !== diagnosisId)];
   return plans;
 };
@@ -1220,6 +1381,9 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
 const planIdString = (item = {}) => String(item.id ?? item.content_plan_id ?? '').trim();
 const samePlanRef = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
 const numValue = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+const playbackValue = (item = {}) => numValue(
+  item.backend_views ?? item.backend_play_count ?? item.play_count ?? item.playback_count ?? item.views
+);
 const feedbackEngagement = (item = {}) => {
   if (item.engagement !== undefined && item.engagement !== null && item.engagement !== '') return numValue(item.engagement);
   return numValue(item.likes) + numValue(item.favorites) + numValue(item.comments) + numValue(item.shares);
@@ -1248,7 +1412,8 @@ const customerAdviceContext = (payload = {}) => {
       content_plan_id: item.content_plan_id || '',
       plan_topic: item.plan_topic || '',
       published_at: item.published_at || item.created_at || '',
-      views: numValue(item.views),
+      views: playbackValue(item),
+      backend_views: playbackValue(item),
       likes: numValue(item.likes),
       favorites: numValue(item.favorites),
       comments: numValue(item.comments),
@@ -1273,7 +1438,8 @@ const customerAdviceContext = (payload = {}) => {
     }));
   const daily_data = {
     published_at: record.published_at || record.created_at || '',
-    views: numValue(record.views),
+    views: playbackValue(record),
+    backend_views: playbackValue(record),
     likes: numValue(record.likes),
     favorites: numValue(record.favorites),
     comments: numValue(record.comments),
@@ -1321,6 +1487,15 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
     less = '在低样本平台继续机械发布';
     why = '多条内容曝光样本都偏小，需要先校准平台和第一眼表达。';
   }
+  const decision = judgmentType === '加码'
+    ? '加码'
+    : judgmentType === '平台不匹配'
+      ? '暂停低样本平台并换平台测试'
+      : judgmentType === '换角度'
+        ? '改角度'
+        : views === 0 && engagement === 0 && consultations === 0
+          ? '暂停原表达，先重写标题/开头'
+          : '继续小样本验证';
   const seedTopics = unpublished_plans.length
     ? unpublished_plans
     : Array.from({ length: 7 }, (_, index) => ({
@@ -1346,22 +1521,33 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
         : ['重写标题', '强化第一句话', '换客户视角', '减少服务堆叠', '加入具体问题', '增加证据', '复盘点击原因'];
   const plan = Array.from({ length: 7 }, (_, index) => {
     const base = seedTopics[index % seedTopics.length] || {};
+    const platform = base.platform || selected_plan.platform || '小红书/视频号';
+    const platformStrategy = platformStrategyFor(platform, {
+      category: offer,
+      primary_offer: offer,
+      target_customer: assessment.target_customer || audience,
+      conversion_action: consultations > 0 || appointments > 0 ? '咨询/预约' : '咨询具体情况',
+    });
     return {
       day: 'Day ' + (index + 1),
       planned_date: todayIso(index + 1),
       topic: base.topic || advice.nextTopic || (audience + '关心的' + offer + '问题'),
       angle: base.angle || actions[index],
-      platform: base.platform || selected_plan.platform || '小红书/视频号',
+      platform,
+      experiment_type: growthExperimentTypes[index % growthExperimentTypes.length],
       action: actions[index],
       reason: index === 0 ? '承接本次回填判断：' + judgmentType : '延续同一轮复盘结论，避免每天推倒重来。',
       target_metric: consultations > 0 || appointments > 0 ? '咨询/预约' : (views >= 800 ? '收藏/私信咨询' : '曝光/播放'),
       based_on: todayTopic,
       cta: base.cta || '引导客户咨询是否适合',
+      why_platform_fit: platformStrategy.why,
+      observe_metrics: platformStrategy.observe_metrics,
+      next_adjustment: platformStrategy.next_adjustment,
     };
   });
   return {
-    review_judgment: { type: judgmentType, more, less, why },
-    customer_summary: '下周多发：' + more + '；少发：' + less + '。原因：' + why,
+    review_judgment: { type: judgmentType, decision, more, less, why },
+    customer_summary: '判断：' + decision + '。下周多发：' + more + '；少发：' + less + '。原因：' + why,
     next_7_day_plan: plan,
     source,
   };
@@ -1466,32 +1652,21 @@ const callCustomerCopyModel = async (ctx, strategy = {}) => {
   }
 };
 
-const customerAdvicePrompt = (ctx = {}) => `你是企业增长内容策略顾问。请基于客户已经发布的一条内容、当天数据、历史反馈和未发布计划，生成复盘判断和下一步策略。
-要求：
-1. 面向商家/门店负责人可直接理解，不暴露技术模型信息；
-2. 必须绑定 selected_plan，不要默认第一条；
-3. 如果已有咨询，提炼可复制的主题结构；如果只有曝光/互动，指出信任承接缺口；如果样本小，建议先扩大样本；
-4. 反馈字段只用于营销复盘：曝光/播放、点赞、收藏、评论、分享、私信/咨询、预约/到店；不要输出CRM/ERP/销售跟进流程；
-5. 禁止评论区/留言关键词引导；
-6. 返回 JSON 对象，字段必须包含：title,nextTopic,judgment,action,copy_suggestion,review_judgment:{type,more,less,why},customer_summary。
-7. 字段要短，不要输出7天明细；系统会基于你的判断和原始7天计划展开下一轮计划。
-上下文：${JSON.stringify({
-  industry: ctx.assessment?.industry || '',
-  goal: ctx.assessment?.main_goal || '',
-  target_customer: ctx.assessment?.target_customer || '',
-  selected_plan: {
-    topic: ctx.selected_plan?.topic || '',
-    angle: ctx.selected_plan?.angle || '',
-    platform: ctx.selected_plan?.platform || '',
+const compactCustomerAdviceContext = (ctx = {}) => ({
+  biz: [ctx.assessment?.industry, ctx.assessment?.target_customer, ctx.assessment?.offer || ctx.assessment?.main_goal].filter(Boolean).join(' / '),
+  selected: [ctx.selected_plan?.topic, ctx.selected_plan?.platform].filter(Boolean).join(' / '),
+  metrics: {
+    views: ctx.daily_data?.views || 0,
+    engagement: ctx.daily_data?.engagement || 0,
+    consultations: ctx.daily_data?.consultations || 0,
+    appointments: ctx.daily_data?.appointments || 0,
   },
-  daily_data: ctx.daily_data || {},
-  history_feedback_count: ctx.history_feedback?.length || 0,
-  next_candidates: (ctx.unpublished_plans || []).slice(0, 3).map((plan) => ({
-    topic: plan.topic,
-    angle: plan.angle,
-    platform: plan.platform,
-  })),
-}, null, 2)}`;
+  notes: String(ctx.daily_data?.notes || '').slice(0, 80),
+  history_count: ctx.history_feedback?.length || 0,
+  next_topics: (ctx.unpublished_plans || []).slice(0, 3).map((plan) => plan.topic).filter(Boolean),
+});
+
+const customerAdvicePrompt = (ctx = {}) => `输出JSON对象。字段:title,nextTopic,judgment,action,copy_suggestion,review_judgment:{type,more,less,why},customer_summary。所有字符串<=24字。规则:有咨询/预约=加码;有曝光互动无咨询=补信任;样本小=扩大样本;禁CRM/ERP/销售跟进/评论区关键词。上下文:${JSON.stringify(compactCustomerAdviceContext(ctx))}`;
 
 const callArkCustomerAdviceModel = async (ctx = {}) => {
   const call = await callArkChatCompletion({
@@ -1499,6 +1674,7 @@ const callArkCustomerAdviceModel = async (ctx = {}) => {
     purpose: 'customer_growth_advice',
     temperature: 0.45,
     maxTokens: 360,
+    timeoutMs: CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS,
     messages: [
       { role: 'system', content: '你是企业增长内容策略顾问，只返回 JSON，不要输出 Markdown。' },
       { role: 'user', content: customerAdvicePrompt(ctx) },
@@ -1652,13 +1828,15 @@ const createCustomerGrowthAdvice = async (payload = {}) => {
 const recordFeedback = (planId, payload, clientId = clientIdFrom(payload)) => {
   const plan = state.plans.find((item) => item.id === planId && (!item.client_id || item.client_id === clientId));
   if (!plan) throw new Error('发布计划不存在');
-  const publishLink = clean(payload, 'publish_link');
+  const publishLink = normalizeExternalUrl(clean(payload, 'publish_link'));
   if (!publishLink) throw new Error('首次/本条发布链接必填：请粘贴已发布内容链接后再保存反馈');
   const feedback = {
     id: state.next.feedback++,
     client_id: clientId,
     content_plan_id: planId,
-    views: Number(payload.views || 0),
+    views: playbackValue(payload),
+    backend_views: playbackValue(payload),
+    backend_play_count: playbackValue(payload),
     likes: Number(payload.likes || 0),
     comments: Number(payload.comments || 0),
     favorites: Number(payload.favorites || 0),
@@ -1666,6 +1844,8 @@ const recordFeedback = (planId, payload, clientId = clientIdFrom(payload)) => {
     consultations: Number(payload.consultations || 0),
     feedback_stage: clean(payload, 'feedback_stage', 'T+24') || 'T+24',
     publish_link: publishLink,
+    plan_topic: clean(payload, 'plan_topic') || plan.topic || '',
+    plan_binding_source: clean(payload, 'plan_binding_source') || 'api_content_plan_id',
     notes: clean(payload, 'notes'),
     created_at: nowIso(),
   };
@@ -1683,13 +1863,13 @@ const createWeeklyReview = () => {
     topic: plans.find((plan) => plan.id === feedback.content_plan_id)?.topic || '',
   }));
   const total_posts = rows.length;
-  const total_views = rows.reduce((sum, item) => sum + item.views, 0);
+  const total_views = rows.reduce((sum, item) => sum + playbackValue(item), 0);
   const total_interactions = rows.reduce((sum, item) => sum + item.likes + item.comments + item.favorites + item.shares, 0);
   const total_consultations = rows.reduce((sum, item) => sum + item.consultations, 0);
   const winner = rows.slice().sort((a, b) =>
     (b.consultations - a.consultations) ||
     ((b.favorites + b.comments) - (a.favorites + a.comments)) ||
-    (b.views - a.views)
+    (playbackValue(b) - playbackValue(a))
   )[0];
   let bottleneck = '暂无反馈数据';
   let next_actions = '先完成至少1条内容发布和反馈回填，否则无法复盘。';
@@ -1728,7 +1908,7 @@ const dashboard = () => {
   const total_plans = plans.length;
   const published_plans = plans.filter((plan) => plan.status === '已发布' && plan.publish_link).length;
   const rows = latestFeedbackRows(planIds);
-  const total_views = rows.reduce((sum, item) => sum + item.views, 0);
+  const total_views = rows.reduce((sum, item) => sum + playbackValue(item), 0);
   const total_interactions = rows.reduce((sum, item) => sum + item.likes + item.comments + item.favorites + item.shares, 0);
   const total_consultations = rows.reduce((sum, item) => sum + item.consultations, 0);
   let next_suggestion = '先执行：发布第一条内容，并把首次发布链接回填到系统，否则不算闭环。';
@@ -1829,6 +2009,31 @@ const normalizeCloudProjectStore = (payload = {}) => {
   };
 };
 
+const crossProjectCloudText = (item = {}) => [
+  item.id,
+  item.name,
+  item.source,
+  item.state?.source,
+  item.state?.project?.id,
+  item.state?.project?.name,
+  item.state?.assessment?.company_name,
+  item.state?.assessment?.industry,
+  item.state?.assessment?.offer,
+  item.state?.diagnosis?.insight,
+].filter(Boolean).join(' ');
+const isCrossProjectInternalSeed = (item = {}) => /P0[123]|安标|安规|医疗器械|注册送检|EMC|SunPace|Sunny|PTE|德尔医生|del-doctor|feishu_bitable_p03/i.test(crossProjectCloudText(item));
+const stripGenericInternalCrossProjectSeeds = (projectStore = {}, clientId = 'anonymous') => {
+  const raw = projectStore?.project_store || projectStore || {};
+  if (clientId !== 'internal') return raw;
+  const projects = Array.isArray(raw.projects) ? raw.projects.filter((item) => !isCrossProjectInternalSeed(item)) : [];
+  return {
+    ...raw,
+    activeProjectId: projects.some((item) => item.id === raw.activeProjectId) ? raw.activeProjectId : null,
+    lastActiveProjectId: projects.some((item) => item.id === raw.lastActiveProjectId) ? raw.lastActiveProjectId : null,
+    projects,
+  };
+};
+
 const cloudEnvelope = (projectStore = null, meta = {}) => ({
   app_version: APP_VERSION,
   version_label: VERSION_LABEL,
@@ -1836,6 +2041,167 @@ const cloudEnvelope = (projectStore = null, meta = {}) => ({
   project_store: normalizeCloudProjectStore(projectStore || {projects: []}),
   ...meta,
 });
+
+const p03FeishuWritebackRows = [
+  ['recvkADx9gJwan', 'P03-2026-05-V01', '医疗器械注册送检，为什么经常被要求补检？', 'https://www.douyin.com/video/7647461561715510562', 238, 1, 0, 0, 3, '点赞1｜分享3'],
+  ['recvkADx9g703L', 'P03-2026-05-V06', '标准更新后，老产品为什么也要关注检测？', 'https://www.douyin.com/video/7647461073620110644', 180, 0, 0, 0, 0, '点赞0｜分享0'],
+  ['recvkADx9gT8Nv', 'P03-2026-05-V02', '送检前，客户最好提前准备哪些资料？', 'https://www.douyin.com/video/7647365516159487267', 250, 1, 0, 0, 1, '点赞1｜分享1'],
+  ['recvkADx9gUYGm', 'P03-2026-05-V08', '选择检测机构，不只看价格，还要看什么？', 'https://www.douyin.com/video/7647077528707829044', 299, 2, 0, 0, 3, '点赞2｜分享3'],
+  ['recvkADx9g6RPU', 'P03-2026-05-V09', '医疗器械检测周期，为什么不能只问“几天出报告”？', 'https://www.douyin.com/video/7647076717646990607', 345, 1, 0, 1, 0, '点赞1｜收藏1｜分享0'],
+];
+
+const buildP03InternalProjectSeed = () => {
+  const projectId = 'project-p03-anbiao-feishu-writeback';
+  const clientId = 'internal';
+  const assessment = {
+    id: 'assessment-p03-anbiao',
+    client_id: clientId,
+    company_name: 'P03 安标检测',
+    industry: 'P03安标检测｜医疗器械检测合规与注册送检内容验证',
+    main_goal: '验证抖音内容是否带来检测合规/注册送检咨询',
+    current_channels: '抖音',
+    posting_frequency: '每周8条',
+    biggest_problem: '发布数据已回填但内测页不可见',
+    target_customer: '医疗器械企业负责人、注册送检负责人、需要确认检测资料/周期/机构选择的项目负责人',
+    offer: '医疗器械检测合规咨询 / 注册送检资料准备 / 检测机构选择建议',
+    customer_pain: '企业负责人不清楚送检资料、检测周期、标准更新后是否补检以及检测机构选择标准。',
+    content_assets: 'Feishu排期选题、检测资料清单、标准更新问题、抖音发布链接与T+72数据',
+    contact: 'P03项目',
+    source: 'feishu_bitable_p03_writeback_seed',
+    feishu_base_token: 'VGSxbfukVaytnPsag3WcD5rZn1e',
+    feishu_table_id: 'tblDwfGwO84jM2mE',
+    feishu_table_name: '发布数据回收｜2026W22｜8条视频',
+    created_at: '2026-06-12 18:13:00',
+  };
+  const diagnosis = {
+    id: 'diagnosis-p03-anbiao',
+    client_id: clientId,
+    assessment_id: assessment.id,
+    app_version: APP_VERSION,
+    version_label: VERSION_LABEL,
+    score: 88,
+    strategy_score: 88,
+    loop_score: 72,
+    stage: '运营周期',
+    priority_problem: 'Feishu回填数据需要进入内测页云端项目态',
+    insight: 'P03已有5条抖音发布数据回填，当前判断应基于T+72曝光和互动数据继续复制注册送检、检测资料准备、机构选择和检测周期类内容。',
+    weekly_action: '继续围绕医疗器械注册送检、检测资料准备、标准更新、检测机构选择连续发布，并把每条链接绑定到计划后回填T+72数据。',
+    next_step: '优先复盘曝光最高的“医疗器械检测周期”和“选择检测机构”方向，下一轮补充咨询入口和案例证据。',
+    risk_warning: '收藏/评论字段部分原始数据未提供，不能臆造；本页只展示已回填的播放、点赞、收藏、分享字段。',
+    score_note: '数据来自飞书多维表“发布数据回收｜2026W22｜8条视频”，按视频URL和原排期记录补写后注入内测云端state。',
+    platform_recommendations: {
+      strategy: 'P03第一轮主平台为抖音，视频号/私域可后续复用，不引入小红书代发或养号动作。',
+      primary: [{platform: '抖音', reason: '适合用短视频讲清医疗器械注册送检、检测资料准备和检测周期问题。'}],
+      support: [{platform: '视频号', reason: '可复用同一检测合规科普素材承接企业负责人。'}],
+      client_platforms: [{platform: '朋友圈/私域', reason: '用于承接已有客户信任和咨询。'}],
+      avoid: [{platform: '自动发布/养号', reason: '本任务只做数据可见和复盘，不做外部平台操作。'}],
+    },
+    benchmark_reference: {
+      source_summary: 'Feishu Base P03回填数据快照',
+      recent_topics: p03FeishuWritebackRows.map((row) => row[2]),
+      title_structures: ['送检前先确认X', '检测周期为什么不能只问X', '选择检测机构要看X'],
+      transferable_directions: ['检测资料清单', '机构选择标准', '检测周期解释'],
+      avoid: ['跨项目模板', '未提供字段臆造', '自动发布承诺'],
+    },
+    created_at: '2026-06-12 18:13:00',
+  };
+  const plans = p03FeishuWritebackRows.map(([recordId, videoNo, topic, link], index) => ({
+    id: index + 1,
+    client_id: clientId,
+    project_id: projectId,
+    cycle_id: 'cycle-2026w22',
+    diagnosis_id: diagnosis.id,
+    planned_date: `2026-06-${String(8 + index).padStart(2, '0')}`,
+    platform: '抖音',
+    topic,
+    angle: `${videoNo}｜围绕企业负责人做医疗器械注册送检/检测前的真实顾虑展开。`,
+    content_type: '短视频',
+    cta: '引导主页咨询检测合规/注册送检准备',
+    target_metric: 'T+72播放量 / 点赞 / 收藏 / 分享 / 咨询',
+    publish_quality: '已发布并完成Feishu回填',
+    quality_note: `Feishu record_id: ${recordId}`,
+    owner: 'P03安标检测项目',
+    status: '已发布',
+    publish_link: link,
+    source: 'feishu_bitable_p03_writeback_seed',
+    feishu_record_id: recordId,
+    created_at: '2026-06-12 18:13:00',
+  }));
+  const feedback = p03FeishuWritebackRows.map(([recordId, videoNo, topic, link, views, likes, comments, favorites, shares, interactionText], index) => ({
+    id: `feedback-p03-${index + 1}`,
+    client_id: clientId,
+    project_id: projectId,
+    cycle_id: 'cycle-2026w22',
+    content_plan_id: index + 1,
+    plan_topic: topic,
+    plan_binding_source: 'feishu_record_id_and_publish_link',
+    publish_link: link,
+    feedback_stage: 'T+72',
+    views,
+    backend_views: views,
+    backend_play_count: views,
+    play_count: views,
+    likes,
+    comments,
+    favorites,
+    shares,
+    consultations: 0,
+    appointments: 0,
+    notes: `${videoNo}｜Feishu回填：T+72播放量${views}｜${interactionText}｜评论/咨询未提供则保持0`,
+    source: 'feishu_bitable_p03_writeback_seed',
+    feishu_base_token: 'VGSxbfukVaytnPsag3WcD5rZn1e',
+    feishu_table_id: 'tblDwfGwO84jM2mE',
+    feishu_table_name: '发布数据回收｜2026W22｜8条视频',
+    feishu_record_id: recordId,
+    created_at: '2026-06-12 18:13:00',
+  }));
+  const totalViews = feedback.reduce((sum, item) => sum + playbackValue(item), 0);
+  const totalInteractions = feedback.reduce((sum, item) => sum + item.likes + item.comments + item.favorites + item.shares, 0);
+  const winner = feedback.slice().sort((a, b) => playbackValue(b) - playbackValue(a))[0];
+  const review = {
+    week_start: '2026-06-08',
+    week_end: '2026-06-14',
+    total_posts: feedback.length,
+    total_views: totalViews,
+    total_interactions: totalInteractions,
+    total_consultations: 0,
+    winner_topic: winner?.plan_topic || '暂无',
+    bottleneck: '有播放与互动回填，但咨询字段未提供',
+    next_actions: '下一轮继续复制高播放检测合规问题科普，并在视频结尾补强主页咨询/案例承接，避免只看播放不看咨询。',
+    source: 'feishu_bitable_p03_writeback_seed',
+    created_at: '2026-06-12 18:13:00',
+  };
+  const state = {
+    project: {id: projectId, client_id: clientId, name: 'P03 安标检测作战台', created_at: '2026-06-12 18:13:00'},
+    client_id: clientId,
+    project_stage: '运营中',
+    current_cycle_id: 'cycle-2026w22',
+    assessment,
+    diagnosis,
+    plans,
+    feedback,
+    review,
+    intake_history: [assessment],
+    diagnosis_history: [diagnosis],
+    active_diagnosis_id: diagnosis.id,
+    source: 'feishu_bitable_p03_writeback_seed',
+    environment: 'internal_version',
+    app_version: APP_VERSION,
+    saved_at: '2026-06-12 18:13:00',
+  };
+  return {
+    id: projectId,
+    name: 'P03 安标检测作战台',
+    stage: '运营中',
+    updated_at: '2026-06-12 18:13:00',
+    source: 'feishu_bitable_p03_writeback_seed',
+    state,
+  };
+};
+
+const withInternalProjectSeeds = (projectStore = {}, clientId = 'anonymous') => {
+  return normalizeCloudProjectStore(stripGenericInternalCrossProjectSeeds(projectStore, clientId));
+};
 
 const cloudStore = async () => {
   try {
@@ -1847,14 +2213,20 @@ const cloudStore = async () => {
   }
 };
 
-const readCloudState = async (clientId = 'anonymous') => {
+const readCloudState = async (clientId = 'anonymous', {internal = false} = {}) => {
   const key = clientScopedCloudStateKey(clientId);
   const store = await cloudStore();
   if (store) {
     const data = await store.get(key, { type: 'json' }).catch(() => null);
-    if (data) return {...cloudEnvelope(data.project_store || data, {client_id: clientId, storage_key: key, storage: 'netlify-blobs'}), storage: 'netlify-blobs'};
+    if (data) {
+      const projectStore = internal ? withInternalProjectSeeds(data.project_store || data, clientId) : (data.project_store || data);
+      return {...cloudEnvelope(projectStore, {client_id: clientId, storage_key: key, storage: 'netlify-blobs', seed_source: null}), storage: 'netlify-blobs'};
+    }
   }
-  if (!memoryCloudStates.has(key)) memoryCloudStates.set(key, cloudEnvelope({projects: []}, {client_id: clientId, storage_key: key, storage: 'memory-fallback'}));
+  if (!memoryCloudStates.has(key)) {
+    const projectStore = internal ? withInternalProjectSeeds({projects: []}, clientId) : {projects: []};
+    memoryCloudStates.set(key, cloudEnvelope(projectStore, {client_id: clientId, storage_key: key, storage: 'memory-fallback', seed_source: null}));
+  }
   return {...memoryCloudStates.get(key), storage: 'memory-fallback'};
 };
 
@@ -1895,7 +2267,7 @@ export default async (request) => {
     const requestClientId = clientIdFrom({}, url, request);
     if (request.method === 'GET') {
       if (path === '/health') return json({ ok: true, runtime: 'netlify-function', version: APP_VERSION, version_label: VERSION_LABEL });
-      if (path === '/state') return json(await readCloudState(requestClientId));
+      if (path === '/state') return json(await readCloudState(requestClientId, {internal: requestClientId === 'internal' || isInternalStateRequest(url)}));
       if (path === '/dashboard') return json(dashboard());
       if (path === '/assessments') return json(state.assessments.filter((item) => !item.client_id || item.client_id === requestClientId));
       if (path === '/diagnoses') return json(state.diagnoses.filter((item) => !item.client_id || item.client_id === requestClientId));
