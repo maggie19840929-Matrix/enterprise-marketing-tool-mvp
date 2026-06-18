@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL'].forEach((key) => {
   delete process.env[key];
@@ -276,10 +277,10 @@ assert(!appJs.includes('function isAnbiaoCustomerProject()') && !appJs.includes(
 assert(!appJs.includes('安标检测 / 发布链接回填') && !appJs.includes('查看回填链接表'), 'anbiao publish-link refill UI should not be rendered');
 assert(appJs.includes('function initCustomerTrial()') && appJs.includes('CUSTOMER_STORAGE_KEY'), 'default app should initialize the customer trial flow');
 assert(appJs.includes("location.replace('/internal/');") && !appJs.includes("params.get('mode') === 'internal'"), 'public ?mode=internal entries must not open the internal workbench');
-assert(appJs.includes("return path === '/internal';"), 'internal rendering must still be path-gated to the canonical /internal/ route');
-assert(redirects.includes('/internal /index.html 200') && redirects.includes('/internal/ /index.html 200') && !redirects.includes('/?mode=internal'), 'internal routes should rewrite to the app shell without a Netlify self-redirect loop');
+assert(appJs.includes("return path === '/internal' || path.startsWith('/internal/');") && appJs.includes("currentPath() === '/internal/generation-workbench'"), 'internal rendering should be path-gated to /internal/ and the generation workbench route');
+assert(redirects.includes('/internal /index.html 200') && redirects.includes('/internal/ /index.html 200') && redirects.includes('/internal/* /index.html 200') && !redirects.includes('/?mode=internal'), 'internal routes should rewrite to the app shell without a Netlify self-redirect loop');
 assert(!existsSync(new URL('../static/internal/index.html', import.meta.url)), 'static/internal/index.html must not exist because it shadows the /internal/ SPA rewrite on Netlify');
-assert(localDevServer.includes("pathname === '/internal'") && localDevServer.includes("location: '/internal/'") && localDevServer.includes("pathname === '/internal/'"), 'local dev server should mirror /internal -> /internal/ -> app-shell behavior');
+assert(localDevServer.includes("pathname === '/internal'") && localDevServer.includes("location: '/internal/'") && localDevServer.includes("pathname.startsWith('/internal/')"), 'local dev server should mirror /internal -> /internal/ and /internal/* -> app-shell behavior');
 assert(appJs.includes('function syncCustomerChoicesBeforeSubmit') && appJs.includes("aria-pressed") && !appJs.includes('lastPointerSelect'), 'customer choice chips should use stable click handling and submit-time sync');
 assert(!appJs.includes('onpointerdown = handleButtonChoice') && !appJs.includes("addEventListener('pointerdown', handleChoiceEvent)") && appJs.includes("addEventListener('keydown'") && appJs.includes("if (typeof group.__applyChoice === 'function') {\n      return;"), 'customer choice chips must not double-toggle through pointer/capture fallback handlers');
 assert(appJs.includes('isInternalMode()') && appJs.includes('initInternalApp()'), 'internal workbench should be gated behind internal mode');
@@ -769,6 +770,134 @@ if (reviewRes.status !== 201) throw new Error(`review expected 201, got ${review
 const reviewData = await reviewRes.json();
 assert(reviewData.review.next_actions.includes('加码'), 'review should generate next-round action from feedback');
 
+const healthRes = await handler(request('GET', 'health'));
+assert(healthRes.status === 200, 'GET /health should succeed');
+const health = await healthRes.json();
+assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
+assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
+assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
+
+const qaProjectId = 'qa_generation_project';
+const qaClientId = 'internal';
+const referenceText = 'mock video reference asset for generation workbench';
+const referenceSha = createHash('sha256').update(referenceText).digest('hex');
+const assetRes = await handler(request('POST', 'assets', {
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  project_id: qaProjectId,
+  project_name: '企业营销工具验收测试',
+  original_filename: 'qa-reference.txt',
+  mime_type: 'text/plain',
+  text_content: referenceText,
+  sha256: referenceSha,
+  source: 'internal',
+  usage_scope: 'current_project_only',
+}));
+if (assetRes.status !== 201) throw new Error(`POST /assets should create asset, got ${assetRes.status}: ${await assetRes.text()}`);
+const assetData = await assetRes.json();
+assert(assetData.asset.sha256 === referenceSha, 'asset upload should preserve server-verified sha256');
+assert(assetData.asset.status === 'ok', 'asset status should be ok');
+
+const videoTaskRes = await handler(request('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  content_plan_record_id: 'qa_content_plan_001',
+  platform: '小红书',
+  content_type: '视频',
+  generation_type: 'video',
+  requested_model: 'Seedance 2.0',
+  prompt: '生成一条项目化素材验收短视频 mock',
+  output_spec: { size: '1080x1920', duration: '6s', style: '真实工作台演示', client_visible: true },
+  input_asset_ids: [assetData.asset.asset_id],
+}));
+if (videoTaskRes.status !== 201) throw new Error(`POST /generation-tasks video should create task, got ${videoTaskRes.status}: ${await videoTaskRes.text()}`);
+const videoTask = (await videoTaskRes.json()).task;
+assert(videoTask.status === 'draft', 'video task should start as draft');
+assert(videoTask.requested_model === 'Seedance 2.0', 'video task requested_model should be Seedance 2.0');
+
+const submittedVideo = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/submit`, { client_id: qaClientId }))).json();
+assert(submittedVideo.task.status === 'generating', 'video submit should enter generating, not wait for final output');
+assert(submittedVideo.task.provider_job_id, 'video submit should return provider_job_id');
+assert(submittedVideo.task.actual_model === 'Seedance 2.0', 'mock video adapter should set actual_model to requested model');
+assert(submittedVideo.task.provider === 'seedance-video', 'video adapter provider should be seedance-video');
+assert(submittedVideo.task.fallback === false, 'mock video adapter success should not fallback');
+
+const videoPoll1 = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
+assert(videoPoll1.task.status === 'generating', 'first video poll should remain generating');
+const videoPoll2 = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
+assert(videoPoll2.task.status === 'qa_pending', 'second video poll should produce output and enter qa_pending');
+assert(videoPoll2.task.output_asset_ids.length === 1, 'generated video should create one output asset');
+
+const qaFailed = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/qa`, {
+  client_id: qaClientId,
+  qa_status: 'failed',
+  qa_reviewer: 'QA',
+  rejection_reason: '画面字幕需要调整',
+  qa_notes: '先失败一次验证状态机',
+}))).json();
+assert(qaFailed.task.status === 'qa_failed', 'QA failed should move task to qa_failed');
+assert(qaFailed.task.qa.rejection_reason.includes('字幕'), 'QA failed should record rejection_reason');
+const clientTasksAfterFail = await (await handler(request('GET', `generation-tasks?client_id=${qaClientId}&project_id=${qaProjectId}&view=client`))).json();
+assert(!clientTasksAfterFail.tasks.some((task) => task.task_id === videoTask.task_id), 'failed QA task must not appear in client delivery view');
+
+const qaPassed = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/qa`, {
+  client_id: qaClientId,
+  qa_status: 'passed',
+  qa_reviewer: 'QA',
+  qa_notes: '验收通过，可交付',
+  visual_check: true,
+  content_check: true,
+  brand_check: true,
+  platform_fit_check: true,
+  client_visibility_check: true,
+}))).json();
+assert(qaPassed.task.status === 'client_ready', 'QA passed should move task to client_ready');
+assert(qaPassed.task.qa.qa_status === 'passed', 'QA passed should record qa_status');
+const clientTasksAfterPass = await (await handler(request('GET', `generation-tasks?client_id=${qaClientId}&project_id=${qaProjectId}&view=client`))).json();
+const visibleVideoTask = clientTasksAfterPass.tasks.find((task) => task.task_id === videoTask.task_id);
+assert(visibleVideoTask, 'passed QA task should appear in client delivery view');
+const visibleText = JSON.stringify(visibleVideoTask);
+['requested_model', 'actual_model', 'provider', 'fallback', 'error', 'provider_job_id', 'debug'].forEach((word) => {
+  assert(!visibleText.includes(word), `client delivery task must hide internal field ${word}`);
+});
+
+const deliveredVideo = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/deliver`, { client_id: qaClientId }))).json();
+assert(deliveredVideo.task.status === 'delivered', 'client_ready task should be deliverable');
+const feishuMock = await (await handler(request('POST', 'feishu/sync', { client_id: qaClientId, task_id: videoTask.task_id }))).json();
+assert(feishuMock.synced === false && feishuMock.mode === 'mock', 'feishu sync should be mock in V1');
+['A_customer_profile', 'B_content_plan', 'C_outsourced_production', 'D_internal_qa', 'E_client_delivery', 'F_data_return'].forEach((key) => {
+  assert(feishuMock.payload[key], `feishu payload should include ${key}`);
+});
+
+const coverTask = await (await handler(request('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  content_plan_record_id: 'qa_content_plan_002',
+  platform: '小红书',
+  content_type: '封面',
+  generation_type: 'cover',
+  requested_model: 'GPT-Image-2',
+  prompt: '生成一张项目化素材验收封面图 mock',
+  output_spec: { size: '1024x1024', style: '清晰专业', client_visible: true },
+}))).json();
+assert(coverTask.task.requested_model === 'GPT-Image-2', 'cover task should request GPT-Image-2');
+const submittedCover = await (await handler(request('POST', `generation-tasks/${coverTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
+assert(submittedCover.task.status === 'qa_pending', 'cover task should synchronously generate and enter qa_pending');
+assert(submittedCover.task.actual_model === 'GPT-Image-2' && submittedCover.task.provider === 'openai-image', 'cover task should use openai-image mock adapter');
+const coverPassed = await (await handler(request('POST', `generation-tasks/${coverTask.task.task_id}/qa`, {
+  client_id: qaClientId,
+  qa_status: 'passed',
+  qa_reviewer: 'QA',
+  visual_check: true,
+  content_check: true,
+  brand_check: true,
+  platform_fit_check: true,
+  client_visibility_check: true,
+}))).json();
+assert(coverPassed.task.status === 'client_ready', 'cover QA passed should enter client_ready');
+
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
   app_version: diagnosis.app_version,
@@ -782,4 +911,21 @@ console.log(JSON.stringify({
   first_date: plans[0].planned_date,
   first_topics: plans.slice(0, 3).map((p) => p.topic),
   quality_labels: plans.map((p) => p.publish_quality),
+  generation_workbench: {
+    asset_sha256: assetData.asset.sha256,
+    video_task_id: videoTask.task_id,
+    video_provider_job_id: submittedVideo.task.provider_job_id,
+    video_requested_model: submittedVideo.task.requested_model,
+    video_actual_model: submittedVideo.task.actual_model,
+    video_provider: submittedVideo.task.provider,
+    video_fallback: submittedVideo.task.fallback,
+    video_qa_status: qaPassed.task.qa.qa_status,
+    video_client_visible: Boolean(visibleVideoTask),
+    cover_task_id: coverTask.task.task_id,
+    cover_requested_model: coverTask.task.requested_model,
+    cover_actual_model: submittedCover.task.actual_model,
+    cover_provider: submittedCover.task.provider,
+    cover_qa_status: coverPassed.task.qa.qa_status,
+    feishu_mock_mode: feishuMock.mode,
+  },
 }, null, 2));

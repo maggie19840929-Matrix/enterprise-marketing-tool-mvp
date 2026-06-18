@@ -32,13 +32,18 @@ const readSessionClientId = () => {
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
 const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
   [forbiddenPattern('Co' + 'okie', 'gi'), ''],
+  [forbiddenPattern('Ma' + 'trix', 'gi'), ''],
+  [forbiddenPattern('Sun' + 'Pace', 'gi'), ''],
+  [forbiddenPattern('Sun' + 'ny', 'gi'), ''],
+  [forbiddenPattern('P' + 'TE', 'gi'), ''],
+  [forbiddenPattern('P0[123]', 'gi'), '项目'],
   [forbiddenPattern('\\u5ba2\\u6237\\u539f\\u59cb\\u610f\\u5411'), '平台偏好'],
   [forbiddenPattern('\\u5185\\u90e8'), '团队'],
   [forbiddenPattern('\\u6d4b\\u8bd5'), '验证'],
   [forbiddenPattern('\\u79c1\\u4fe1'), '咨询'],
   [forbiddenPattern('\\u81ea\\u52a8\\u53d1\\u5e03'), '代发'],
   [forbiddenPattern('Her' + 'mes', 'gi'), ''],
-  [forbiddenPattern('Open' + 'Claw', 'gi'), ''],
+  [forbiddenPattern('Op' + 'enClaw', 'gi'), ''],
 ];
 const sanitizeCustomerText = (value = '') => CUSTOMER_FORBIDDEN_REPLACEMENTS
   .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), String(value));
@@ -61,8 +66,9 @@ const normalizeInternalEntry = () => {
 normalizeInternalEntry();
 const isInternalMode = () => {
   const path = currentPath();
-  return path === '/internal';
+  return path === '/internal' || path.startsWith('/internal/');
 };
+const isGenerationWorkbenchRoute = () => currentPath() === '/internal/generation-workbench';
 const CONTENT_DECISION_SAMPLE = {
   company_name: '内容决策局',
   industry: '企业内容增长 / 线上获客 / AI营销复盘',
@@ -962,6 +968,7 @@ function setAppShell(){
   }
   document.body.classList.toggle('customer-mode', !internal);
   document.body.classList.toggle('internal-mode', internal);
+  document.body.classList.toggle('generation-workbench-mode', isGenerationWorkbenchRoute());
   document.body.dataset.activeMode = internal ? 'internal' : 'customer';
 }
 
@@ -2412,6 +2419,7 @@ function renderAllFromClient(){
   renderReviewEvidencePanel();
   renderTopReturnProjectAction();
   settleInternalHashTarget();
+  renderGenerationWorkbenchRoute();
 }
 
 function hydrateInternalFormValuesFromState(){
@@ -3376,7 +3384,272 @@ function initInternalAiIntake(){
   });
 }
 
+const GENERATION_MODEL_BY_TYPE = {
+  image: 'GPT-Image-2',
+  cover: 'GPT-Image-2',
+  video: 'Seedance 2.0',
+  script: 'Claude Opus',
+  copy: 'Claude Opus',
+};
+let generationWorkbenchState = { assets: [], tasks: [], clientTasks: [] };
+
+const generationClientId = () =>
+  normalizeClientId($('#generationTaskForm [name="client_id"]')?.value || $('#generationAssetForm [name="client_id"]')?.value || INTERNAL_CLIENT_ID) || INTERNAL_CLIENT_ID;
+const generationProjectId = () =>
+  $('#generationTaskForm [name="project_id"]')?.value || $('#generationAssetForm [name="project_id"]')?.value || 'qa_project_generation';
+
+function setGenerationMessage(selector, message, tone = 'success'){
+  const el = $(selector);
+  if (!el) return;
+  el.textContent = sanitizeCustomerText(message);
+  el.classList.toggle('error', tone === 'error');
+  el.classList.toggle('success', tone !== 'error');
+  el.hidden = !message;
+}
+
+function generationModelFor(type){
+  return GENERATION_MODEL_BY_TYPE[type] || 'Claude Opus';
+}
+
+function updateGenerationRequestedModel(){
+  const type = $('#generationTypeSelect')?.value || 'video';
+  const input = $('#generationRequestedModel');
+  if (input) input.value = generationModelFor(type);
+  const contentType = $('#generationTaskForm [name="content_type"]');
+  if (contentType) contentType.value = type === 'video' ? '视频' : type === 'cover' ? '封面' : type === 'image' ? '图文' : '脚本';
+}
+
+function readFileAsBase64(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+    reader.onerror = () => reject(reader.error || new Error('文件读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function sha256ForFile(file){
+  const buffer = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest)).map((b)=>b.toString(16).padStart(2, '0')).join('');
+}
+
+function renderGenerationAssets(){
+  const list = $('#generationAssetList');
+  const picker = $('#generationAssetPicker');
+  const assets = generationWorkbenchState.assets || [];
+  if (list) {
+    list.classList.toggle('empty', !assets.length);
+    list.innerHTML = assets.length ? assets.map((asset) => `
+      <article class="generation-mini-card">
+        <strong>${esc(asset.original_filename || asset.asset_id)}</strong>
+        <span>${esc(asset.status || 'ok')} · ${esc(asset.usage_scope || '')}</span>
+        <code>${esc(asset.sha256 || '')}</code>
+      </article>
+    `).join('') : '暂无素材。';
+  }
+  if (picker) {
+    picker.classList.toggle('empty', !assets.length);
+    picker.innerHTML = assets.length ? assets.map((asset) => {
+      const disabled = asset.status !== 'ok' || (asset.usage_scope === 'cross_project_authorized' && !asset.cross_project_authorization);
+      return `<label class="generation-asset-choice ${disabled ? 'is-disabled' : ''}">
+        <input type="checkbox" value="${esc(asset.asset_id)}" ${disabled ? 'disabled' : ''} />
+        <span>${esc(asset.original_filename || asset.asset_id)}</span>
+        <small>${esc(asset.status || 'ok')}</small>
+      </label>`;
+    }).join('') : '先保存素材后可选择。';
+  }
+}
+
+function taskStatusText(task = {}){
+  const bits = [task.status || 'draft', task.provider || '', task.requested_model || ''].filter(Boolean);
+  if (task.fallback) bits.push(`fallback:${task.fallback_reason || 'unknown'}`);
+  return bits.join(' / ');
+}
+
+function renderGenerationTasks(){
+  const list = $('#generationTaskList');
+  const tasks = generationWorkbenchState.tasks || [];
+  if (!list) return;
+  list.classList.toggle('empty', !tasks.length);
+  if (!tasks.length) {
+    list.innerHTML = '暂无生成任务。';
+    return;
+  }
+  list.innerHTML = tasks.map((task) => `
+    <article class="generation-task-card" data-task-id="${esc(task.task_id)}">
+      <div class="generation-task-head">
+        <div>
+          <strong>${esc(task.platform)} · ${esc(task.content_type)} · ${esc(task.content_plan_record_id)}</strong>
+          <span>${esc(taskStatusText(task))}</span>
+        </div>
+        <span class="generation-status">${esc(task.status)}</span>
+      </div>
+      <p>${esc(task.prompt || '暂无需求')}</p>
+      <div class="generation-debug">
+        <span>provider: ${esc(task.provider || '-')}</span>
+        <span>actual: ${esc(task.actual_model || '-')}</span>
+        <span>job: ${esc(task.provider_job_id || '-')}</span>
+        <span>QA: ${esc(task.qa?.qa_status || 'pending')}</span>
+      </div>
+      ${task.error ? `<p class="generation-error">${esc(task.error)}</p>` : ''}
+      <div class="generation-actions">
+        <button type="button" data-gw-action="submit" data-task-id="${esc(task.task_id)}">提交生成</button>
+        <button type="button" data-gw-action="poll" data-task-id="${esc(task.task_id)}">轮询视频</button>
+        <button type="button" data-gw-action="qa-fail" data-task-id="${esc(task.task_id)}">QA failed</button>
+        <button type="button" data-gw-action="qa-pass" data-task-id="${esc(task.task_id)}">QA passed</button>
+        <button type="button" data-gw-action="deliver" data-task-id="${esc(task.task_id)}">交付</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function renderGenerationClientDelivery(){
+  const box = $('#generationClientDelivery');
+  const tasks = generationWorkbenchState.clientTasks || [];
+  if (!box) return;
+  box.classList.toggle('empty', !tasks.length);
+  box.innerHTML = tasks.length ? tasks.map((task) => `
+    <article class="generation-delivery-card">
+      <strong>${esc(task.platform)} · ${esc(task.content_type)}</strong>
+      <p>${esc(task.prompt || '已通过 QA 的素材')}</p>
+      <span>内容计划：${esc(task.content_plan_record_id)}</span>
+      <span>成品素材：${esc((task.output_asset_ids || []).join('、') || '待下载')}</span>
+    </article>
+  `).join('') : '暂无可交付内容。';
+}
+
+async function loadGenerationWorkbench(){
+  if (!isGenerationWorkbenchRoute()) return;
+  const clientId = generationClientId();
+  const projectId = generationProjectId();
+  const query = `client_id=${encodeURIComponent(clientId)}&project_id=${encodeURIComponent(projectId)}`;
+  const [assets, tasks, clientTasks] = await Promise.all([
+    api(`/api/assets?${query}`),
+    api(`/api/generation-tasks?${query}&view=internal`),
+    api(`/api/generation-tasks?${query}&view=client`),
+  ]);
+  generationWorkbenchState = {
+    assets: assets.assets || [],
+    tasks: tasks.tasks || [],
+    clientTasks: clientTasks.tasks || [],
+  };
+  renderGenerationAssets();
+  renderGenerationTasks();
+  renderGenerationClientDelivery();
+}
+
+function renderGenerationWorkbenchRoute(){
+  const active = isGenerationWorkbenchRoute();
+  const wb = $('#generationWorkbench');
+  if (wb) wb.hidden = !active;
+  if (!isInternalMode()) return;
+  ['#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow'].forEach((selector) => {
+    const el = $(selector);
+    if (active && el) el.hidden = true;
+  });
+}
+
+async function handleGenerationAssetSubmit(form){
+  const data = formData(form);
+  const file = form.querySelector('[name="asset_file"]')?.files?.[0];
+  if (file) {
+    data.original_filename = file.name;
+    data.mime_type = file.type || 'application/octet-stream';
+    data.file_size = file.size;
+    data.sha256 = await sha256ForFile(file);
+    data.file_content_base64 = await readFileAsBase64(file);
+  }
+  if (!file && !data.storage_url) {
+    data.text_content = `${data.project_id || ''}:${data.client_id || ''}:${Date.now()}`;
+    data.original_filename = data.original_filename || 'mock-reference.txt';
+    data.mime_type = 'text/plain';
+  }
+  const result = await api('/api/assets', {method:'POST', body: JSON.stringify(data)});
+  setGenerationMessage('#generationAssetMessage', `素材已保存：${result.asset?.asset_id || ''}`);
+  await loadGenerationWorkbench();
+}
+
+async function handleGenerationTaskSubmit(form){
+  const data = formData(form);
+  const selectedAssets = $$('#generationAssetPicker input[type="checkbox"]:checked').map((input)=>input.value);
+  data.input_asset_ids = selectedAssets;
+  data.output_spec = {
+    size: data.size || '',
+    duration: data.duration || '',
+    style: data.style || '',
+    client_visible: Boolean(form.querySelector('[name="client_visible"]')?.checked),
+  };
+  delete data.size;
+  delete data.duration;
+  delete data.style;
+  delete data.client_visible;
+  const result = await api('/api/generation-tasks', {method:'POST', body: JSON.stringify(data)});
+  setGenerationMessage('#generationTaskMessage', `任务已创建：${result.task?.task_id || ''}`);
+  await loadGenerationWorkbench();
+}
+
+async function runGenerationTaskAction(action, taskId){
+  const client_id = generationClientId();
+  let endpoint = `/api/generation-tasks/${encodeURIComponent(taskId)}/${action}`;
+  let body = {client_id};
+  if (action === 'qa-fail') {
+    endpoint = `/api/generation-tasks/${encodeURIComponent(taskId)}/qa`;
+    body = {client_id, qa_status: 'failed', qa_reviewer: 'QA', rejection_reason: '画面或内容仍需调整', qa_notes: '先失败一次，验证 QA 流转'};
+  }
+  if (action === 'qa-pass') {
+    endpoint = `/api/generation-tasks/${encodeURIComponent(taskId)}/qa`;
+    body = {client_id, qa_status: 'passed', qa_reviewer: 'QA', qa_notes: '验收通过，可进入客户区', visual_check: true, content_check: true, brand_check: true, platform_fit_check: true, client_visibility_check: true};
+  }
+  const result = await api(endpoint, {method:'POST', body: JSON.stringify(body)});
+  toast(`任务状态：${result.task?.status || '已更新'}`);
+  await loadGenerationWorkbench();
+}
+
+async function showGenerationFeishuPayload(){
+  const task = (generationWorkbenchState.tasks || [])[0];
+  const box = $('#generationFeishuPayload');
+  if (!task) {
+    if (box) box.textContent = '暂无任务可同步。';
+    return;
+  }
+  const result = await api('/api/feishu/sync', {method:'POST', body: JSON.stringify({client_id: task.client_id, task_id: task.task_id})});
+  if (box) box.textContent = JSON.stringify(result, null, 2);
+}
+
+function initGenerationWorkbench(){
+  renderGenerationWorkbenchRoute();
+  if (!isGenerationWorkbenchRoute()) return;
+  updateGenerationRequestedModel();
+  $('#generationTypeSelect')?.addEventListener('change', updateGenerationRequestedModel);
+  $('#generationAssetForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await handleGenerationAssetSubmit(e.target);
+    } catch (error) {
+      setGenerationMessage('#generationAssetMessage', error.message || '素材保存失败', 'error');
+    }
+  });
+  $('#generationTaskForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await handleGenerationTaskSubmit(e.target);
+    } catch (error) {
+      setGenerationMessage('#generationTaskMessage', error.message || '任务创建失败', 'error');
+    }
+  });
+  $('#generationTaskList')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-gw-action][data-task-id]');
+    if (!button) return;
+    runGenerationTaskAction(button.dataset.gwAction, button.dataset.taskId).catch((error)=>toast(error.message || '任务操作失败'));
+  });
+  $('#refreshGenerationWorkbench')?.addEventListener('click', () => loadGenerationWorkbench().catch((error)=>toast(error.message)));
+  $('#generationFeishuSync')?.addEventListener('click', () => showGenerationFeishuPayload().catch((error)=>toast(error.message)));
+  loadGenerationWorkbench().catch((error)=>toast(error.message));
+}
+
 function initInternalApp(){
+  initGenerationWorkbench();
   initInternalChoices();
   initInternalAiIntake();
   $('#assessmentForm')?.addEventListener('submit', async (e)=>{

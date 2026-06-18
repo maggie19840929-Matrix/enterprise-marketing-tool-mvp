@@ -270,6 +270,7 @@
       <div class="customer-hero-actions">
         <a class="customer-hero-primary" href="#diagnosisWorkflow">开始内测填写</a>
         <a class="customer-hero-secondary" href="#planSection">查看生成结果</a>
+        <a class="customer-hero-secondary" href="/internal/generation-workbench">素材生成工作台</a>
         <button id="topReturnProjectBtn" class="customer-hero-secondary top-return-project" type="button" onclick="returnToActiveProject()" hidden>返回当前运营项目</button>
       </div>
     </div>
@@ -305,6 +306,120 @@
         </div>
       </div>
     </details>
+
+    <section id="generationWorkbench" class="generation-workbench customer-card" hidden>
+      <div class="customer-section-head">
+        <p>INTERNAL · Generation Workbench V1</p>
+        <h2>项目化素材生成与验收工作台</h2>
+        <span>结构化提交 → Provider Adapter mock → 内部 QA → 客户交付区 → 飞书回写 payload 预留。</span>
+      </div>
+
+      <div class="generation-grid">
+        <form id="generationAssetForm" class="generation-panel generation-form">
+          <div class="generation-panel-head">
+            <h3>1. 登记/上传参考素材</h3>
+            <span>小素材可上传并复核 sha256；大视频先登记外链。</span>
+          </div>
+          <label>项目 ID *<input name="project_id" required value="qa_project_generation" /></label>
+          <label>项目名称<input name="project_name" value="企业营销工具验收测试" /></label>
+          <label>客户 ID *<input name="client_id" required value="internal" /></label>
+          <label>客户名称<input name="client_name" value="QA测试客户" /></label>
+          <label>素材来源
+            <select name="source">
+              <option value="internal">internal</option>
+              <option value="client">client</option>
+              <option value="outsourced">outsourced</option>
+              <option value="historical">historical</option>
+            </select>
+          </label>
+          <label>使用范围
+            <select name="usage_scope">
+              <option value="current_project_only">current_project_only</option>
+              <option value="cross_project_authorized">cross_project_authorized</option>
+            </select>
+          </label>
+          <label class="wide-field">小文件上传<input name="asset_file" type="file" /></label>
+          <label class="wide-field">或大文件/历史素材 URL<input name="storage_url" placeholder="https://..." /></label>
+          <label class="wide-field">备注<textarea name="notes" placeholder="素材用途、授权说明、来源说明"></textarea></label>
+          <button type="submit">保存素材</button>
+          <div id="generationAssetMessage" class="customer-message success" hidden></div>
+          <div id="generationAssetList" class="generation-list empty">暂无素材。</div>
+        </form>
+
+        <form id="generationTaskForm" class="generation-panel generation-form">
+          <div class="generation-panel-head">
+            <h3>2. 创建生成任务</h3>
+            <span>必须绑定项目、客户和内容计划记录。</span>
+          </div>
+          <label>项目 ID *<input name="project_id" required value="qa_project_generation" /></label>
+          <label>客户 ID *<input name="client_id" required value="internal" /></label>
+          <label>内容计划记录 ID *<input name="content_plan_record_id" required value="qa_content_plan_001" /></label>
+          <label>平台
+            <select name="platform">
+              <option>小红书</option>
+              <option>抖音</option>
+              <option>视频号</option>
+              <option>其他</option>
+            </select>
+          </label>
+          <label>内容类型
+            <select name="content_type">
+              <option>视频</option>
+              <option>封面</option>
+              <option>图文</option>
+              <option>脚本</option>
+              <option>其他</option>
+            </select>
+          </label>
+          <label>生成类型
+            <select name="generation_type" id="generationTypeSelect">
+              <option value="video">video · Seedance 2.0</option>
+              <option value="cover">cover · GPT-Image-2</option>
+              <option value="image">image · GPT-Image-2</option>
+              <option value="script">script · Claude Opus</option>
+              <option value="copy">copy · Claude Opus</option>
+            </select>
+          </label>
+          <label>requested_model<input name="requested_model" id="generationRequestedModel" value="Seedance 2.0" readonly /></label>
+          <label>尺寸<input name="size" placeholder="1080x1920 / 1024x1024" value="1080x1920" /></label>
+          <label>时长<input name="duration" placeholder="视频时长，例如 6s" value="6s" /></label>
+          <label>风格<input name="style" placeholder="如：真实门店感、清爽专业" /></label>
+          <label class="wide-field">选择参考素材<div id="generationAssetPicker" class="generation-picker empty">先保存素材后可选择。</div></label>
+          <label class="wide-field">生成需求 *<textarea name="prompt" required placeholder="写清楚画面/脚本/封面要求，失败测试可输入 [mock_fail_auth]"></textarea></label>
+          <label class="generation-check"><input name="client_visible" type="checkbox" checked /> QA 通过后允许进入客户交付区</label>
+          <button type="submit">创建任务</button>
+          <div id="generationTaskMessage" class="customer-message success" hidden></div>
+        </form>
+      </div>
+
+      <section class="generation-panel">
+        <div class="generation-panel-head">
+          <h3>3. 任务状态与内部验收</h3>
+          <span>视频任务提交后停在 generating，通过 poll 推进；QA 未 passed 不进客户区。</span>
+        </div>
+        <div class="generation-actions">
+          <button id="refreshGenerationWorkbench" type="button">刷新任务</button>
+          <button id="generationFeishuSync" type="button">查看飞书 mock payload</button>
+        </div>
+        <div id="generationTaskList" class="generation-task-list empty">暂无生成任务。</div>
+      </section>
+
+      <section class="generation-panel">
+        <div class="generation-panel-head">
+          <h3>4. 客户交付区</h3>
+          <span>只显示 QA passed 且 client_visible 的内容，不展示模型、fallback、debug 字段。</span>
+        </div>
+        <div id="generationClientDelivery" class="generation-delivery empty">暂无可交付内容。</div>
+      </section>
+
+      <section class="generation-panel">
+        <div class="generation-panel-head">
+          <h3>5. 飞书回写 Adapter Mock</h3>
+          <span>V1 不真连飞书，只输出 A-F 六类视图 payload。</span>
+        </div>
+        <pre id="generationFeishuPayload" class="generation-json">暂无 payload。</pre>
+      </section>
+    </section>
 
     <section class="customer-card customer-form-card internal-step-card" id="diagnosisWorkflow">
       <div class="customer-section-head">

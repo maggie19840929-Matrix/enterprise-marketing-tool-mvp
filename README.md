@@ -1,8 +1,8 @@
 # 企业营销增长工具 MVP
 
-本地第一版：SQLite 后台数据库 + Python 标准库 API 服务 + Web/移动端自适应页面。
+当前线上/内测版：`static/` 原生前端 SPA + `netlify/functions/api.mjs` 单个 Netlify Function，用于展示营销体检、自动诊断、7天计划、反馈回填、周复盘闭环，以及 `/internal/generation-workbench` 项目化素材生成与验收工作台。
 
-线上 Netlify 演示版：`static/` 前端 + `netlify/functions/api.mjs` 演示 API，用于展示营销体检、自动诊断、7天计划、反馈回填和周复盘闭环。
+早期 Python/SQLite 版本已废弃，仅保留历史说明，不作为当前线上架构参考。
 
 ## 启动
 
@@ -44,6 +44,16 @@ python3 app.py
 - `GET /api/feedback`
 - `POST /api/assessments`
 - `POST /api/feedback`
+- `GET /api/assets?client_id&project_id`
+- `POST /api/assets`
+- `GET /api/generation-tasks?client_id&project_id&view=internal|client`
+- `GET /api/generation-tasks/:id`
+- `POST /api/generation-tasks`
+- `POST /api/generation-tasks/:id/submit`
+- `POST /api/generation-tasks/:id/poll`
+- `POST /api/generation-tasks/:id/qa`
+- `POST /api/generation-tasks/:id/deliver`
+- `POST /api/feishu/sync`
 
 ## 验证
 
@@ -62,7 +72,39 @@ curl -s http://127.0.0.1:8787/api/dashboard
 - Publish directory: `static`
 - API rewrite: `/api/*` → `netlify/functions/api.mjs`
 
-Netlify 演示 API 使用内存数据，适合客户演示；正式版仍建议使用 Python 服务 + 持久化数据库部署。
+Netlify Function 在生产环境优先使用 Netlify Blobs 保存项目态；无 Blobs 环境时自动降级为内存 fallback，便于本地验证。
+
+### 项目化素材生成与验收工作台 V1
+
+内测入口：
+
+```text
+/internal/generation-workbench
+```
+
+V1 数据仍使用同一个 Netlify Blobs store：`enterprise-marketing-tool-state`。
+
+- 素材集合 key：`assets/<client_id>`
+- 生成任务集合 key：`tasks/<client_id>`
+- 无 Blobs 环境时自动降级为函数内存 fallback，便于本地 smoke test。
+
+Provider Adapter V1 先使用 mock：
+
+| generation_type | requested_model | provider | 调用形态 |
+| --- | --- | --- | --- |
+| image / cover | GPT-Image-2 | openai-image | 同步 mock |
+| video | Seedance 2.0 | seedance-video | 异步 mock，submit 后 poll |
+| script / copy | Claude Opus | claude-text | 同步 mock |
+
+真实接入时需要配置：
+
+```bash
+OPENAI_API_KEY=OpenAI Images API Key
+ARK_API_KEY=火山方舟 API Key，用于 Seedance 2.0 视频
+ANTHROPIC_API_KEY=Anthropic API Key，用于 Claude Opus 文案/脚本
+```
+
+飞书回写 V1 只提供 adapter mock：`POST /api/feishu/sync` 返回 A 客户资料 / B 内容计划 / C 外包制作 / D 内部验收 / E 客户交付 / F 数据回流 六类 payload，不真连飞书。
 
 ### 豆包 / 火山方舟文本模型
 

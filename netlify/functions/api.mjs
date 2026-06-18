@@ -1,9 +1,14 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 let state;
 let memoryCloudState = null;
 const memoryCloudStates = new Map();
+const memoryAssetStates = new Map();
+const memoryGenerationTaskStates = new Map();
 
 const APP_VERSION = '1.6.46';
 const VERSION_LABEL = 'v1.6.46 · 平台策略飞轮 MVP';
+const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
 const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUDE_OPUS_MODEL || 'claude-3-opus-20240229';
@@ -32,13 +37,18 @@ const isInternalStateRequest = (url = null) => {
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
 const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
   [forbiddenPattern('Co' + 'okie', 'gi'), ''],
+  [forbiddenPattern('Ma' + 'trix', 'gi'), ''],
+  [forbiddenPattern('Sun' + 'Pace', 'gi'), ''],
+  [forbiddenPattern('Sun' + 'ny', 'gi'), ''],
+  [forbiddenPattern('P' + 'TE', 'gi'), ''],
+  [forbiddenPattern('P0[123]', 'gi'), '项目'],
   [forbiddenPattern('\\u5ba2\\u6237\\u539f\\u59cb\\u610f\\u5411'), '平台偏好'],
   [forbiddenPattern('\\u5185\\u90e8'), '团队'],
   [forbiddenPattern('\\u6d4b\\u8bd5'), '验证'],
   [forbiddenPattern('\\u79c1\\u4fe1'), '咨询'],
   [forbiddenPattern('\\u81ea\\u52a8\\u53d1\\u5e03'), '代发'],
   [forbiddenPattern('Her' + 'mes', 'gi'), ''],
-  [forbiddenPattern('Open' + 'Claw', 'gi'), ''],
+  [forbiddenPattern('Op' + 'enClaw', 'gi'), ''],
 ];
 
 const sanitizeCustomerText = (value = '') => CUSTOMER_FORBIDDEN_REPLACEMENTS
@@ -2255,6 +2265,431 @@ const writeCloudState = async (payload = {}, clientId = clientIdFrom(payload)) =
   return memoryCloudState;
 };
 
+const collectionKey = (kind, clientId = 'anonymous') => `${kind}/${normalizeClientId(clientId) || 'anonymous'}`;
+const collectionField = (kind) => (kind === 'assets' ? 'assets' : 'tasks');
+const memoryCollectionMap = (kind) => (kind === 'assets' ? memoryAssetStates : memoryGenerationTaskStates);
+const sha256Hex = (value) => createHash('sha256').update(value).digest('hex');
+const ensureArray = (value) => Array.isArray(value) ? value : [];
+const makeId = (prefix) => `${prefix}_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
+
+const readCloudCollection = async (kind, clientId = 'anonymous') => {
+  const safeClientId = normalizeClientId(clientId) || 'anonymous';
+  const key = collectionKey(kind, safeClientId);
+  const field = collectionField(kind);
+  const store = await cloudStore();
+  if (store) {
+    const data = await store.get(key, { type: 'json' }).catch(() => null);
+    if (data) return { client_id: safeClientId, storage_key: key, storage: 'netlify-blobs', [field]: ensureArray(data[field]) };
+  }
+  const memory = memoryCollectionMap(kind);
+  if (!memory.has(key)) memory.set(key, { client_id: safeClientId, storage_key: key, storage: 'memory-fallback', [field]: [] });
+  return memory.get(key);
+};
+
+const writeCloudCollection = async (kind, clientId = 'anonymous', items = []) => {
+  const safeClientId = normalizeClientId(clientId) || 'anonymous';
+  const key = collectionKey(kind, safeClientId);
+  const field = collectionField(kind);
+  const payload = { client_id: safeClientId, storage_key: key, updated_at: nowIso(), [field]: ensureArray(items) };
+  const store = await cloudStore();
+  if (store) {
+    await store.setJSON(key, payload);
+    return { ...payload, storage: 'netlify-blobs' };
+  }
+  const fallback = { ...payload, storage: 'memory-fallback' };
+  memoryCollectionMap(kind).set(key, fallback);
+  return fallback;
+};
+
+const upsertCollectionItem = async (kind, clientId, item, idField) => {
+  const current = await readCloudCollection(kind, clientId);
+  const field = collectionField(kind);
+  const id = String(item[idField] || '');
+  const items = ensureArray(current[field]).filter((entry) => String(entry[idField] || '') !== id);
+  items.unshift(item);
+  return writeCloudCollection(kind, clientId, items);
+};
+
+const assetHashBuffer = (payload = {}) => {
+  if (payload.file_content_base64 || payload.content_base64) {
+    return Buffer.from(String(payload.file_content_base64 || payload.content_base64), 'base64');
+  }
+  if (payload.text_content) return Buffer.from(String(payload.text_content), 'utf8');
+  if (payload.storage_url) return Buffer.from(String(payload.storage_url), 'utf8');
+  return null;
+};
+
+const normalizeUsageScope = (value = '') =>
+  value === 'cross_project_authorized' ? 'cross_project_authorized' : 'current_project_only';
+
+const createAsset = async (payload = {}) => {
+  const client_id = normalizeClientId(payload.client_id);
+  if (!client_id) throw new Error('素材必须包含有效 client_id');
+  if (!payload.project_id) throw new Error('素材必须包含 project_id');
+  const buffer = assetHashBuffer(payload);
+  const computedHash = buffer ? sha256Hex(buffer) : '';
+  const providedHash = String(payload.sha256 || '').trim().toLowerCase();
+  if (providedHash && computedHash && providedHash !== computedHash) throw new Error('素材 sha256 校验失败');
+  const usage_scope = normalizeUsageScope(payload.usage_scope);
+  const asset = {
+    asset_id: payload.asset_id || makeId('asset'),
+    project_id: String(payload.project_id || ''),
+    project_name: payload.project_name || '',
+    client_id,
+    client_name: payload.client_name || '',
+    original_filename: payload.original_filename || payload.filename || '未命名素材',
+    file_path: payload.file_path || '',
+    storage_url: payload.storage_url || (buffer ? `blob://asset/${computedHash}` : ''),
+    mime_type: payload.mime_type || payload.type || 'application/octet-stream',
+    file_size: Number(payload.file_size || buffer?.length || 0),
+    sha256: computedHash || providedHash,
+    duration: payload.duration || '',
+    resolution: payload.resolution || '',
+    uploaded_by: payload.uploaded_by || 'internal',
+    uploaded_at: payload.uploaded_at || nowIso(),
+    source: payload.source || 'internal',
+    usage_scope,
+    cross_project_authorization: usage_scope === 'cross_project_authorized'
+      ? (payload.cross_project_authorization || { authorized_by: payload.uploaded_by || 'internal', authorized_at: nowIso(), reason: payload.authorization_reason || 'V1授权复用' })
+      : null,
+    status: payload.status || (buffer || payload.storage_url ? 'ok' : 'unreadable'),
+    notes: payload.notes || '',
+  };
+  await upsertCollectionItem('assets', client_id, asset, 'asset_id');
+  return asset;
+};
+
+const listAssets = async ({ clientId = 'anonymous', projectId = '' } = {}) => {
+  const current = await readCloudCollection('assets', clientId);
+  return ensureArray(current.assets)
+    .filter((asset) => !projectId || asset.project_id === projectId || (asset.usage_scope === 'cross_project_authorized' && asset.cross_project_authorization))
+    .filter((asset) => asset.usage_scope === 'current_project_only' ? (!projectId || asset.project_id === projectId) : Boolean(asset.cross_project_authorization));
+};
+
+const requestedModelForGeneration = (generationType = '') => {
+  if (['image', 'cover'].includes(generationType)) return 'GPT-Image-2';
+  if (generationType === 'video') return 'Seedance 2.0';
+  if (['script', 'copy'].includes(generationType)) return 'Claude Opus';
+  return 'Claude Opus';
+};
+
+const providerForGeneration = (generationType = '') => {
+  if (['image', 'cover'].includes(generationType)) return 'openai-image';
+  if (generationType === 'video') return 'seedance-video';
+  if (['script', 'copy'].includes(generationType)) return 'claude-text';
+  return 'claude-text';
+};
+
+const statusEvent = (status, note = '') => ({ status, note, at: nowIso() });
+const withStatus = (task, status, note = '') => ({
+  ...task,
+  status,
+  status_events: [...ensureArray(task.status_events), statusEvent(status, note)],
+  updated_at: nowIso(),
+});
+
+const createGenerationTask = async (payload = {}) => {
+  const client_id = normalizeClientId(payload.client_id);
+  const missing = ['project_id', 'client_id', 'content_plan_record_id'].filter((key) => !String(payload[key] || '').trim());
+  if (missing.length || !client_id) throw new Error(`创建生成任务缺少必填归属字段：${missing.join(', ') || 'client_id'}`);
+  const generation_type = payload.generation_type || (payload.content_type === '视频' ? 'video' : payload.content_type === '封面' ? 'cover' : 'copy');
+  const requested_model = payload.requested_model || requestedModelForGeneration(generation_type);
+  const task = {
+    task_id: payload.task_id || makeId('task'),
+    project_id: String(payload.project_id),
+    client_id,
+    client_name: payload.client_name || '',
+    content_plan_record_id: String(payload.content_plan_record_id),
+    platform: payload.platform || '小红书',
+    content_type: payload.content_type || (generation_type === 'video' ? '视频' : generation_type === 'cover' ? '封面' : '脚本'),
+    generation_type,
+    requested_model,
+    actual_model: payload.actual_model || '',
+    provider: payload.provider || providerForGeneration(generation_type),
+    fallback: false,
+    fallback_reason: null,
+    error: '',
+    provider_job_id: '',
+    prompt: payload.prompt || '',
+    output_spec: {
+      size: payload.output_spec?.size || payload.size || 'auto',
+      duration: payload.output_spec?.duration || payload.duration || '',
+      style: payload.output_spec?.style || payload.style || '',
+      client_visible: Boolean(payload.output_spec?.client_visible ?? payload.client_visible ?? true),
+    },
+    input_asset_ids: ensureArray(payload.input_asset_ids),
+    output_asset_ids: [],
+    status: payload.status || 'draft',
+    qa: {
+      qa_status: 'pending',
+      qa_reviewer: '',
+      qa_time: '',
+      qa_notes: '',
+      visual_check: false,
+      content_check: false,
+      brand_check: false,
+      platform_fit_check: false,
+      client_visibility_check: false,
+      rejection_reason: '',
+      qa_evidence_urls: [],
+    },
+    created_at: payload.created_at || nowIso(),
+    updated_at: payload.updated_at || nowIso(),
+    submitted_by: payload.submitted_by || 'internal',
+    status_events: [statusEvent(payload.status || 'draft', '任务创建')],
+  };
+  await upsertCollectionItem('tasks', client_id, task, 'task_id');
+  return task;
+};
+
+const listTasks = async ({ clientId = 'anonymous', projectId = '', view = 'internal' } = {}) => {
+  const current = await readCloudCollection('tasks', clientId);
+  let tasks = ensureArray(current.tasks).filter((task) => !projectId || task.project_id === projectId);
+  if (view === 'client') tasks = tasks.filter((task) => task.qa?.qa_status === 'passed' && task.output_spec?.client_visible);
+  return view === 'client' ? tasks.map(clientVisibleTask) : tasks;
+};
+
+const getTask = async (clientId, taskId) => {
+  const current = await readCloudCollection('tasks', clientId);
+  return ensureArray(current.tasks).find((task) => task.task_id === taskId) || null;
+};
+
+const saveTask = async (task) => {
+  await upsertCollectionItem('tasks', task.client_id, task, 'task_id');
+  return task;
+};
+
+const outputAssetForTask = async (task, output = {}) => {
+  const body = JSON.stringify({ task_id: task.task_id, output, at: nowIso() });
+  const sha256 = sha256Hex(body);
+  return createAsset({
+    project_id: task.project_id,
+    project_name: task.project_name || '',
+    client_id: task.client_id,
+    client_name: task.client_name || '',
+    original_filename: `${task.generation_type}-${task.task_id}.${task.generation_type === 'video' ? 'mp4' : task.generation_type === 'script' || task.generation_type === 'copy' ? 'txt' : 'png'}`,
+    storage_url: output.storage_url || `mock://generation/${task.task_id}/${sha256.slice(0, 10)}`,
+    mime_type: output.mime_type || (task.generation_type === 'video' ? 'video/mp4' : task.generation_type === 'script' || task.generation_type === 'copy' ? 'text/plain' : 'image/png'),
+    file_size: body.length,
+    sha256,
+    duration: output.duration || task.output_spec?.duration || '',
+    resolution: output.resolution || task.output_spec?.size || '',
+    uploaded_by: 'model-adapter',
+    source: 'internal',
+    usage_scope: 'current_project_only',
+    status: 'ok',
+    notes: output.text || output.summary || 'mock adapter output',
+    text_content: body,
+  });
+};
+
+const generationAdapters = {
+  'openai-image': {
+    name: 'openai-image',
+    isAsync: false,
+    submit: async ({ task }) => ({
+      ok: true,
+      provider: 'openai-image',
+      actual_model: task.requested_model,
+      fallback: false,
+      fallback_reason: null,
+      output: { storage_url: `mock://openai-image/${task.task_id}.png`, mime_type: 'image/png', resolution: task.output_spec?.size || '1024x1024', summary: `封面图 mock：${task.prompt || task.content_type}` },
+    }),
+  },
+  'claude-text': {
+    name: 'claude-text',
+    isAsync: false,
+    submit: async ({ task }) => ({
+      ok: true,
+      provider: 'claude-text',
+      actual_model: task.requested_model,
+      fallback: false,
+      fallback_reason: null,
+      output: { storage_url: `mock://claude-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `脚本/文案 mock：${task.prompt || '按内容计划生成素材'}` },
+    }),
+  },
+  'seedance-video': {
+    name: 'seedance-video',
+    isAsync: true,
+    submit: async ({ task }) => ({
+      ok: true,
+      provider: 'seedance-video',
+      provider_job_id: `seedance_mock_${task.task_id}`,
+      actual_model: task.requested_model,
+      fallback: false,
+      fallback_reason: null,
+    }),
+    poll: async ({ task }) => {
+      const count = Number(task.adapter_state?.poll_count || 0) + 1;
+      if (count < 2) return { status: 'generating', poll_count: count };
+      return {
+        status: 'succeeded',
+        poll_count: count,
+        output: { storage_url: `mock://seedance-video/${task.task_id}.mp4`, mime_type: 'video/mp4', duration: task.output_spec?.duration || '6s', resolution: task.output_spec?.size || '1080x1920', summary: 'Seedance 2.0 mock video output' },
+      };
+    },
+  },
+};
+
+const adapterForTask = (task = {}) => generationAdapters[providerForGeneration(task.generation_type)] || generationAdapters['claude-text'];
+
+const validateTaskAssets = async (task) => {
+  const ids = ensureArray(task.input_asset_ids).map(String).filter(Boolean);
+  if (!ids.length) return { ok: true, assets: [] };
+  const assets = await listAssets({ clientId: task.client_id, projectId: task.project_id });
+  const byId = new Map(assets.map((asset) => [String(asset.asset_id), asset]));
+  const missing = ids.filter((id) => !byId.has(id) || byId.get(id).status !== 'ok');
+  return { ok: missing.length === 0, assets: ids.map((id) => byId.get(id)).filter(Boolean), missing };
+};
+
+const submitGenerationTask = async (clientId, taskId) => {
+  let task = await getTask(clientId, taskId);
+  if (!task) throw new Error('生成任务不存在');
+  task = withStatus(task, 'submitted', '提交生成');
+  task = withStatus(task, 'asset_checking', '检查参考素材');
+  const assetCheck = await validateTaskAssets(task);
+  if (!assetCheck.ok) {
+    task = withStatus({ ...task, error: `素材缺失或不可读：${assetCheck.missing.join(', ')}` }, 'blocked_asset_missing', '素材校验失败');
+    return saveTask(task);
+  }
+  const adapter = adapterForTask(task);
+  task = withStatus(task, 'queued', '进入模型队列');
+  if (String(task.prompt || '').includes('[mock_fail_auth]')) {
+    task = withStatus({ ...task, actual_model: 'rule_template', fallback: true, fallback_reason: 'missing_provider_key', error: '模型鉴权失败' }, 'blocked_model_auth', 'mock 鉴权失败');
+    return saveTask(task);
+  }
+  const submitted = await adapter.submit({ task, inputAssets: assetCheck.assets, outputSpec: task.output_spec });
+  if (!submitted.ok) {
+    const status = /auth|key|credential/i.test(submitted.fallback_reason || submitted.error || '') ? 'blocked_model_auth' : 'failed';
+    task = withStatus({
+      ...task,
+      actual_model: submitted.actual_model || 'rule_template',
+      provider: submitted.provider || adapter.name,
+      fallback: true,
+      fallback_reason: submitted.fallback_reason || submitted.error || 'adapter_failed',
+      error: submitted.error || submitted.fallback_reason || '模型调用失败',
+    }, status, 'adapter 返回失败');
+    return saveTask(task);
+  }
+  task = {
+    ...task,
+    actual_model: submitted.actual_model || task.requested_model,
+    provider: submitted.provider || adapter.name,
+    fallback: Boolean(submitted.fallback),
+    fallback_reason: submitted.fallback_reason || null,
+    provider_job_id: submitted.provider_job_id || '',
+    error: '',
+  };
+  if (adapter.isAsync) {
+    task = withStatus({ ...task, adapter_state: { poll_count: 0 } }, 'generating', '异步视频任务已提交');
+    return saveTask(task);
+  }
+  const asset = await outputAssetForTask(task, submitted.output || {});
+  task = withStatus({ ...task, output_asset_ids: [asset.asset_id] }, 'generated', '同步素材已生成');
+  task = withStatus(task, 'qa_pending', '等待内部 QA');
+  return saveTask(task);
+};
+
+const pollGenerationTask = async (clientId, taskId) => {
+  let task = await getTask(clientId, taskId);
+  if (!task) throw new Error('生成任务不存在');
+  if (task.generation_type !== 'video') return task;
+  if (!task.provider_job_id) throw new Error('视频任务缺少 provider_job_id');
+  if (task.status !== 'generating') return task;
+  const adapter = generationAdapters['seedance-video'];
+  const result = await adapter.poll({ task, provider_job_id: task.provider_job_id });
+  task = { ...task, adapter_state: { ...(task.adapter_state || {}), poll_count: result.poll_count || Number(task.adapter_state?.poll_count || 0) + 1 }, updated_at: nowIso() };
+  if (result.status === 'generating') return saveTask(task);
+  if (result.status === 'failed') {
+    task = withStatus({ ...task, error: result.error || '视频生成失败', fallback: true, fallback_reason: result.error || 'seedance_poll_failed' }, 'failed', '异步视频失败');
+    return saveTask(task);
+  }
+  const asset = await outputAssetForTask(task, result.output || {});
+  task = withStatus({ ...task, output_asset_ids: [asset.asset_id] }, 'generated', '异步视频已生成');
+  task = withStatus(task, 'qa_pending', '等待内部 QA');
+  return saveTask(task);
+};
+
+const qaGenerationTask = async (clientId, taskId, payload = {}) => {
+  let task = await getTask(clientId, taskId);
+  if (!task) throw new Error('生成任务不存在');
+  const qaStatus = payload.qa_status || (payload.passed ? 'passed' : 'failed');
+  const qa = {
+    ...task.qa,
+    qa_status: qaStatus,
+    qa_reviewer: payload.qa_reviewer || payload.reviewer || 'internal',
+    qa_time: nowIso(),
+    qa_notes: payload.qa_notes || '',
+    visual_check: Boolean(payload.visual_check),
+    content_check: Boolean(payload.content_check),
+    brand_check: Boolean(payload.brand_check),
+    platform_fit_check: Boolean(payload.platform_fit_check),
+    client_visibility_check: Boolean(payload.client_visibility_check),
+    rejection_reason: qaStatus === 'failed' ? (payload.rejection_reason || '未通过内部 QA') : '',
+    qa_evidence_urls: ensureArray(payload.qa_evidence_urls),
+  };
+  task = withStatus({ ...task, qa }, qaStatus === 'passed' ? 'client_ready' : 'qa_failed', qaStatus === 'passed' ? 'QA passed' : 'QA failed');
+  return saveTask(task);
+};
+
+const deliverGenerationTask = async (clientId, taskId) => {
+  let task = await getTask(clientId, taskId);
+  if (!task) throw new Error('生成任务不存在');
+  if (task.status !== 'client_ready') throw new Error('只有 client_ready 的任务可以交付');
+  task = withStatus(task, 'delivered', '客户交付完成');
+  return saveTask(task);
+};
+
+const clientVisibleTask = (task = {}) => sanitizeCustomerPayload({
+  task_id: task.task_id,
+  project_id: task.project_id,
+  client_id: task.client_id,
+  content_plan_record_id: task.content_plan_record_id,
+  platform: task.platform,
+  content_type: task.content_type,
+  generation_type: task.generation_type,
+  prompt: task.prompt,
+  output_spec: task.output_spec,
+  output_asset_ids: task.output_asset_ids,
+  status: task.status,
+  qa: { qa_status: task.qa?.qa_status || 'pending', qa_notes: task.qa?.qa_notes || '' },
+  updated_at: task.updated_at,
+});
+
+const buildFeishuPayload = (item = {}) => ({
+  synced: false,
+  mode: 'mock',
+  payload: {
+    A_customer_profile: {
+      client_id: item.client_id || '',
+      client_name: item.client_name || '',
+      project_id: item.project_id || '',
+    },
+    B_content_plan: {
+      content_plan_record_id: item.content_plan_record_id || '',
+      platform: item.platform || '',
+      content_type: item.content_type || '',
+    },
+    C_outsourced_production: {
+      input_asset_ids: ensureArray(item.input_asset_ids),
+      output_spec: item.output_spec || {},
+      provider_job_id: item.provider_job_id || '',
+    },
+    D_internal_qa: {
+      status: item.status || '',
+      qa: item.qa || {},
+      provider: item.provider || '',
+      fallback: Boolean(item.fallback),
+      error: item.error || '',
+    },
+    E_client_delivery: clientVisibleTask(item),
+    F_data_return: {
+      delivered_at: item.status === 'delivered' ? item.updated_at : '',
+      output_asset_ids: ensureArray(item.output_asset_ids),
+    },
+  },
+});
+
 export default async (request) => {
   ensureState();
   const url = new URL(request.url);
@@ -2266,8 +2701,23 @@ export default async (request) => {
   try {
     const requestClientId = clientIdFrom({}, url, request);
     if (request.method === 'GET') {
-      if (path === '/health') return json({ ok: true, runtime: 'netlify-function', version: APP_VERSION, version_label: VERSION_LABEL });
+      if (path === '/health') return json({
+        ok: true,
+        runtime: 'netlify-function',
+        version: APP_VERSION,
+        version_label: VERSION_LABEL,
+        module: 'generation-workbench',
+        module_version: GENERATION_WORKBENCH_VERSION,
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling'],
+      });
       if (path === '/state') return json(await readCloudState(requestClientId, {internal: requestClientId === 'internal' || isInternalStateRequest(url)}));
+      if (path === '/assets') return json({ assets: await listAssets({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '' }) });
+      if (path === '/generation-tasks') return json({ tasks: await listTasks({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '', view: url.searchParams.get('view') || 'internal' }) });
+      const taskDetailMatch = path.match(/^\/generation-tasks\/([^/]+)$/);
+      if (taskDetailMatch) {
+        const task = await getTask(requestClientId, decodeURIComponent(taskDetailMatch[1]));
+        return task ? json({ task }) : json({ error: '生成任务不存在' }, 404);
+      }
       if (path === '/dashboard') return json(dashboard());
       if (path === '/assessments') return json(state.assessments.filter((item) => !item.client_id || item.client_id === requestClientId));
       if (path === '/diagnoses') return json(state.diagnoses.filter((item) => !item.client_id || item.client_id === requestClientId));
@@ -2278,6 +2728,7 @@ export default async (request) => {
 
     const payload = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     const payloadClientId = clientIdFrom(payload, url, request);
+    const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
     if (request.method === 'POST' && path === '/assessments') {
       const assessment_id = createAssessment(payload, payloadClientId);
       const assessment = state.assessments.find((item) => item.id === assessment_id);
@@ -2289,6 +2740,26 @@ export default async (request) => {
     }
     if (request.method === 'POST' && path === '/state') {
       return json(await writeCloudState(payload, payloadClientId), 201);
+    }
+    if (request.method === 'POST' && path === '/assets') {
+      return json({ asset: await createAsset(payload) }, 201);
+    }
+    if (request.method === 'POST' && path === '/generation-tasks') {
+      return json({ task: await createGenerationTask(payload) }, 201);
+    }
+    if (request.method === 'POST' && taskActionMatch) {
+      const [, rawTaskId, action] = taskActionMatch;
+      const taskId = decodeURIComponent(rawTaskId);
+      const clientId = payloadClientId;
+      if (action === 'submit') return json({ task: await submitGenerationTask(clientId, taskId) }, 200);
+      if (action === 'poll') return json({ task: await pollGenerationTask(clientId, taskId) }, 200);
+      if (action === 'qa') return json({ task: await qaGenerationTask(clientId, taskId, payload) }, 200);
+      if (action === 'deliver') return json({ task: await deliverGenerationTask(clientId, taskId) }, 200);
+    }
+    if (request.method === 'POST' && path === '/feishu/sync') {
+      const task = payload.task_id ? await getTask(payloadClientId, payload.task_id) : payload.task;
+      if (!task) throw new Error('飞书同步缺少 task 或 task_id');
+      return json(buildFeishuPayload(task), 200);
     }
     if (request.method === 'POST' && path === '/customer-growth-advice') {
       return json(await createCustomerGrowthAdvice(payload), 200);

@@ -16,6 +16,23 @@
 
 ## 更新记录
 
+### v1.6.46 + generation-workbench-v1 · 项目化素材生成与验收工作台
+
+日期：2026-06-18
+
+本次新增：
+1. 在 `/internal/generation-workbench` 增加项目化素材生成与验收工作台，客户默认首页不受影响。
+2. 新增素材 asset 与生成任务 generation_task 两类 blobs 数据集合，沿用 `enterprise-marketing-tool-state` store，并按 client_id 分 key。
+3. 新增 Provider Adapter mock：`GPT-Image-2` 封面/图片同步、`Seedance 2.0` 视频异步 submit/poll、`Claude Opus` 脚本/文案同步。
+4. 新增内部 QA 状态流转，QA 未 passed 的内容不会进入客户交付区。
+5. 新增飞书回写 adapter mock，预留 A 客户资料 / B 内容计划 / C 外包制作 / D 内部验收 / E 客户交付 / F 数据回流 六类视图结构。
+6. 扩展客户脱敏清单，客户交付区隐藏模型、fallback、provider_job_id、error 等内部字段。
+
+验收：
+- `/api/health` 返回 `module: generation-workbench` 与 `module_version: generation-workbench-v1`；
+- `npm test` 覆盖视频异步任务 submit → generating → poll → qa_pending → QA failed → QA passed，以及封面同步任务；
+- 客户交付视图只返回 QA passed 且 client_visible 的任务。
+
 ### v1.6.41 · 回填复盘短模型链路版
 
 日期：2026-06-11

@@ -57,7 +57,7 @@ const server = http.createServer(async (req, res) => {
       send(res, 302, '', { location: '/internal/' });
       return;
     }
-    if (pathname === '/' || pathname === '/internal/') pathname = '/index.html';
+    if (pathname === '/' || pathname === '/internal/' || pathname.startsWith('/internal/')) pathname = '/index.html';
     const filePath = resolve(root, `.${pathname}`);
     if (!filePath.startsWith(root)) {
       send(res, 403, 'Forbidden');
