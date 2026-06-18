@@ -2217,7 +2217,15 @@ const cloudStore = async () => {
   try {
     const mod = await import('@netlify/blobs');
     const getStore = mod.getStore || mod.default?.getStore;
-    return getStore ? getStore(CLOUD_STATE_STORE) : null;
+    if (!getStore) return null;
+    // 优先用显式凭证（解决 CLI/部分运行时不自动注入 blobs 上下文、退回内存导致数据不持久的问题）。
+    // 凭证缺失时回退到运行时自动注入模式。consistency:'strong' 保证多步流程 create 后立即可读。
+    const siteID = envValue('NETLIFY_BLOBS_SITE_ID', 'NETLIFY_SITE_ID', 'SITE_ID');
+    const token = envValue('NETLIFY_BLOBS_TOKEN', 'NETLIFY_API_TOKEN', 'NETLIFY_AUTH_TOKEN');
+    if (siteID && token) {
+      return getStore({ name: CLOUD_STATE_STORE, siteID, token, consistency: 'strong' });
+    }
+    return getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' });
   } catch {
     return null;
   }
