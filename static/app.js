@@ -69,6 +69,47 @@ const isInternalMode = () => {
   return path === '/internal' || path.startsWith('/internal/');
 };
 const isGenerationWorkbenchRoute = () => currentPath() === '/internal/generation-workbench';
+const VIEW_PROFILES = {
+  internal_admin: {
+    role: 'internal_admin',
+    tabs: ['overview', 'strategy', 'plan', 'generate', 'qa_deliver', 'data'],
+    sanitize: false,
+    delivery: 'all',
+    intake: 'full',
+  },
+  client_viewer: {
+    role: 'client_viewer',
+    tabs: ['strategy', 'plan', 'deliver', 'data'],
+    sanitize: true,
+    delivery: 'qa_passed_only',
+    intake: 'minimal',
+  },
+  selfserve_client: {
+    role: 'selfserve_client',
+    tabs: ['strategy', 'plan', 'generate', 'deliver'],
+    sanitize: true,
+    delivery: 'qa_passed_only',
+    quota: 'beans',
+    intake: 'minimal',
+  },
+  outsourced_worker: {
+    role: 'outsourced_worker',
+    tabs: ['generate'],
+    sanitize: true,
+    assignedOnly: true,
+    intake: 'assigned',
+  },
+};
+const roleFromRoute = () => (isInternalMode() ? 'internal_admin' : 'client_viewer');
+const getProfile = (role = roleFromRoute()) => VIEW_PROFILES[role] || VIEW_PROFILES.client_viewer;
+const currentProfile = () => getProfile(roleFromRoute());
+const isInternalProfile = (profile = currentProfile()) => profile.role === 'internal_admin';
+const profileHasTab = (tab, profile = currentProfile()) => Array.isArray(profile.tabs) && profile.tabs.includes(tab);
+const profileDeliveryView = (profile = currentProfile()) => profile.delivery === 'qa_passed_only' ? 'client' : 'internal';
+const profileSanitizePayload = (value, profile = currentProfile()) => profile.sanitize ? sanitizeCustomerPayload(value) : value;
+const SHARED_HERO_TITLE = '多平台内容增长助手';
+window.VIEW_PROFILES = VIEW_PROFILES;
+window.getProfile = getProfile;
 const CONTENT_DECISION_SAMPLE = {
   company_name: '内容决策局',
   industry: '企业内容增长 / 线上获客 / AI营销复盘',
@@ -149,7 +190,7 @@ const customerDisplayName = (assessment = {}, project = null) => {
   return name ? withWorkbenchSuffix(name) : '我的内容增长作战台';
 };
 const explicitInternalClientName = () => {
-  if (!isInternalMode()) return '';
+  if (!isInternalProfile()) return '';
   const id = explicitCustomerClientId();
   if (id === 'del-doctor-share') return '德尔医生';
   return '';
@@ -342,7 +383,7 @@ const projectLeakText = (item = {}) => [
   item.state?.diagnosis?.insight,
 ].filter(Boolean).join(' ');
 const isKnownCrossProjectState = (item = {}) => /P0[123]|安标|安规|医疗器械|注册送检|EMC|SunPace|Sunny|PTE|德尔医生|del-doctor|feishu_bitable_p03/i.test(projectLeakText(item));
-const keepProjectForCurrentEntry = (item = {}) => !(isInternalMode() && !explicitCustomerClientId() && isKnownCrossProjectState(item));
+const keepProjectForCurrentEntry = (item = {}) => !(isInternalProfile() && !explicitCustomerClientId() && isKnownCrossProjectState(item));
 function normalizeProjectItem(item = {}){
   const state = normalizeState(item.state || {});
   const name = customerDisplayName(state.assessment, state.project) || item.name || '我的内容增长作战台';
@@ -397,7 +438,7 @@ function normalizeProjectStoreShape(store = {}){
 function mergeProjectStores(localStore = projectStore, cloudStore = {}){
   const local = normalizeProjectStoreShape(localStore);
   const cloud = normalizeProjectStoreShape(cloudStore);
-  const preferExplicitInternalCloud = isInternalMode() && Boolean(explicitCustomerClientId());
+  const preferExplicitInternalCloud = isInternalProfile() && Boolean(explicitCustomerClientId());
   const byId = new Map();
   [...local.projects, ...cloud.projects].forEach((item)=>{
     const key = String(item.id);
@@ -428,7 +469,7 @@ function mergeProjectStores(localStore = projectStore, cloudStore = {}){
 let cloudSyncTimer = null;
 async function pullCloudProjectStore({silent = true} = {}){
   try {
-    const internalMode = isInternalMode();
+    const internalMode = isInternalProfile();
     const modeQuery = internalMode ? '&mode=internal' : '';
     const result = await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}${modeQuery}`);
     if (result?.project_store?.projects) {
@@ -615,7 +656,7 @@ function explicitCustomerClientId(){
 }
 
 function customerClientId(){
-  return explicitCustomerClientId() || (isInternalMode() ? INTERNAL_CLIENT_ID : readSessionClientId());
+  return explicitCustomerClientId() || (isInternalProfile() ? INTERNAL_CLIENT_ID : readSessionClientId());
 }
 
 function customerTrialStorageKey(clientId = customerClientId()){
@@ -623,12 +664,12 @@ function customerTrialStorageKey(clientId = customerClientId()){
 }
 
 function projectsStorageKey(clientId = customerClientId()){
-  if (isInternalMode()) return PROJECTS_KEY;
+  if (isInternalProfile()) return PROJECTS_KEY;
   return `enterpriseMarketingMvpProjects.${normalizeClientId(clientId) || 'anonymous-fallback'}.v1`;
 }
 
 function appStateStorageKey(clientId = customerClientId()){
-  if (isInternalMode()) return STORAGE_KEY;
+  if (isInternalProfile()) return STORAGE_KEY;
   return `enterpriseMarketingMvpState.${normalizeClientId(clientId) || 'anonymous-fallback'}.v5`;
 }
 
@@ -953,7 +994,8 @@ function localDateIso(date = new Date()){
 let customerSuggestionText = '';
 
 function setAppShell(){
-  const internal = isInternalMode();
+  const profile = currentProfile();
+  const internal = profile.role === 'internal_admin';
   const customerApp = $('#customerApp');
   const internalApp = $('#internalApp');
   if (customerApp) {
@@ -970,6 +1012,30 @@ function setAppShell(){
   document.body.classList.toggle('internal-mode', internal);
   document.body.classList.toggle('generation-workbench-mode', isGenerationWorkbenchRoute());
   document.body.dataset.activeMode = internal ? 'internal' : 'customer';
+  document.body.dataset.viewRole = profile.role;
+  document.body.dataset.viewTabs = (profile.tabs || []).join(',');
+  renderSharedJourneyShell(profile);
+}
+
+function sharedJourneySteps(profile = currentProfile()){
+  const isMinimal = profile.intake === 'minimal';
+  return [
+    {step: 1, key: 'strategy', label: isMinimal ? '填写 3 项信息' : '填写信息'},
+    {step: 2, key: 'plan', label: '内容建议'},
+    {step: 3, key: 'data', label: profile.role === 'internal_admin' ? '记录/复盘' : '记录效果'},
+  ].filter((item) => profileHasTab(item.key, profile) || item.step < 3);
+}
+
+function renderSharedJourneyShell(profile = currentProfile()){
+  const steps = sharedJourneySteps(profile);
+  document.querySelectorAll('.customer-progress-strip').forEach((strip) => {
+    strip.dataset.profileRole = profile.role;
+    strip.querySelectorAll('.cps-item').forEach((item) => {
+      const step = steps.find((entry) => String(entry.step) === String(item.dataset.step));
+      const label = item.querySelector('.cps-label');
+      if (step && label) label.textContent = step.label;
+    });
+  });
 }
 
 function customerText(value){
@@ -1034,14 +1100,15 @@ function customerNeedsOfferDetail(payload = {}){
 }
 
 
-function customerRequired(payload){
+function customerRequired(payload, profile = currentProfile()){
+  const minimalIntake = profile.intake === 'minimal';
   if (!payload.industry) return '请先填写你的行业/业务。';
   if (!payload.main_goal) return '请先填写你现在最想达成的目标。';
   if (!payload.target_customer) return '请先填写你的目标客户。';
-  if (dedicatedCustomerKey() === 'basketball' && !payload.store_location) return '请补充上课地址/服务范围。';
-  if (dedicatedCustomerKey() === 'basketball' && !payload.course_schedule) return '请补充可预约时间。';
-  if (!payload.current_channels) return '请选择你主要想做的平台。';
-  if (!payload.biggest_problem) return '请选择当前最大的内容问题。';
+  if (!minimalIntake && dedicatedCustomerKey() === 'basketball' && !payload.store_location) return '请补充上课地址/服务范围。';
+  if (!minimalIntake && dedicatedCustomerKey() === 'basketball' && !payload.course_schedule) return '请补充可预约时间。';
+  if (!minimalIntake && !payload.current_channels) return '请选择你主要想做的平台。';
+  if (!minimalIntake && !payload.biggest_problem) return '请选择当前最大的内容问题。';
   return '';
 }
 
@@ -2007,9 +2074,12 @@ function initCustomerTrial(){
     const rawForm = formData(e.target);
     const payload = {
       ...rawForm,
+      current_channels: rawForm.current_channels || '还不确定',
+      content_mode: rawForm.content_mode || '推荐模式：平台差异化适配',
+      biggest_problem: rawForm.biggest_problem || '不知道发什么',
       posting_frequency: '偶尔发布',
       offer: rawForm.offer || customerOfferFromGoal(rawForm.main_goal, rawForm.industry),
-      customer_pain: rawForm.customer_pain || rawForm.biggest_problem || '',
+      customer_pain: rawForm.customer_pain || rawForm.biggest_problem || '不知道发什么',
     };
     Object.keys(payload).forEach((key) => { payload[key] = String(payload[key] || '').trim(); });
     const validation = customerRequired(payload);
@@ -2308,7 +2378,7 @@ function scrollToSection(selector){
 }
 window.scrollToSection = scrollToSection;
 function settleInternalHashTarget(){
-  if (!isInternalMode()) return;
+  if (!isInternalProfile()) return;
   const hash = String(location.hash || '');
   if (hash !== '#planSection' && hash !== '#internalResultSection') return;
   const target = document.querySelector(hash);
@@ -2423,7 +2493,7 @@ function renderAllFromClient(){
 }
 
 function hydrateInternalFormValuesFromState(){
-  if (!isInternalMode()) return;
+  if (!isInternalProfile()) return;
   const form = $('#assessmentForm');
   const assessment = clientState.assessment || {};
   if (!form || !assessment) return;
@@ -2446,7 +2516,7 @@ function hydrateInternalFormValuesFromState(){
 }
 
 function renderInternalClientIdentity(){
-  if (!isInternalMode()) return;
+  if (!isInternalProfile()) return;
   const name = visibleClientName();
   if (!name) return;
   const targets = ['#planSection', '#internalResultSection'];
@@ -2507,7 +2577,7 @@ function renderWorkflowVisibility(){
   if (workflow) workflow.hidden = !hasPlans || clientState.project_stage === '未诊断';
   const diagnosisWorkflow = $('#diagnosisWorkflow');
   if (diagnosisWorkflow) diagnosisWorkflow.hidden = clientState.project_stage !== '未诊断';
-  if (isInternalMode()) {
+  if (isInternalProfile()) {
     const step = clientState.project_stage === '未诊断' ? 1 : (clientState.feedback.length ? 3 : 2);
     document.querySelectorAll('#internalApp .customer-progress-strip .cps-item').forEach((item) => {
       const n = Number(item.dataset.step);
@@ -2560,7 +2630,7 @@ function selectedRefillFeedback(plan = selectedRefillPlan()){
 }
 function renderRefillCockpit(){
   const box = $('#refillCockpit');
-  if (!box || !isInternalMode()) return;
+  if (!box || !isInternalProfile()) return;
   const plan = selectedRefillPlan();
   const feedback = selectedRefillFeedback(plan);
   const review = clientState.review || autoReviewFromFeedback();
@@ -2735,7 +2805,7 @@ function renderDiagnosis(d){
   const benchmarkModule = renderBenchmarkReference(d.benchmark_reference);
   const smartModule = renderSmartDiagnosisModule(d.smart_context);
   const extraModules = `${smartModule}${renderAccountSetup(d.account_setup)}${platformModule}`;
-  if (isInternalMode()) {
+  if (isInternalProfile()) {
     $('#latestDiagnosis').innerHTML = renderInternalPublicResult(d, benchmarkModule, extraModules);
     return;
   }
@@ -2879,7 +2949,7 @@ function internalPublishedLinkOptions(){
 
 function renderPublishedLinkPicker(){
   const box = $('#publishedLinkPicker');
-  if (!box || !isInternalMode()) return;
+  if (!box || !isInternalProfile()) return;
   const options = internalPublishedLinkOptions();
   if (!options.length) {
     box.hidden = true;
@@ -3521,18 +3591,19 @@ function renderGenerationClientDelivery(){
 
 async function loadGenerationWorkbench(){
   if (!isGenerationWorkbenchRoute()) return;
+  const profile = currentProfile();
   const clientId = generationClientId();
   const projectId = generationProjectId();
   const query = `client_id=${encodeURIComponent(clientId)}&project_id=${encodeURIComponent(projectId)}`;
   const [assets, tasks, clientTasks] = await Promise.all([
     api(`/api/assets?${query}`),
-    api(`/api/generation-tasks?${query}&view=internal`),
+    api(`/api/generation-tasks?${query}&view=${profileDeliveryView(profile)}`),
     api(`/api/generation-tasks?${query}&view=client`),
   ]);
   generationWorkbenchState = {
-    assets: assets.assets || [],
-    tasks: tasks.tasks || [],
-    clientTasks: clientTasks.tasks || [],
+    assets: profileSanitizePayload(assets.assets || [], profile),
+    tasks: profileSanitizePayload(tasks.tasks || [], profile),
+    clientTasks: sanitizeCustomerPayload(clientTasks.tasks || []),
   };
   renderGenerationAssets();
   renderGenerationTasks();
@@ -3543,7 +3614,7 @@ function renderGenerationWorkbenchRoute(){
   const active = isGenerationWorkbenchRoute();
   const wb = $('#generationWorkbench');
   if (wb) wb.hidden = !active;
-  if (!isInternalMode()) return;
+  if (!isInternalProfile()) return;
   ['#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow'].forEach((selector) => {
     const el = $(selector);
     if (active && el) el.hidden = true;
@@ -3770,7 +3841,7 @@ function initInternalApp(){
 
 setAppShell();
 initPlanFeedbackButtons();
-if (isInternalMode()) {
+if (isInternalProfile()) {
   initInternalApp();
 } else {
   initCustomerTrial();

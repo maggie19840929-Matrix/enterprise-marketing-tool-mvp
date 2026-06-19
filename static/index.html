@@ -43,13 +43,10 @@
         <div class="customer-section-head">
           <p>STEP 1 · 业务信息</p>
           <h2>先说清楚你的业务和目标</h2>
-          <span id="customerPrefillHint">填写几个关键字段，系统会生成适合你业务的内容建议。</span>
+          <span id="customerPrefillHint">先填 3 个必填项，系统会生成适合你业务的内容建议。</span>
         </div>
         <div class="customer-intake-layout">
           <form id="customerAssessmentForm" class="customer-form" novalidate>
-            <label>公司/门店名
-              <input name="company_name" placeholder="如：本地服务机构 / 真实公司名" />
-            </label>
             <label>你的行业/业务是什么？*
               <input name="industry" required placeholder="如：本地培训、到店服务、企业服务；尽量写具体业务" />
             </label>
@@ -59,21 +56,24 @@
             <label>你的目标客户是谁？*
               <input name="target_customer" required placeholder="如：附近客户、企业负责人、家长、门店老板；越具体越好" />
             </label>
-            <label>当前产品/服务
-              <input name="offer" placeholder="如：你的主推服务、体验产品、咨询方案或套餐" />
-            </label>
-            <label>服务区域/交付方式
-              <input name="store_location" placeholder="如：服务范围、门店位置、线上/线下交付方式" />
-            </label>
-            <label>可预约时间/服务节奏
-              <input name="course_schedule" placeholder="如：可预约时间、服务周期、沟通节奏" />
-            </label>
-            <label class="customer-wide">补充说明
-              <textarea name="extra_context" placeholder="如：班型名额、近期活动、想优先验证的平台、其他需要系统考虑的信息"></textarea>
-            </label>
-            <details class="customer-more-fields">
-              <summary>可选补充，让内容更准</summary>
+            <details class="customer-more-fields customer-optional-fields">
+              <summary>补充更多（可选）</summary>
               <div class="customer-more-grid">
+                <label>公司/门店名
+                  <input name="company_name" placeholder="如：本地服务机构 / 真实公司名" />
+                </label>
+                <label>当前产品/服务
+                  <input name="offer" placeholder="如：你的主推服务、体验产品、咨询方案或套餐" />
+                </label>
+                <label>服务区域/交付方式
+                  <input name="store_location" placeholder="如：服务范围、门店位置、线上/线下交付方式" />
+                </label>
+                <label>可预约时间/服务节奏
+                  <input name="course_schedule" placeholder="如：可预约时间、服务周期、沟通节奏" />
+                </label>
+                <label class="customer-wide">补充说明
+                  <textarea name="extra_context" placeholder="如：班型名额、近期活动、想优先验证的平台、其他需要系统考虑的信息"></textarea>
+                </label>
                 <label>资质/服务保障（可选）
                   <textarea name="coach_credentials" placeholder="如：资质、案例、团队经验、服务保障；没有也可以先不填"></textarea>
                 </label>
@@ -87,37 +87,37 @@
                   <textarea name="best_recent_content" placeholder="粘贴标题、链接或简单描述：哪条有人收藏/咨询/咨询"></textarea>
                 </label>
               </div>
-            </details>
-            <fieldset class="customer-choice-group">
-              <legend>你想做哪些发布平台？可多选 *</legend>
-              <input type="hidden" name="current_channels" required />
+              <fieldset class="customer-choice-group">
+                <legend>你想做哪些发布平台？可多选</legend>
+                <input type="hidden" name="current_channels" />
                 <div class="customer-choice-row" data-customer-platforms data-multi-select="true">
-                <button class="customer-choice-chip" type="button" data-value="抖音"><span></span>抖音</button>
-                <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
-                <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
-                <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
-                <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
-              </div>
-            </fieldset>
-            <fieldset class="customer-choice-group">
-              <legend>多平台内容怎么生成？*</legend>
-              <input type="hidden" name="content_mode" value="推荐模式：平台差异化适配" required />
-              <div class="customer-choice-row" data-customer-content-mode>
-                <button class="customer-choice-chip is-selected" type="button" data-value="推荐模式：平台差异化适配" aria-pressed="true"><span></span>推荐模式：平台适配</button>
-                <button class="customer-choice-chip" type="button" data-value="省事模式：一稿多发" aria-pressed="false"><span></span>省事模式：一稿多发</button>
-              </div>
-              <p class="customer-field-hint">建议适配，不强迫适配。一稿多发省时间，但转化可能弱；平台适配更费事，但更符合人群和平台机制。</p>
-            </fieldset>
-            <fieldset class="customer-choice-group">
-              <legend>你当前最大的内容问题是什么？*</legend>
-              <input type="hidden" name="biggest_problem" required />
-              <div class="customer-problem-grid" data-customer-problems>
-                <button class="customer-choice-chip" type="button" data-value="不知道发什么"><span></span>不知道发什么</button>
-                <button class="customer-choice-chip" type="button" data-value="发了没流量"><span></span>发了没流量</button>
-                <button class="customer-choice-chip" type="button" data-value="有浏览没咨询"><span></span>有浏览没咨询</button>
-                <button class="customer-choice-chip" type="button" data-value="发完没人复盘"><span></span>发了没效果总结</button>
-              </div>
-            </fieldset>
+                  <button class="customer-choice-chip" type="button" data-value="抖音"><span></span>抖音</button>
+                  <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
+                  <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
+                  <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
+                  <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
+                </div>
+              </fieldset>
+              <fieldset class="customer-choice-group">
+                <legend>多平台内容怎么生成？</legend>
+                <input type="hidden" name="content_mode" value="推荐模式：平台差异化适配" />
+                <div class="customer-choice-row" data-customer-content-mode>
+                  <button class="customer-choice-chip is-selected" type="button" data-value="推荐模式：平台差异化适配" aria-pressed="true"><span></span>推荐模式：平台适配</button>
+                  <button class="customer-choice-chip" type="button" data-value="省事模式：一稿多发" aria-pressed="false"><span></span>省事模式：一稿多发</button>
+                </div>
+                <p class="customer-field-hint">建议适配，不强迫适配。一稿多发省时间，但转化可能弱；平台适配更费事，但更符合人群和平台机制。</p>
+              </fieldset>
+              <fieldset class="customer-choice-group">
+                <legend>你当前最大的内容问题是什么？</legend>
+                <input type="hidden" name="biggest_problem" />
+                <div class="customer-problem-grid" data-customer-problems>
+                  <button class="customer-choice-chip" type="button" data-value="不知道发什么"><span></span>不知道发什么</button>
+                  <button class="customer-choice-chip" type="button" data-value="发了没流量"><span></span>发了没流量</button>
+                  <button class="customer-choice-chip" type="button" data-value="有浏览没咨询"><span></span>有浏览没咨询</button>
+                  <button class="customer-choice-chip" type="button" data-value="发完没人复盘"><span></span>发了没效果总结</button>
+                </div>
+              </fieldset>
+            </details>
             <input type="hidden" name="posting_frequency" value="偶尔发布" />
             <div id="customerFormError" class="customer-message error" role="alert" hidden></div>
             <button id="customerGenerateBtn" class="customer-primary" type="submit">生成我的内容建议</button>
