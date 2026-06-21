@@ -268,8 +268,8 @@
       <h1>多平台内容增长助手</h1>
       <p>主流程与客户版保持一致：先填写/确认业务信息，生成 7 天内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。</p>
       <div class="customer-hero-actions">
-        <a class="customer-hero-primary" href="#diagnosisWorkflow">开始内测填写</a>
-        <a class="customer-hero-secondary" href="#planSection">查看生成结果</a>
+        <a class="customer-hero-primary" href="/internal/#diagnosisWorkflow">开始内测填写</a>
+        <a class="customer-hero-secondary" href="/internal/#planSection">查看生成结果</a>
         <a class="customer-hero-secondary" href="/internal/generation-workbench">素材生成工作台</a>
         <button id="topReturnProjectBtn" class="customer-hero-secondary top-return-project" type="button" onclick="returnToActiveProject()" hidden>返回当前运营项目</button>
       </div>
@@ -293,6 +293,16 @@
         <span class="cps-label">记录效果</span>
       </div>
     </div>
+
+    <section id="allCustomersPanel" class="customer-card all-customers-panel" hidden>
+      <div class="customer-section-head">
+        <p>INTERNAL · 全部客户</p>
+        <h2>全部客户</h2>
+        <span>只读聚合各 client_id 下的项目数据；点击客户后切入对应运营项目，不迁移、不合并、不删除任何数据。</span>
+      </div>
+      <div id="allCustomersStatus" class="customer-message success">正在读取客户列表...</div>
+      <div id="allCustomersList" class="generation-list empty">暂无客户。</div>
+    </section>
 
     <details class="customer-why internal-debug-panel">
       <summary>内部调试面板</summary>

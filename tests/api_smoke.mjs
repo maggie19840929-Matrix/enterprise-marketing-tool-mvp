@@ -209,6 +209,34 @@ const dentalStatePost = await handler(request('POST', 'state', {
 assert(dentalStatePost.status === 201, 'POST /state should accept client_id');
 const dentalState = await dentalStatePost.json();
 assert(dentalState.client_id === 'dental' && dentalState.storage_key.includes('dental'), 'POST /state response should be scoped by client_id');
+const qaProbeStatePost = await handler(request('POST', 'state', {
+  client_id: 'qa-probe-customer-list',
+  project_store: {
+    activeProjectId: 'project-qa-probe',
+    projects: [{
+      id: 'project-qa-probe',
+      name: 'QA探针客户',
+      state: {
+        client_id: 'qa-probe-customer-list',
+        project: { id: 'project-qa-probe', client_id: 'qa-probe-customer-list', name: 'QA探针客户' },
+        assessment: dentalData.assessment,
+        diagnosis: dentalData.diagnosis,
+        plans: dentalData.plans,
+        feedback: [],
+      },
+    }],
+  },
+}));
+assert(qaProbeStatePost.status === 201, 'POST /state should create a qa probe state for customer-list filtering');
+const customersPublicGet = await handler(request('GET', 'customers'));
+assert(customersPublicGet.status === 403, `GET /customers without internal gate should be rejected, got ${customersPublicGet.status}`);
+const customersInternalGet = await handler(request('GET', 'customers?mode=internal'));
+assert(customersInternalGet.status === 200, `GET /customers?mode=internal should succeed, got ${customersInternalGet.status}`);
+const customersInternal = await customersInternalGet.json();
+assert(Array.isArray(customersInternal.customers), 'GET /customers should return a customers array');
+assert(customersInternal.readonly === true, 'GET /customers must explicitly be readonly');
+assert(customersInternal.customers.some((item) => item.client_id === 'dental' && item.names.includes('社区口腔门诊')), 'GET /customers should aggregate the dental customer from its own blob key');
+assert(!customersInternal.customers.some((item) => String(item.client_id).startsWith('qa-')), 'GET /customers should filter qa/probe customer keys from the operations list');
 const floristStateGet = await handler(request('GET', 'state?client_id=florist'));
 const floristState = await floristStateGet.json();
 assert(!floristState.project_store.projects.some((item) => item.id === 'project-dental'), 'GET /state?client_id=florist must not return dental project store');
@@ -271,16 +299,20 @@ const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
 assert(appJs.includes("const APP_VERSION = '1.6.46'"), 'app should expose v1.6.46 internally/API-side');
-assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('isInternalProfile() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state through the profile role');
+assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
 assert(appJs.includes('function sharedJourneySteps') && appJs.includes('function renderSharedJourneyShell') && appJs.includes('document.body.dataset.viewRole = profile.role'), 'customer/internal journey shell should have a shared profile-aware entry point');
+assert(appJs.includes('const isInternalDataScope = () => isInternalMode();') && appJs.includes('projectsStorageKey') && appJs.includes('appStateStorageKey'), 'internal storage keys should be based on the stable route data scope, not a stale rendered profile');
 assert(appJs.includes("return '检测合规服务';"), 'app should collapse legacy/real compliance project aliases into one dropdown item');
 assert(!appJs.includes('function isAnbiaoCustomerProject()') && !appJs.includes('renderAnbiaoCustomerData') && !appJs.includes('ANBIAO_CUSTOMER_ROWS'), 'anbiao publish-link refill module should be removed from internal app');
 assert(!appJs.includes('安标检测 / 发布链接回填') && !appJs.includes('查看回填链接表'), 'anbiao publish-link refill UI should not be rendered');
 assert(appJs.includes('function initCustomerTrial()') && appJs.includes('CUSTOMER_STORAGE_KEY'), 'default app should initialize the customer trial flow');
 assert(appJs.includes("location.replace('/internal/');") && !appJs.includes("params.get('mode') === 'internal'"), 'public ?mode=internal entries must not open the internal workbench');
 assert(appJs.includes("return path === '/internal' || path.startsWith('/internal/');") && appJs.includes("currentPath() === '/internal/generation-workbench'"), 'internal rendering should be path-gated to /internal/ and the generation workbench route');
+assert(appJs.includes('function syncRouteState') && appJs.includes('function initInternalRouteNavigation') && appJs.includes('history.pushState') && appJs.includes("window.addEventListener('popstate', syncRouteState)") && appJs.includes('generationWorkbenchInitialized'), 'internal navigation should re-apply shell/workbench visibility and initialize the workbench after route changes');
+assert(apiSource.includes("path === '/customers'") && apiSource.includes('listCustomersFromCloudState') && apiSource.includes("store.list({ prefix: CLOUD_STATE_KEY") && apiSource.includes('isTestCustomerKey'), 'API should expose a read-only internal customer aggregation endpoint backed by blob key listing');
+assert(indexHtml.includes('id="allCustomersPanel"') && indexHtml.includes('全部客户') && indexHtml.includes('只读聚合各 client_id') && appJs.includes('function loadAllCustomers') && appJs.includes("api('/api/customers?mode=internal&client_id=internal')"), 'internal app should render and load the all-customers aggregation panel');
 assert(redirects.includes('/internal /index.html 200') && redirects.includes('/internal/ /index.html 200') && redirects.includes('/internal/* /index.html 200') && !redirects.includes('/?mode=internal'), 'internal routes should rewrite to the app shell without a Netlify self-redirect loop');
 assert(!existsSync(new URL('../static/internal/index.html', import.meta.url)), 'static/internal/index.html must not exist because it shadows the /internal/ SPA rewrite on Netlify');
 assert(localDevServer.includes("pathname === '/internal'") && localDevServer.includes("location: '/internal/'") && localDevServer.includes("pathname.startsWith('/internal/')"), 'local dev server should mirror /internal -> /internal/ and /internal/* -> app-shell behavior');

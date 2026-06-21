@@ -33,6 +33,19 @@ const isInternalStateRequest = (url = null) => {
   const internal = String(url?.searchParams?.get('internal') || '').toLowerCase();
   return mode === 'internal' || ['1', 'true', 'yes'].includes(internal);
 };
+const internalAccessToken = () => envValue('INTERNAL_ACCESS_TOKEN');
+const requestInternalToken = (url = null, request = null) => {
+  const auth = String(request?.headers?.get('authorization') || '').trim();
+  const bearer = auth.replace(/^Bearer\s+/i, '').trim();
+  return bearer || String(request?.headers?.get('x-internal-access-token') || url?.searchParams?.get('token') || '').trim();
+};
+const isInternalCustomersRequest = (url = null, request = null) => {
+  // V1 仍沿用现有 internal mode 门槛；后续登录/角色系统接入后，应在这里替换成真正鉴权。
+  const legacyInternal = isInternalStateRequest(url) || normalizeClientId(url?.searchParams?.get('client_id') || '') === 'internal';
+  const token = internalAccessToken();
+  if (!token) return legacyInternal;
+  return legacyInternal || requestInternalToken(url, request) === token;
+};
 
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
 const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
@@ -2248,6 +2261,135 @@ const readCloudState = async (clientId = 'anonymous', {internal = false} = {}) =
   return {...memoryCloudStates.get(key), storage: 'memory-fallback'};
 };
 
+const cloudStateClientIdFromKey = (key = '') => {
+  if (key === CLOUD_STATE_KEY) return 'default';
+  if (key.startsWith(`${CLOUD_STATE_KEY}.`)) return key.slice(CLOUD_STATE_KEY.length + 1);
+  return '';
+};
+
+const isTestCustomerKey = (clientId = '') => {
+  const id = String(clientId || '').trim().toLowerCase();
+  return !id
+    || /^qa[-_]/.test(id)
+    || /^blob[-_]probe/.test(id)
+    || /[-_]probe$/.test(id)
+    || /^prod[-_]/.test(id)
+    || /^draft[-_]/.test(id)
+    || /^live[-_]/.test(id)
+    || /^internal-ux-closure-/.test(id)
+    || /-1781/.test(id)
+    || /^\d{10,}$/.test(id)
+    || /[-_]\d{10,}$/.test(id);
+};
+
+// 示例/测试性质的客户记录（非真实客户委托），在聚合列表里折叠展示，不删除数据。
+const DEMO_CUSTOMER_KEYS = ['florist'];
+const DEMO_CUSTOMER_NAME_RE = /清屿花艺/; // 清屿花艺
+const isDemoCustomer = (clientId = '', names = []) =>
+  DEMO_CUSTOMER_KEYS.includes(String(clientId || '').trim().toLowerCase())
+  || (Array.isArray(names) && names.some((n) => DEMO_CUSTOMER_NAME_RE.test(String(n || ''))));
+
+const listCloudStateKeys = async () => {
+  const keys = new Map();
+  const addKey = (key, meta = {}) => {
+    if (!key || (key !== CLOUD_STATE_KEY && !key.startsWith(`${CLOUD_STATE_KEY}.`))) return;
+    keys.set(key, { key, ...meta });
+  };
+  const store = await cloudStore();
+  if (store?.list) {
+    let cursor = undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const result = await store.list({ prefix: CLOUD_STATE_KEY, ...(cursor ? { cursor } : {}) }).catch(() => null);
+      const blobs = Array.isArray(result?.blobs) ? result.blobs : (Array.isArray(result) ? result : []);
+      blobs.forEach((blob) => {
+        const key = typeof blob === 'string' ? blob : blob?.key;
+        addKey(key, {
+          etag: blob?.etag || blob?.eTag || '',
+          updated_at: blob?.lastModified || blob?.last_modified || blob?.modifiedAt || '',
+        });
+      });
+      cursor = result?.cursor || result?.nextCursor || '';
+      if (!cursor) break;
+    }
+  }
+  [...memoryCloudStates.keys()].forEach((key) => addKey(key, { storage: 'memory-fallback' }));
+  return [...keys.values()];
+};
+
+const readCloudProjectStoreByKey = async (key = '') => {
+  const store = await cloudStore();
+  if (store) {
+    const data = await store.get(key, { type: 'json' }).catch(() => null);
+    if (data) return { data, storage: 'netlify-blobs' };
+  }
+  if (memoryCloudStates.has(key)) return { data: memoryCloudStates.get(key), storage: 'memory-fallback' };
+  return { data: null, storage: store ? 'netlify-blobs' : 'memory-fallback' };
+};
+
+const projectDisplayName = (item = {}) => String(
+  item.name
+  || item.state?.project?.name
+  || item.state?.assessment?.company_name
+  || item.state?.assessment?.industry
+  || item.state?.project?.id
+  || item.id
+  || ''
+).trim();
+
+const projectUpdatedAt = (item = {}) => String(
+  item.updated_at
+  || item.state?.saved_at
+  || item.state?.updated_at
+  || item.state?.project?.updated_at
+  || item.state?.project?.created_at
+  || item.state?.assessment?.created_at
+  || ''
+).trim();
+
+const listCustomersFromCloudState = async () => {
+  const keyMetas = await listCloudStateKeys();
+  const customers = [];
+  const errors = [];
+  for (const keyMeta of keyMetas) {
+    const key = keyMeta.key;
+    const clientId = cloudStateClientIdFromKey(key);
+    if (!clientId || isTestCustomerKey(clientId)) continue;
+    try {
+      const { data, storage } = await readCloudProjectStoreByKey(key);
+      if (!data) {
+        errors.push({ client_id: clientId, key, reason: 'not_found_or_unreadable' });
+        continue;
+      }
+      const rawStore = data.project_store || data;
+      const normalized = normalizeCloudProjectStore(stripGenericInternalCrossProjectSeeds(rawStore, clientId));
+      const projects = normalized.projects || [];
+      if (!projects.length) continue;
+      const names = [...new Set(projects.map(projectDisplayName).filter(Boolean))];
+      const updatedAt = projects.map(projectUpdatedAt).filter(Boolean).sort().pop()
+        || normalized.cloud_saved_at
+        || data.saved_at
+        || keyMeta.updated_at
+        || '';
+      customers.push({
+        client_id: clientId,
+        names,
+        project_count: projects.length,
+        updated_at: updatedAt,
+        is_test: isDemoCustomer(clientId, names),
+        storage,
+      });
+    } catch (error) {
+      errors.push({ client_id: clientId, key, reason: error?.message || 'read_failed' });
+    }
+  }
+  return {
+    customers: customers.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || ''))),
+    errors,
+    storage_key_prefix: CLOUD_STATE_KEY,
+    readonly: true,
+  };
+};
+
 const writeCloudState = async (payload = {}, clientId = clientIdFrom(payload)) => {
   const key = clientScopedCloudStateKey(clientId);
   const current = await readCloudState(clientId);
@@ -2718,6 +2860,10 @@ export default async (request) => {
         module_version: GENERATION_WORKBENCH_VERSION,
         features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling'],
       });
+      if (path === '/customers') {
+        if (!isInternalCustomersRequest(url, request)) return json({ error: '仅内部视图可访问客户聚合列表' }, 403);
+        return json(await listCustomersFromCloudState());
+      }
       if (path === '/state') return json(await readCloudState(requestClientId, {internal: requestClientId === 'internal' || isInternalStateRequest(url)}));
       if (path === '/assets') return json({ assets: await listAssets({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '' }) });
       if (path === '/generation-tasks') return json({ tasks: await listTasks({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '', view: url.searchParams.get('view') || 'internal' }) });

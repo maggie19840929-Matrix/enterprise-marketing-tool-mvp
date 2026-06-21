@@ -103,7 +103,8 @@ const VIEW_PROFILES = {
 const roleFromRoute = () => (isInternalMode() ? 'internal_admin' : 'client_viewer');
 const getProfile = (role = roleFromRoute()) => VIEW_PROFILES[role] || VIEW_PROFILES.client_viewer;
 const currentProfile = () => getProfile(roleFromRoute());
-const isInternalProfile = (profile = currentProfile()) => profile.role === 'internal_admin';
+const isInternalDataScope = () => isInternalMode();
+const isInternalProfile = (profile = currentProfile()) => isInternalDataScope() || profile.role === 'internal_admin';
 const profileHasTab = (tab, profile = currentProfile()) => Array.isArray(profile.tabs) && profile.tabs.includes(tab);
 const profileDeliveryView = (profile = currentProfile()) => profile.delivery === 'qa_passed_only' ? 'client' : 'internal';
 const profileSanitizePayload = (value, profile = currentProfile()) => profile.sanitize ? sanitizeCustomerPayload(value) : value;
@@ -153,6 +154,7 @@ const blankClientState = () => ({
 
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
+let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
 
 const api = async (url, opts={}) => {
   const {timeoutMs = 35000, ...fetchOptions} = opts;
@@ -383,7 +385,7 @@ const projectLeakText = (item = {}) => [
   item.state?.diagnosis?.insight,
 ].filter(Boolean).join(' ');
 const isKnownCrossProjectState = (item = {}) => /P0[123]|安标|安规|医疗器械|注册送检|EMC|SunPace|Sunny|PTE|德尔医生|del-doctor|feishu_bitable_p03/i.test(projectLeakText(item));
-const keepProjectForCurrentEntry = (item = {}) => !(isInternalProfile() && !explicitCustomerClientId() && isKnownCrossProjectState(item));
+const keepProjectForCurrentEntry = (item = {}) => !(isInternalDataScope() && !explicitCustomerClientId() && isKnownCrossProjectState(item));
 function normalizeProjectItem(item = {}){
   const state = normalizeState(item.state || {});
   const name = customerDisplayName(state.assessment, state.project) || item.name || '我的内容增长作战台';
@@ -438,7 +440,7 @@ function normalizeProjectStoreShape(store = {}){
 function mergeProjectStores(localStore = projectStore, cloudStore = {}){
   const local = normalizeProjectStoreShape(localStore);
   const cloud = normalizeProjectStoreShape(cloudStore);
-  const preferExplicitInternalCloud = isInternalProfile() && Boolean(explicitCustomerClientId());
+  const preferExplicitInternalCloud = isInternalDataScope() && Boolean(explicitCustomerClientId());
   const byId = new Map();
   [...local.projects, ...cloud.projects].forEach((item)=>{
     const key = String(item.id);
@@ -469,7 +471,7 @@ function mergeProjectStores(localStore = projectStore, cloudStore = {}){
 let cloudSyncTimer = null;
 async function pullCloudProjectStore({silent = true} = {}){
   try {
-    const internalMode = isInternalProfile();
+    const internalMode = isInternalDataScope();
     const modeQuery = internalMode ? '&mode=internal' : '';
     const result = await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}${modeQuery}`);
     if (result?.project_store?.projects) {
@@ -656,7 +658,7 @@ function explicitCustomerClientId(){
 }
 
 function customerClientId(){
-  return explicitCustomerClientId() || (isInternalProfile() ? INTERNAL_CLIENT_ID : readSessionClientId());
+  return explicitCustomerClientId() || (isInternalDataScope() ? INTERNAL_CLIENT_ID : readSessionClientId());
 }
 
 function customerTrialStorageKey(clientId = customerClientId()){
@@ -664,12 +666,12 @@ function customerTrialStorageKey(clientId = customerClientId()){
 }
 
 function projectsStorageKey(clientId = customerClientId()){
-  if (isInternalProfile()) return PROJECTS_KEY;
+  if (isInternalDataScope()) return PROJECTS_KEY;
   return `enterpriseMarketingMvpProjects.${normalizeClientId(clientId) || 'anonymous-fallback'}.v1`;
 }
 
 function appStateStorageKey(clientId = customerClientId()){
-  if (isInternalProfile()) return STORAGE_KEY;
+  if (isInternalDataScope()) return STORAGE_KEY;
   return `enterpriseMarketingMvpState.${normalizeClientId(clientId) || 'anonymous-fallback'}.v5`;
 }
 
@@ -2474,6 +2476,7 @@ function renderAllFromClient(){
   syncProjectStage();
   hydrateInternalFormValuesFromState();
   renderInternalClientIdentity();
+  renderAllCustomersPanel();
   renderLifecycleWorkbench();
   renderWorkflowVisibility();
   renderDashboard(clientDashboard());
@@ -2490,6 +2493,69 @@ function renderAllFromClient(){
   renderTopReturnProjectAction();
   settleInternalHashTarget();
   renderGenerationWorkbenchRoute();
+}
+
+function customerListDisplayName(customer = {}){
+  const names = Array.isArray(customer.names) ? customer.names.filter(Boolean) : [];
+  return customerText(names[0] || customer.client_id || '未命名客户');
+}
+
+function renderAllCustomersPanel(){
+  const panel = $('#allCustomersPanel');
+  if (!panel) return;
+  const visible = isInternalProfile() && !isGenerationWorkbenchRoute();
+  panel.hidden = !visible;
+  if (!visible) return;
+  const status = $('#allCustomersStatus');
+  const list = $('#allCustomersList');
+  const customers = allCustomersState.customers || [];
+  const errors = allCustomersState.errors || [];
+  const realCustomers = customers.filter((c) => !c.is_test);
+  const testCustomers = customers.filter((c) => c.is_test);
+  if (status) {
+    status.hidden = false;
+    status.classList.toggle('error', Boolean(allCustomersState.error));
+    status.classList.toggle('success', !allCustomersState.error);
+    if (allCustomersState.loading) status.textContent = '正在读取全部客户...';
+    else if (allCustomersState.error) status.textContent = `客户列表读取失败：${allCustomersState.error}`;
+    else if (!customers.length) status.textContent = '暂无可显示客户。';
+    else status.textContent = `已读取 ${realCustomers.length} 个客户${testCustomers.length ? `（另有 ${testCustomers.length} 条测试/示例已折叠）` : ''}${errors.length ? `，${errors.length} 个键读取失败已跳过` : ''}。`;
+  }
+  if (!list) return;
+  list.classList.toggle('empty', !customers.length);
+  if (!customers.length) { list.innerHTML = '暂无客户。'; return; }
+  const optFor = (customer) => {
+    const clientId = String(customer.client_id || '').trim();
+    const name = customerListDisplayName(customer);
+    const updated = String(customer.updated_at || '').slice(0, 10);
+    const count = Number(customer.project_count || 0);
+    const hint = [updated, count ? `${count}个项目` : ''].filter(Boolean).join(' · ');
+    return `<option value="${esc(clientId)}">${esc(name)}${hint ? `（${esc(hint)}）` : ''}</option>`;
+  };
+  const realOpts = realCustomers.length ? `<optgroup label="客户">${realCustomers.map(optFor).join('')}</optgroup>` : '';
+  const testOpts = testCustomers.length ? `<optgroup label="测试 / 示例">${testCustomers.map(optFor).join('')}</optgroup>` : '';
+  list.innerHTML = `<select id="allCustomersSelect" aria-label="选择客户" style="width:100%;max-width:520px;padding:10px 12px;border-radius:12px;font-size:15px;border:1px solid var(--clean-line,#e2d9c9);background:#fff;color:var(--clean-ink,#2a1f12)">
+      <option value="" disabled selected>选择客户…（${realCustomers.length} 个正式${testCustomers.length ? ` / ${testCustomers.length} 测试` : ''}）</option>
+      ${realOpts}${testOpts}
+    </select>`;
+}
+
+async function loadAllCustomers(){
+  if (!isInternalProfile()) return;
+  allCustomersState = { ...allCustomersState, loading: true, error: '' };
+  renderAllCustomersPanel();
+  try {
+    const result = await api('/api/customers?mode=internal&client_id=internal');
+    allCustomersState = {
+      customers: Array.isArray(result.customers) ? result.customers : [],
+      errors: Array.isArray(result.errors) ? result.errors : [],
+      loading: false,
+      error: '',
+    };
+  } catch (error) {
+    allCustomersState = { customers: [], errors: [], loading: false, error: error.message || '请求失败' };
+  }
+  renderAllCustomersPanel();
 }
 
 function hydrateInternalFormValuesFromState(){
@@ -3614,8 +3680,19 @@ function renderGenerationWorkbenchRoute(){
   const active = isGenerationWorkbenchRoute();
   const wb = $('#generationWorkbench');
   if (wb) wb.hidden = !active;
+  const wbLink = document.querySelector('.customer-hero-actions a[href="/internal/generation-workbench"]');
+  const intakeLink = document.querySelector('.customer-hero-actions a[href="/internal/#diagnosisWorkflow"]');
+  if (wbLink) {
+    wbLink.classList.toggle('customer-hero-primary', active);
+    wbLink.classList.toggle('customer-hero-secondary', !active);
+    wbLink.setAttribute('aria-current', active ? 'page' : 'false');
+  }
+  if (intakeLink) {
+    intakeLink.classList.toggle('customer-hero-primary', !active);
+    intakeLink.classList.toggle('customer-hero-secondary', active);
+  }
   if (!isInternalProfile()) return;
-  ['#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow'].forEach((selector) => {
+  ['#allCustomersPanel', '#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow'].forEach((selector) => {
     const el = $(selector);
     if (active && el) el.hidden = true;
   });
@@ -3688,10 +3765,17 @@ async function showGenerationFeishuPayload(){
   if (box) box.textContent = JSON.stringify(result, null, 2);
 }
 
+let generationWorkbenchInitialized = false;
+
 function initGenerationWorkbench(){
   renderGenerationWorkbenchRoute();
   if (!isGenerationWorkbenchRoute()) return;
   updateGenerationRequestedModel();
+  if (generationWorkbenchInitialized) {
+    loadGenerationWorkbench().catch((error)=>toast(error.message));
+    return;
+  }
+  generationWorkbenchInitialized = true;
   $('#generationTypeSelect')?.addEventListener('change', updateGenerationRequestedModel);
   $('#generationAssetForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -3719,7 +3803,55 @@ function initGenerationWorkbench(){
   loadGenerationWorkbench().catch((error)=>toast(error.message));
 }
 
+function syncRouteState(){
+  setAppShell();
+  renderGenerationWorkbenchRoute();
+  if (!isInternalProfile()) return;
+  const nextClientId = customerClientId();
+  const clientChanged = Boolean(activeInternalRouteClientId && nextClientId !== activeInternalRouteClientId);
+  activeInternalRouteClientId = nextClientId;
+  if (!internalAppInitialized) {
+    initInternalApp();
+    return;
+  }
+  if (clientChanged && !isGenerationWorkbenchRoute()) {
+    loadAll().catch((error)=>toast(error.message));
+    return;
+  }
+  if (isGenerationWorkbenchRoute()) {
+    initGenerationWorkbench();
+  } else {
+    renderAllFromClient();
+  }
+}
+
+function initInternalRouteNavigation(){
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('a[href]');
+    if (!link || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const href = link.getAttribute('href') || '';
+    if (!href || href.startsWith('#') || link.target) return;
+    const url = new URL(href, window.location.href);
+    if (url.origin !== window.location.origin || !url.pathname.startsWith('/internal/')) return;
+    if (url.pathname === window.location.pathname && url.search === window.location.search && url.hash === window.location.hash) return;
+    event.preventDefault();
+    history.pushState({}, '', url.pathname + url.search + url.hash);
+    syncRouteState();
+    if (url.hash) { try { document.querySelector(url.hash)?.scrollIntoView({behavior:'smooth', block:'start'}); } catch (e) {} }
+  });
+  window.addEventListener('popstate', syncRouteState);
+  window.addEventListener('hashchange', syncRouteState);
+}
+
+let internalAppInitialized = false;
+let activeInternalRouteClientId = '';
+
 function initInternalApp(){
+  if (internalAppInitialized) {
+    syncRouteState();
+    return;
+  }
+  internalAppInitialized = true;
   initGenerationWorkbench();
   initInternalChoices();
   initInternalAiIntake();
@@ -3836,11 +3968,20 @@ function initInternalApp(){
   $('#refreshBtn')?.addEventListener('click', () => {
     resetForNewCustomer();
   });
+  activeInternalRouteClientId = customerClientId();
   loadAll().catch(err=>toast(err.message));
+  loadAllCustomers().catch((error)=>toast(error.message || '客户列表读取失败'));
 }
 
 setAppShell();
 initPlanFeedbackButtons();
+initInternalRouteNavigation();
+$('#allCustomersPanel')?.addEventListener('change', (event) => {
+  const sel = event.target;
+  if (sel && sel.id === 'allCustomersSelect' && sel.value) {
+    window.location.href = '/internal/?client_id=' + encodeURIComponent(sel.value);
+  }
+});
 if (isInternalProfile()) {
   initInternalApp();
 } else {
