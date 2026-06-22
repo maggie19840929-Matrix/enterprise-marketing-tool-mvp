@@ -13,6 +13,12 @@ const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_temp
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
 const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUDE_OPUS_MODEL || 'claude-3-opus-20240229';
 const ARK_BASE_URL = process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
+const SEEDANCE_MODEL = process.env.SEEDANCE_MODEL || process.env.ARK_VIDEO_MODEL || 'doubao-seedance-2-0-260128';
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+const CLAUDE_SCRIPT_MODEL = process.env.CLAUDE_SCRIPT_MODEL || 'claude-opus-4-8';
+const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
+const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
 const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 23000), 1000), 32000);
 const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 30000), 8000), 32000);
 const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 30000), 8000), 32000);
@@ -84,6 +90,10 @@ const json = (payload, status = 200) =>
 
 const envValue = (...keys) => keys.map((key) => process.env[key]).find((value) => String(value || '').trim())?.trim() || '';
 const arkApiKey = () => envValue('ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY');
+const openaiApiKey = () => envValue('OPENAI_API_KEY');
+const anthropicApiKey = () => envValue('ANTHROPIC_API_KEY');
+const glmApiKey = () => envValue('GLM_API_KEY');
+const paidGenerationSafeToRun = () => ['1', 'true', 'yes', 'SAFE_TO_RUN'].includes(String(process.env.SAFE_TO_RUN || '').trim());
 const arkModel = (override = '') => String(override || envValue('ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL')).trim();
 const arkChatCompletionsUrl = () => {
   const base = String(ARK_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -2633,55 +2643,258 @@ const outputAssetForTask = async (task, output = {}) => {
   });
 };
 
+const adapterManifest = ({ provider, mode = 'mock', reason = '', requestedModel = '', actualModel = '', providerJobId = '', output = null, extra = {} } = {}) => ({
+  provider,
+  mode,
+  reason,
+  requested_model: requestedModel || null,
+  actual_model: actualModel || requestedModel || null,
+  provider_job_id: providerJobId || '',
+  output,
+  created_at: nowIso(),
+  ...extra,
+});
+
+const mockAdapterResult = ({ task, provider, reason = 'MOCK_KEY_MISSING', output = null, isAsync = false } = {}) => ({
+  ok: true,
+  provider,
+  provider_job_id: isAsync ? `${provider}_mock_${task.task_id}` : '',
+  actual_model: task.requested_model,
+  fallback: true,
+  fallback_reason: reason,
+  output,
+  manifest: adapterManifest({
+    provider,
+    mode: 'mock',
+    reason,
+    requestedModel: task.requested_model,
+    actualModel: task.requested_model,
+    providerJobId: isAsync ? `${provider}_mock_${task.task_id}` : '',
+    output,
+  }),
+});
+
+const jsonFetch = async (url, options = {}, timeoutMs = MODEL_TIMEOUT_MS) => {
+  const res = await fetchWithTimeout(url, options, timeoutMs);
+  const textBody = await res.text();
+  let data = null;
+  try {
+    data = textBody ? JSON.parse(textBody) : null;
+  } catch {
+    data = { raw: textBody };
+  }
+  if (!res.ok) {
+    const message = data?.error?.message || data?.message || `HTTP_${res.status}`;
+    const error = new Error(message);
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+};
+
+const parseDurationSeconds = (value = '') => {
+  const match = String(value || '').match(/\d+/);
+  return match ? Number(match[0]) : 8;
+};
+
+const seedanceContentFor = (task = {}, inputAssets = []) => {
+  const imageAsset = inputAssets.find((asset) => String(asset.mime_type || '').startsWith('image/') || String(asset.storage_url || '').startsWith('http') || String(asset.storage_url || '').startsWith('data:image/'));
+  const content = [];
+  if (imageAsset?.storage_url) content.push({ type: 'image_url', image_url: { url: imageAsset.storage_url } });
+  content.push({ type: 'text', text: task.prompt || '生成一条营销短视频素材' });
+  return content;
+};
+
+const submitSeedanceVideo = async ({ task, inputAssets }) => {
+  if (!arkApiKey()) {
+    return mockAdapterResult({ task, provider: 'seedance-video', reason: 'MOCK_KEY_MISSING', isAsync: true });
+  }
+  if (!paidGenerationSafeToRun()) {
+    return mockAdapterResult({ task, provider: 'seedance-video', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', isAsync: true });
+  }
+  const base = String(ARK_BASE_URL || '').replace(/\/+$/, '');
+  const model = task.requested_model && !/^Seedance\s/i.test(task.requested_model) ? task.requested_model : SEEDANCE_MODEL;
+  const data = await jsonFetch(`${base}/contents/generations/tasks`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${arkApiKey()}`,
+    },
+    body: JSON.stringify({
+      model,
+      content: seedanceContentFor(task, inputAssets),
+      duration: parseDurationSeconds(task.output_spec?.duration),
+      ratio: task.output_spec?.ratio || '9:16',
+      generate_audio: task.output_spec?.generate_audio ?? true,
+    }),
+  });
+  const providerJobId = data?.id || data?.task_id || data?.data?.id || data?.data?.task_id || '';
+  if (!providerJobId) throw new Error('seedance_submit_missing_task_id');
+  return {
+    ok: true,
+    provider: 'seedance-video',
+    provider_job_id: providerJobId,
+    actual_model: data?.model || model,
+    fallback: false,
+    fallback_reason: null,
+    manifest: adapterManifest({ provider: 'seedance-video', mode: 'real', requestedModel: model, actualModel: data?.model || model, providerJobId }),
+  };
+};
+
+const pollSeedanceVideo = async ({ task, provider_job_id }) => {
+  const count = Number(task.adapter_state?.poll_count || 0) + 1;
+  if (String(provider_job_id || '').startsWith('seedance-video_mock_')) {
+    if (count < 2) return { status: 'generating', poll_count: count, backoff_ms: Math.min(30000, 2000 * (2 ** Math.max(0, count - 1))) };
+    return {
+      status: 'succeeded',
+      poll_count: count,
+      output: { storage_url: `mock://seedance-video/${task.task_id}.mp4`, mime_type: 'video/mp4', duration: task.output_spec?.duration || '6s', resolution: task.output_spec?.size || '1080x1920', summary: `Seedance mock video output: ${task.fallback_reason || 'mock'}` },
+      manifest: adapterManifest({ provider: 'seedance-video', mode: 'mock', reason: task.fallback_reason || 'MOCK_KEY_MISSING', requestedModel: task.requested_model, actualModel: task.actual_model || task.requested_model, providerJobId: provider_job_id }),
+    };
+  }
+  if (!arkApiKey()) return { status: 'failed', poll_count: count, error: 'MOCK_KEY_MISSING' };
+  const base = String(ARK_BASE_URL || '').replace(/\/+$/, '');
+  const data = await jsonFetch(`${base}/contents/generations/tasks/${encodeURIComponent(provider_job_id)}`, {
+    headers: { authorization: `Bearer ${arkApiKey()}` },
+  });
+  const status = data?.status || data?.data?.status || 'running';
+  if (status === 'succeeded') {
+    const videoUrl = data?.result?.content?.video_url || data?.content?.video_url || data?.data?.result?.content?.video_url || '';
+    return {
+      status: 'succeeded',
+      poll_count: count,
+      output: { storage_url: videoUrl, mime_type: 'video/mp4', duration: task.output_spec?.duration || '', resolution: task.output_spec?.size || '', summary: 'Seedance video generated' },
+      manifest: adapterManifest({ provider: 'seedance-video', mode: 'real', requestedModel: task.requested_model, actualModel: task.actual_model || task.requested_model, providerJobId: provider_job_id, output: { video_url: videoUrl } }),
+    };
+  }
+  if (['failed', 'cancelled'].includes(status)) return { status: 'failed', poll_count: count, error: data?.error?.message || status };
+  return { status: 'generating', poll_count: count, backoff_ms: Math.min(60000, 3000 * (2 ** Math.min(count - 1, 5))) };
+};
+
+const submitOpenAIImage = async ({ task }) => {
+  const output = { storage_url: `mock://openai-image/${task.task_id}.png`, mime_type: 'image/png', resolution: task.output_spec?.size || '1024x1024', summary: `OpenAI image mock: ${task.prompt || task.content_type}` };
+  if (!openaiApiKey()) return mockAdapterResult({ task, provider: 'openai-image', reason: 'MOCK_KEY_MISSING', output });
+  const base = String(OPENAI_BASE_URL || '').replace(/\/+$/, '');
+  const model = task.requested_model && !/^GPT-Image/i.test(task.requested_model) ? task.requested_model : OPENAI_IMAGE_MODEL;
+  const data = await jsonFetch(`${base}/images/generations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${openaiApiKey()}` },
+    body: JSON.stringify({ model, prompt: task.prompt || 'marketing asset image', size: task.output_spec?.size || '1024x1024', n: 1 }),
+  });
+  const image = data?.data?.[0] || {};
+  const storageUrl = image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : '');
+  return {
+    ok: true,
+    provider: 'openai-image',
+    actual_model: data?.model || model,
+    fallback: false,
+    fallback_reason: null,
+    output: { ...output, storage_url: storageUrl || output.storage_url, summary: 'OpenAI image generated' },
+    manifest: adapterManifest({ provider: 'openai-image', mode: 'real', requestedModel: model, actualModel: data?.model || model, output: { has_url: Boolean(storageUrl) } }),
+  };
+};
+
+const submitClaudeTextSingle = async ({ task }) => {
+  const output = { storage_url: `mock://claude-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Claude mock：${task.prompt || '按内容计划生成素材'}` };
+  if (!anthropicApiKey()) return mockAdapterResult({ task, provider: 'claude-text', reason: 'MOCK_KEY_MISSING', output });
+  const data = await jsonFetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': anthropicApiKey(),
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({ model: CLAUDE_SCRIPT_MODEL, max_tokens: 1800, messages: [{ role: 'user', content: task.prompt || '生成一份营销短内容脚本' }] }),
+  });
+  const text = ensureArray(data?.content).map((item) => item?.text || '').join('\n').trim();
+  return {
+    ok: true,
+    provider: 'claude-text',
+    actual_model: data?.model || CLAUDE_SCRIPT_MODEL,
+    fallback: false,
+    fallback_reason: null,
+    output: { ...output, storage_url: `real://claude-text/${task.task_id}.txt`, text },
+    manifest: adapterManifest({ provider: 'claude-text', mode: 'real', requestedModel: CLAUDE_SCRIPT_MODEL, actualModel: data?.model || CLAUDE_SCRIPT_MODEL, output: { chars: text.length } }),
+  };
+};
+
+const submitGlmTextSingle = async ({ task }) => {
+  const output = { storage_url: `mock://glm-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `GLM mock：${task.prompt || '按内容计划生成素材'}` };
+  if (!glmApiKey()) return mockAdapterResult({ task, provider: 'glm-text', reason: 'MOCK_KEY_MISSING', output });
+  const base = String(GLM_BASE_URL || '').replace(/\/+$/, '');
+  const data = await jsonFetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${glmApiKey()}` },
+    body: JSON.stringify({ model: GLM_MODEL, messages: [{ role: 'user', content: task.prompt || '生成一份营销短内容脚本' }], temperature: 0.7 }),
+  });
+  const text = String(data?.choices?.[0]?.message?.content || '').trim();
+  return {
+    ok: true,
+    provider: 'glm-text',
+    actual_model: data?.model || GLM_MODEL,
+    fallback: false,
+    fallback_reason: null,
+    output: { ...output, storage_url: `real://glm-text/${task.task_id}.txt`, text },
+    manifest: adapterManifest({ provider: 'glm-text', mode: 'real', requestedModel: GLM_MODEL, actualModel: data?.model || GLM_MODEL, output: { chars: text.length } }),
+  };
+};
+
+const submitTextAb = async ({ task }) => {
+  const [claude, glm] = await Promise.all([
+    submitClaudeTextSingle({ task }),
+    submitGlmTextSingle({ task }),
+  ]);
+  const text = [
+    'A / claude-text',
+    claude.output?.text || '',
+    '',
+    'B / glm-text',
+    glm.output?.text || '',
+  ].join('\n');
+  return {
+    ok: true,
+    provider: 'claude-text+glm-text',
+    actual_model: `${claude.actual_model || CLAUDE_SCRIPT_MODEL} / ${glm.actual_model || GLM_MODEL}`,
+    fallback: Boolean(claude.fallback || glm.fallback),
+    fallback_reason: [claude.fallback_reason, glm.fallback_reason].filter(Boolean).join('; ') || null,
+    output: { storage_url: `mock://text-ab/${task.task_id}.txt`, mime_type: 'text/plain', text },
+    manifest: adapterManifest({
+      provider: 'claude-text+glm-text',
+      mode: claude.fallback && glm.fallback ? 'mock' : 'mixed',
+      reason: [claude.fallback_reason, glm.fallback_reason].filter(Boolean).join('; ') || '',
+      requestedModel: task.requested_model,
+      actualModel: `${claude.actual_model || CLAUDE_SCRIPT_MODEL} / ${glm.actual_model || GLM_MODEL}`,
+      output: { variants: { claude: claude.manifest, glm: glm.manifest } },
+    }),
+  };
+};
+
 const generationAdapters = {
   'openai-image': {
     name: 'openai-image',
     isAsync: false,
-    submit: async ({ task }) => ({
-      ok: true,
-      provider: 'openai-image',
-      actual_model: task.requested_model,
-      fallback: false,
-      fallback_reason: null,
-      output: { storage_url: `mock://openai-image/${task.task_id}.png`, mime_type: 'image/png', resolution: task.output_spec?.size || '1024x1024', summary: `封面图 mock：${task.prompt || task.content_type}` },
-    }),
+    submit: submitOpenAIImage,
   },
   'claude-text': {
     name: 'claude-text',
     isAsync: false,
-    submit: async ({ task }) => ({
-      ok: true,
-      provider: 'claude-text',
-      actual_model: task.requested_model,
-      fallback: false,
-      fallback_reason: null,
-      output: { storage_url: `mock://claude-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `脚本/文案 mock：${task.prompt || '按内容计划生成素材'}` },
-    }),
+    submit: submitTextAb,
+  },
+  'glm-text': {
+    name: 'glm-text',
+    isAsync: false,
+    submit: submitGlmTextSingle,
   },
   'seedance-video': {
     name: 'seedance-video',
     isAsync: true,
-    submit: async ({ task }) => ({
-      ok: true,
-      provider: 'seedance-video',
-      provider_job_id: `seedance_mock_${task.task_id}`,
-      actual_model: task.requested_model,
-      fallback: false,
-      fallback_reason: null,
-    }),
-    poll: async ({ task }) => {
-      const count = Number(task.adapter_state?.poll_count || 0) + 1;
-      if (count < 2) return { status: 'generating', poll_count: count };
-      return {
-        status: 'succeeded',
-        poll_count: count,
-        output: { storage_url: `mock://seedance-video/${task.task_id}.mp4`, mime_type: 'video/mp4', duration: task.output_spec?.duration || '6s', resolution: task.output_spec?.size || '1080x1920', summary: 'Seedance 2.0 mock video output' },
-      };
-    },
+    submit: submitSeedanceVideo,
+    poll: pollSeedanceVideo,
   },
 };
 
-const adapterForTask = (task = {}) => generationAdapters[providerForGeneration(task.generation_type)] || generationAdapters['claude-text'];
+const adapterForTask = (task = {}) => generationAdapters[task.provider] || generationAdapters[providerForGeneration(task.generation_type)] || generationAdapters['claude-text'];
 
 const validateTaskAssets = async (task) => {
   const ids = ensureArray(task.input_asset_ids).map(String).filter(Boolean);
@@ -2708,7 +2921,12 @@ const submitGenerationTask = async (clientId, taskId) => {
     task = withStatus({ ...task, actual_model: 'rule_template', fallback: true, fallback_reason: 'missing_provider_key', error: '模型鉴权失败' }, 'blocked_model_auth', 'mock 鉴权失败');
     return saveTask(task);
   }
-  const submitted = await adapter.submit({ task, inputAssets: assetCheck.assets, outputSpec: task.output_spec });
+  let submitted;
+  try {
+    submitted = await adapter.submit({ task, inputAssets: assetCheck.assets, outputSpec: task.output_spec });
+  } catch (error) {
+    submitted = { ok: false, provider: adapter.name, actual_model: 'rule_template', fallback_reason: error.message || 'adapter_failed', error: error.message || 'adapter_failed' };
+  }
   if (!submitted.ok) {
     const status = /auth|key|credential/i.test(submitted.fallback_reason || submitted.error || '') ? 'blocked_model_auth' : 'failed';
     task = withStatus({
@@ -2729,9 +2947,10 @@ const submitGenerationTask = async (clientId, taskId) => {
     fallback_reason: submitted.fallback_reason || null,
     provider_job_id: submitted.provider_job_id || '',
     error: '',
+    adapter_manifest: submitted.manifest || null,
   };
   if (adapter.isAsync) {
-    task = withStatus({ ...task, adapter_state: { poll_count: 0 } }, 'generating', '异步视频任务已提交');
+    task = withStatus({ ...task, adapter_state: { poll_count: 0, retry_count: 0, next_poll_at: nowIso() } }, 'generating', task.fallback ? '异步视频 mock 任务已登记' : '异步视频任务已提交');
     return saveTask(task);
   }
   const asset = await outputAssetForTask(task, submitted.output || {});
@@ -2747,8 +2966,39 @@ const pollGenerationTask = async (clientId, taskId) => {
   if (!task.provider_job_id) throw new Error('视频任务缺少 provider_job_id');
   if (task.status !== 'generating') return task;
   const adapter = generationAdapters['seedance-video'];
-  const result = await adapter.poll({ task, provider_job_id: task.provider_job_id });
-  task = { ...task, adapter_state: { ...(task.adapter_state || {}), poll_count: result.poll_count || Number(task.adapter_state?.poll_count || 0) + 1 }, updated_at: nowIso() };
+  let result;
+  try {
+    result = await adapter.poll({ task, provider_job_id: task.provider_job_id });
+  } catch (error) {
+    const retryCount = Number(task.adapter_state?.retry_count || 0) + 1;
+    const backoffMs = Math.min(60000, 3000 * (2 ** Math.min(retryCount - 1, 5)));
+    task = {
+      ...task,
+      adapter_state: {
+        ...(task.adapter_state || {}),
+        poll_count: Number(task.adapter_state?.poll_count || 0) + 1,
+        retry_count: retryCount,
+        last_poll_error: error.message || 'seedance_poll_error',
+        backoff_ms: backoffMs,
+        next_poll_at: new Date(Date.now() + backoffMs).toISOString(),
+      },
+      updated_at: nowIso(),
+    };
+    return saveTask(task);
+  }
+  const backoffMs = Number(result.backoff_ms || 0);
+  task = {
+    ...task,
+    adapter_state: {
+      ...(task.adapter_state || {}),
+      poll_count: result.poll_count || Number(task.adapter_state?.poll_count || 0) + 1,
+      retry_count: 0,
+      backoff_ms: backoffMs,
+      next_poll_at: backoffMs ? new Date(Date.now() + backoffMs).toISOString() : '',
+    },
+    adapter_manifest: result.manifest || task.adapter_manifest || null,
+    updated_at: nowIso(),
+  };
   if (result.status === 'generating') return saveTask(task);
   if (result.status === 'failed') {
     task = withStatus({ ...task, error: result.error || '视频生成失败', fallback: true, fallback_reason: result.error || 'seedance_poll_failed' }, 'failed', '异步视频失败');
