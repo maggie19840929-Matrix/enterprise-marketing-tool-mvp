@@ -109,7 +109,7 @@ const modelProviderFor = (payload = {}, fallbackProvider = 'volcengine_ark') => 
     if (['openai', 'gpt', 'chatgpt'].includes(requested)) return 'openai';
     if (['local', 'rule', 'rule_template'].includes(requested)) return 'local';
   }
-  if (isInternalPayload(payload)) return 'local';
+  if (isInternalPayload(payload) && !arkModel()) return 'local';
   return fallbackProvider;
 };
 const modelFailureMeta = ({ requestedModel = null, fallbackReason = 'model_fallback', latencyMs = 0 } = {}) => ({
