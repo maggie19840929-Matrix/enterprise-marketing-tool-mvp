@@ -672,7 +672,7 @@ const safetyPlatforms = safetyCompliance.diagnosis.platform_recommendations.prim
 const safetyText = JSON.stringify(safetyCompliance.plans.map((plan) => [plan.platform, plan.topic, plan.angle, plan.content_type, plan.cta, plan.qa_note]));
 assert(safetyCompliance.diagnosis.platform_recommendations.primary[0].platform === '抖音', 'P03 safety compliance should prioritize 抖音 as first platform');
 assert(safetyPlatforms === '抖音|视频号|朋友圈/私域', `P03 safety compliance platform mix should be 抖音|视频号|朋友圈/私域, got ${safetyPlatforms}`);
-assert(safetyCompliance.plans.slice(0, 3).map((p) => p.platform).join('|') === '抖音|视频号|朋友圈/私域', 'P03 safety compliance plans should rotate chosen platforms without forcing 小红书');
+assert(safetyCompliance.plans.every((p) => p.platform === '抖音'), 'P03 safety compliance plans should use only the user-selected platform (抖音), not spread to recommended platforms');
 assert(/安标|安全生产标准化|验厂|合规|整改|台账|评审|工厂/.test(safetyText), 'P03 safety compliance plans should stay on safety/compliance topics');
 ['小红书标签', '#小红书', '种草', '美团/大众点评', '到店前', '预约服务', '篮球课', '体验课', '儿童牙齿'].forEach((word) => {
   assert(!safetyText.includes(word), `P03 safety compliance plans must not include wrong platform/template word: ${word}`);
