@@ -703,8 +703,10 @@ function isBasketballDedicatedAssessment(assessment = {}){
 }
 
 function isDedicatedCustomerState(state = {}){
-  const marker = state.dedicated_customer || state.customer_key || state.assessment?.dedicated_customer || state.draft_assessment?.dedicated_customer;
+  const marker = state.dedicated_customer || state.assessment?.dedicated_customer || state.draft_assessment?.dedicated_customer;
   if (marker) return true;
+  // customer_key 默认就等于 client_id（普通客户），不算专属；只有与 client_id 不同的预设键才算
+  if (state.customer_key && state.client_id && String(state.customer_key) !== String(state.client_id)) return true;
   return isBasketballDedicatedAssessment(state.assessment || {}) || isBasketballDedicatedAssessment(state.draft_assessment || {});
 }
 
