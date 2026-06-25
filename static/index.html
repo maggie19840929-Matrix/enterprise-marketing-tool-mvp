@@ -56,6 +56,26 @@
             <label>你的目标客户是谁？*
               <input name="target_customer" required placeholder="如：附近客户、企业负责人、家长、门店老板；越具体越好" />
             </label>
+            <fieldset class="customer-choice-group customer-key-choice">
+              <legend>你主要在哪些平台发布？可多选，建议先定主战场</legend>
+              <input type="hidden" name="current_channels" />
+              <div class="customer-choice-row" data-customer-platforms data-multi-select="true">
+                <button class="customer-choice-chip" type="button" data-value="抖音"><span></span>抖音</button>
+                <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
+                <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
+                <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
+                <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
+              </div>
+            </fieldset>
+            <fieldset class="customer-choice-group customer-key-choice">
+              <legend>内容怎么生成？</legend>
+              <input type="hidden" name="content_mode" value="推荐模式：平台差异化适配" />
+              <div class="customer-choice-row" data-customer-content-mode>
+                <button class="customer-choice-chip is-selected" type="button" data-value="推荐模式：平台差异化适配" aria-pressed="true"><span></span>推荐模式：平台适配</button>
+                <button class="customer-choice-chip" type="button" data-value="省事模式：一稿多发" aria-pressed="false"><span></span>省事模式：一稿多发</button>
+              </div>
+              <p class="customer-field-hint">建议适配，不强迫适配。一稿多发省时间，但转化可能弱；平台适配更费事，但更符合人群和平台机制。</p>
+            </fieldset>
             <details class="customer-more-fields customer-optional-fields">
               <summary>补充更多（可选）</summary>
               <div class="customer-more-grid">
@@ -87,26 +107,6 @@
                   <textarea name="best_recent_content" placeholder="粘贴标题、链接或简单描述：哪条有人收藏/咨询/咨询"></textarea>
                 </label>
               </div>
-              <fieldset class="customer-choice-group">
-                <legend>你想做哪些发布平台？可多选</legend>
-                <input type="hidden" name="current_channels" />
-                <div class="customer-choice-row" data-customer-platforms data-multi-select="true">
-                  <button class="customer-choice-chip" type="button" data-value="抖音"><span></span>抖音</button>
-                  <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
-                  <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
-                  <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
-                  <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
-                </div>
-              </fieldset>
-              <fieldset class="customer-choice-group">
-                <legend>多平台内容怎么生成？</legend>
-                <input type="hidden" name="content_mode" value="推荐模式：平台差异化适配" />
-                <div class="customer-choice-row" data-customer-content-mode>
-                  <button class="customer-choice-chip is-selected" type="button" data-value="推荐模式：平台差异化适配" aria-pressed="true"><span></span>推荐模式：平台适配</button>
-                  <button class="customer-choice-chip" type="button" data-value="省事模式：一稿多发" aria-pressed="false"><span></span>省事模式：一稿多发</button>
-                </div>
-                <p class="customer-field-hint">建议适配，不强迫适配。一稿多发省时间，但转化可能弱；平台适配更费事，但更符合人群和平台机制。</p>
-              </fieldset>
               <fieldset class="customer-choice-group">
                 <legend>你当前最大的内容问题是什么？</legend>
                 <input type="hidden" name="biggest_problem" />
