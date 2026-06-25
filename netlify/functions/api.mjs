@@ -906,12 +906,15 @@ const recommendPlatforms = (assessment) => {
 };
 
 const planPlatforms = (recommendations, fallbackChannels) => {
+  // 用户明确选了平台就只用用户选的，不被诊断推荐覆盖；只有"还不确定/未选"才用系统推荐。
+  const chosen = platformsFor(fallbackChannels).filter((p) => p && !/不确定/.test(p));
+  if (chosen.length) return chosen;
   let parsed = recommendations;
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch { parsed = null; }
   }
   const primary = (parsed?.primary || []).map((item) => item.platform).filter(Boolean);
-  return primary.length ? primary : (platformsFor(fallbackChannels).length ? platformsFor(fallbackChannels) : ['小红书']);
+  return primary.length ? primary : ['小红书'];
 };
 
 const inferBusinessContext = (assessment = {}) => {
