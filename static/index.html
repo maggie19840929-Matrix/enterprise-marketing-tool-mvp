@@ -207,10 +207,10 @@
           <div class="customer-plan-head">
             <p>7 天发布计划</p>
             <h3>这 7 天可以这样安排</h3>
-            <span>下面是按顺序排好的 7 条内容方向。先做前 3 条，发完一条再做下一条。</span>
+            <span>每张卡先看一句话标题和平台。想了解原因，再点开“为什么这样发”。</span>
           </div>
           <div id="customerPlanList" class="customer-plan-list"></div>
-          <p class="customer-plan-note">发布工作仍然由你或团队人工完成，系统不会替你代发。回填前请先选择具体发布计划，系统不会默认绑定第一条。</p>
+          <p class="customer-plan-note">发布工作仍然由你或团队人工完成。发完哪一条，就点那张卡上的“去记录效果”。</p>
         </div>
 
         <div class="customer-result-actions">
@@ -227,23 +227,38 @@
       <section id="customerEffectSection" class="customer-card customer-effect-card" hidden>
         <div class="customer-section-head">
           <p>STEP 3 · 效果记录</p>
-          <h2>发完后，回来填一下</h2>
-          <span>每填一条真实数据，下次系统就能更准地告诉你：是标题要改，还是内容角度要换，还是平台选择需要调整。</span>
+          <h2>发完后，记录一下效果</h2>
+          <span>只填几个关键数字。下次系统会根据真实效果，帮你优化下一条内容。</span>
         </div>
         <form id="customerEffectForm" class="customer-effect-form">
           <input name="content_plan_id" type="hidden" required />
-          <div id="customerSelectedPlan" class="customer-selected-plan customer-wide" data-empty="true">先从上方 7 天计划中选择你实际发布的那一条，再保存数据。</div>
-          <label>发布链接<input name="publish_link" type="text" inputmode="url" placeholder="粘贴小红书 / 抖音 / 视频号等已发布链接" /></label>
-          <label>发布日期<input name="published_at" type="date" /></label>
-          <label>浏览 / 曝光<input name="views" type="number" min="0" value="0" /></label>
-          <label>点赞<input name="likes" type="number" min="0" value="0" /></label>
-          <label>收藏<input name="favorites" type="number" min="0" value="0" /></label>
-          <label>评论<input name="comments" type="number" min="0" value="0" /></label>
-          <label>分享<input name="shares" type="number" min="0" value="0" /></label>
-          <label>私信 / 咨询<input name="consultations" type="number" min="0" value="0" /></label>
-          <label>预约 / 到店<input name="appointments" type="number" min="0" value="0" /></label>
-          <label class="customer-wide">你自己的观察：这条内容哪里有效，哪里没效果？<textarea name="notes" placeholder="例如：有人问价格但没继续预约 / 标题点击不错，但内容看完没人咨询"></textarea></label>
-          <button class="customer-primary" type="submit">保存这条记录</button>
+          <input name="publish_link" type="hidden" />
+          <input name="published_at" type="hidden" />
+          <input name="likes" type="hidden" value="0" />
+          <input name="favorites" type="hidden" value="0" />
+          <input name="comments" type="hidden" value="0" />
+          <input name="shares" type="hidden" value="0" />
+          <input name="appointments" type="hidden" value="0" />
+          <div class="customer-effect-step customer-wide">
+            <span>1</span>
+            <div>
+              <h3>我发了哪一条</h3>
+              <div id="customerSelectedPlan" class="customer-selected-plan" data-empty="true">先从上方 7 天计划中选择你实际发布的那一条。</div>
+            </div>
+          </div>
+          <div class="customer-effect-step customer-wide customer-effect-number-step">
+            <span>2</span>
+            <div>
+              <h3>填几个数</h3>
+              <div class="customer-effect-mini-grid">
+                <label>曝光<input name="views" type="number" min="0" value="0" /></label>
+                <label>互动<input name="engagement" type="number" min="0" value="0" /></label>
+                <label>咨询<input name="consultations" type="number" min="0" value="0" /></label>
+              </div>
+              <label class="customer-observation">一句话观察（可选）<textarea name="notes" placeholder="例如：收藏多，但咨询少；评论集中问价格和预约时间"></textarea></label>
+            </div>
+          </div>
+          <button class="customer-primary" type="submit">保存记录</button>
         </form>
         <div id="customerEffectMessage" class="customer-message success" hidden></div>
 
@@ -251,11 +266,11 @@
         <article id="customerNextAdvice" class="customer-loop-note customer-next-advice" hidden></article>
 
         <details class="customer-why customer-record-help">
-          <summary>为什么要记录这些数据？</summary>
-          <p>本期只做轻量记录，不做复杂运营跟踪。记录链接、曝光、点赞、收藏、评论、分享、咨询、预约和一句观察，是为了让系统判断下一轮内容应该加码、换角度、暂停，还是先扩大曝光样本。</p>
+          <summary>查看判断依据</summary>
+          <p>系统会先看曝光、互动、咨询和你的观察，判断下一条内容该加码、换角度，还是先扩大样本。</p>
         </details>
 
-        <h3 class="customer-record-title">已记录的内容</h3>
+        <h3 class="customer-record-title">已记录</h3>
         <div id="customerEffectList" class="customer-effect-list"></div>
       </section>
     </main>

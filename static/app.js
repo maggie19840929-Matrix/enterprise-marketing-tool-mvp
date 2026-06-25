@@ -20,10 +20,15 @@ const normalizeClientId = (value = '') => {
 };
 const readSessionClientId = () => {
   try {
-    const stored = window.sessionStorage?.getItem(CUSTOMER_SESSION_KEY);
+    const ls = window.localStorage;
+    let stored = ls?.getItem(CUSTOMER_SESSION_KEY);
+    if (!stored) {
+      const legacy = window.sessionStorage?.getItem(CUSTOMER_SESSION_KEY);
+      if (legacy) { stored = legacy; try { ls?.setItem(CUSTOMER_SESSION_KEY, legacy); } catch {} }
+    }
     if (stored) return normalizeClientId(stored);
     const next = 'anonymous-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-    window.sessionStorage?.setItem(CUSTOMER_SESSION_KEY, next);
+    ls?.setItem(CUSTOMER_SESSION_KEY, next);
     return next;
   } catch {
     return 'anonymous-fallback';
@@ -1405,7 +1410,7 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
     ...safePlans.map((plan, index)=>`${index + 1}. ${customerText(plan.topic)} - ${customerText(plan.angle || '')}`),
     '第一条内容怎么发：',
     ...firstSteps,
-    '发布后记录：发布链接、浏览/曝光、点赞收藏、咨询人数和自己的感受。',
+    '发布后记录：曝光、互动、咨询人数和一句自己的观察。',
   ].join('\n');
   return `
     <article class="customer-advice-block">
@@ -1430,36 +1435,47 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
     </article>
     <article class="customer-advice-block">
       <span>6</span>
-      <div><h3>发布后如何记录效果，方便下次优化</h3><p>发布后记录链接、浏览/曝光、点赞收藏、咨询人数和你的观察。下次就能判断：是标题要改，还是内容角度要换。</p></div>
+      <div><h3>发布后如何记录效果，方便下次优化</h3><p>发布后只记录曝光、互动、咨询人数和一句观察。下次就能判断：是标题要改，还是内容角度要换。</p></div>
     </article>`;
 }
 
 function buildCustomerPlanList(payload, plans){
   const safePlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, 7);
+  const saved = loadCustomerTrialState();
+  const recordedPlanIds = new Set((Array.isArray(saved.records) ? saved.records : [])
+    .map((record)=>String(record.content_plan_id || '').trim())
+    .filter(Boolean));
   return safePlans.map((plan, index) => {
     const planId = planIdValue(plan) || String(index + 1);
-    const day = `第 ${index + 1} 天`;
+    const day = `第${index + 1}天`;
     const platform = customerText(plan.platform || payload.current_channels || '抖音、小红书、视频号');
     const contentType = customerText(plan.content_type || '图文/短视频');
-    const topic = customerText(plan.topic || '');
+    const topic = customerText(plan.topic || plan.title || '下一条内容选题');
     const angle = customerText(plan.angle || customerPlatformAngle(platform, plan) || '用客户听得懂的话说清服务价值');
     const cta = customerText(plan.cta || '引导客户咨询具体情况或主页咨询');
     const experiment = customerText(plan.experiment_type || ['痛点型','效果型','信任型','场景型','转化型','异议处理型','复盘型'][index % 7]);
     const whyPlatform = customerText(plan.why_platform_fit || customerPlatformAngle(platform, plan));
     const observe = Array.isArray(plan.observe_metrics) ? plan.observe_metrics.join(' / ') : customerText(plan.target_metric || '曝光/播放 / 收藏 / 咨询');
     const nextAdjustment = customerText(plan.next_adjustment || '数据不好时，下一条先换标题/开头，再补真实证据和咨询入口。');
-    return `<article class="customer-plan-item" data-customer-plan-id="${esc(planId)}">
-      <div class="plan-day"><strong>D${index + 1}</strong><span>${esc(day)}</span></div>
-      <div class="plan-body">
+    const recorded = recordedPlanIds.has(String(planId).trim());
+    return `<article class="customer-plan-item customer-plan-lite${recorded ? ' is-recorded' : ''}" data-customer-plan-id="${esc(planId)}">
+      <div class="plan-lite-main">
+        <span class="plan-day-pill">${esc(day)}</span>
         <p class="plan-topic">${esc(topic)}</p>
-        <div class="plan-meta"><span>${esc(platform)}</span><span>${esc(contentType)}</span><span>${esc(experiment)}</span></div>
-        <p class="plan-cta">${esc(angle)}</p>
-        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">为什么适合这个平台：</strong>${esc(whyPlatform)}</p>
-        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">发布后重点看：</strong>${esc(observe)}</p>
-        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">数据不好时：</strong>${esc(nextAdjustment)}</p>
-        <p class="plan-cta"><strong style="color:var(--war-sub);font-weight:850">结尾引导：</strong>${esc(cta)}</p>
-        <button class="customer-plan-select" type="button" data-customer-record-plan="${esc(planId)}">记录这条内容</button>
+        <span class="plan-platform-pill">${esc(platform)}</span>
       </div>
+      <details class="plan-lite-reason">
+        <summary>为什么这样发 ›</summary>
+        <div class="plan-lite-reason-body">
+          <p><strong>角度：</strong>${esc(angle)}</p>
+          <p><strong>平台：</strong>${esc(whyPlatform)}</p>
+          <p><strong>形式：</strong>${esc(contentType)} · ${esc(experiment)}</p>
+          <p><strong>看什么：</strong>${esc(observe)}</p>
+          <p><strong>如果数据一般：</strong>${esc(nextAdjustment)}</p>
+          <p><strong>结尾：</strong>${esc(cta)}</p>
+        </div>
+      </details>
+      <button class="customer-plan-select" type="button" data-customer-record-plan="${esc(planId)}">${recorded ? '已记录，继续补充' : '这条发完了，去记录效果'}</button>
     </article>`;
   }).join('');
 }
@@ -1479,6 +1495,12 @@ function customerPlanLabel(plan = {}, fallback = ''){
   return `${topic}${day}`;
 }
 
+function customerPlanDisplayNumber(saved = {}, planOrId = ''){
+  const id = planIdValue(planOrId);
+  const index = customerPlans(saved).findIndex((plan)=>samePlanId(planIdValue(plan), id) || samePlanId(plan.id, id));
+  return index >= 0 ? index + 1 : '';
+}
+
 function updateCustomerSelectedPlanDisplay(saved = {}){
   const input = $('#customerEffectForm [name=content_plan_id]');
   const box = $('#customerSelectedPlan');
@@ -1492,9 +1514,10 @@ function updateCustomerSelectedPlanDisplay(saved = {}){
     return;
   }
   const planId = planIdValue(plan);
+  const displayNumber = customerPlanDisplayNumber(saved, plan);
   input.value = planId;
   box.dataset.empty = 'false';
-  box.textContent = `已绑定：${customerPlanLabel(plan)}`;
+  box.textContent = `已选择：${displayNumber ? `第${displayNumber}天 · ` : ''}${customerPlanLabel(plan)}`;
   $$('#customerPlanList [data-customer-plan-id]').forEach((item)=>{
     item.classList.toggle('is-selected', samePlanId(item.dataset.customerPlanId, planId));
   });
@@ -1510,25 +1533,25 @@ function selectCustomerEffectPlan(planId){
   saveCustomerTrialState({ selected_plan_id: planIdValue(plan) });
   updateCustomerSelectedPlanDisplay({ ...current, selected_plan_id: planIdValue(plan) });
   $('#customerEffectSection')?.scrollIntoView({behavior:'smooth', block:'start'});
-  $('#customerEffectForm [name=publish_link]')?.focus();
-  setCustomerMessage('#customerEffectMessage', `已绑定：${customerPlanLabel(plan)}。发完后填写这条内容的数据。`);
+  $('#customerEffectForm [name=views]')?.focus();
+  const displayNumber = customerPlanDisplayNumber(current, plan);
+  setCustomerMessage('#customerEffectMessage', `已选择${displayNumber ? `第${displayNumber}天` : '这条内容'}。填曝光、互动、咨询这几个数就可以。`);
 }
 
-function renderCustomerEffects(){
+function renderCustomerEffects(savedState = null){
   const box = $('#customerEffectList');
   if (!box) return;
-  const saved = loadCustomerTrialState();
+  const saved = savedState || loadCustomerTrialState();
   const records = Array.isArray(saved.records) ? saved.records : [];
   if (!records.length) {
-    box.innerHTML = '<div class="customer-record empty">还没有记录。发完第一条内容后，填一次链接和关键数据即可。</div>';
+    box.innerHTML = '<div class="customer-record empty">还没有记录。发完第一条内容后，填一次曝光、互动、咨询和一句观察即可。</div>';
     return;
   }
   box.innerHTML = records.slice(0, 5).map((item)=>{
     const nums = customerRecordNumbers(item);
     return `<div class="customer-record">
     <strong>${esc(item.plan_topic || item.published_at || item.created_at || '已记录')}</strong>
-    <span>浏览/曝光 ${esc(nums.views)} · 互动 ${esc(nums.engagement)} · 咨询 ${esc(nums.consultations)} · 预约 ${esc(nums.appointments)}</span>
-    ${item.publish_link ? `<a href="${esc(normalizeExternalUrl(item.publish_link))}" target="_blank" rel="noreferrer">查看发布链接</a>` : ''}
+    <span>曝光 ${esc(nums.views)} · 互动 ${esc(nums.engagement)} · 咨询 ${esc(nums.consultations)}</span>
     <p>${esc(item.notes || '未填写观察')}</p>
   </div>`;}).join('');
 }
@@ -1581,11 +1604,8 @@ function renderCustomerRecordSummary(saved = {}){
     <h3>${esc(level.label)}</h3>
     <div class="customer-result-metrics">
       <span>曝光 <strong>${esc(nums.views)}</strong></span>
-      <span>点赞收藏 <strong>${esc(nums.engagement)}</strong></span>
-      <span>评论分享 <strong>${esc(nums.comments + nums.shares)}</strong></span>
+      <span>互动 <strong>${esc(nums.engagement)}</strong></span>
       <span>咨询 <strong>${esc(nums.consultations)}</strong></span>
-      <span>预约/到店 <strong>${esc(nums.appointments)}</strong></span>
-      <span>互动率 <strong>${esc(rateLabel(nums.engagement, nums.views))}</strong></span>
       <span>咨询率 <strong>${esc(rateLabel(nums.consultations, nums.views))}</strong></span>
     </div>
     <p>${esc(level.desc)}</p>`;
@@ -1732,25 +1752,28 @@ function renderCustomerNextAdvice(saved = {}){
   const nextRound = ai?.next_round || (ai?.next_7_day_plan?.length ? {next_7_day_plan: ai.next_7_day_plan, review_judgment: ai.review_judgment, customer_summary: ai.customer_summary} : buildCustomerNextRoundPlan(saved, latest, advice));
   const review = nextRound.review_judgment || {};
   const rows = Array.isArray(nextRound.next_7_day_plan) ? nextRound.next_7_day_plan.slice(0, 7) : [];
-  const fallbackNotice = ai?.fallback
-    ? `<p class="customer-ai-fallback">规则版内测建议：正式AI调用未完成，当前使用 rule_template 兜底；原因：${esc(ai.transparent_note || ai.copy_model?.failure_reason || ai.strategy_model?.failure_reason || '模型调用失败')}。</p>`
-    : '';
-  const modelEvidence = ai
-    ? `<div class="customer-model-evidence"><span>策略判断：${esc(customerAdviceModelLine(ai.strategy_model))}</span><span>建议/文案：${esc(customerAdviceModelLine(ai.copy_model))}</span></div>`
-    : `<div class="customer-model-evidence"><span>本地规则兜底：尚未完成模型调用。</span></div>`;
   box.hidden = false;
-  const planHtml = rows.length
-    ? '<div class="customer-next-week-grid">' + rows.map((row)=>'<article><span>' + esc(row.day || row.planned_date || '下一天') + '</span><strong>' + esc(row.topic || advice.nextTopic || '下一条内容') + '</strong><p>' + esc(row.action || row.angle || '按复盘结论执行') + '</p><em>' + esc(row.target_metric || '曝光/咨询') + '</em></article>').join('') + '</div>'
-    : '';
-  box.innerHTML = `<p class="customer-loop-kicker">系统根据刚记录的数据给出的下一步</p>
-    <h3>复盘判断：${esc(review.type || '继续观察')}｜${esc(advice.nextTopic)}</h3>
-    <p><strong>判断：</strong>${esc(advice.judgment)}</p>
-    <p><strong>下周结论：</strong>${esc(nextRound.customer_summary || advice.action)}</p>
-    <p><strong>多发：</strong>${esc(review.more || '高信号主题')}｜<strong>少发：</strong>${esc(review.less || '低信号表达')}</p>
-    <p><strong>依据：</strong>${esc(advice.history_signal || '已结合当天内容和当天数据判断。')}</p>
-    ${planHtml}
-    ${fallbackNotice}
-    ${modelEvidence}`;
+  const nums = customerRecordNumbers(latest);
+  const selectedPlan = customerPlanById(saved, latest.content_plan_id || saved.selected_plan_id);
+  const firstRows = rows.slice(0, 3);
+  const actions = [
+    review.more ? `多发：${review.more}` : (advice.action || '下一条先延续当前有效角度'),
+    advice.nextTopic ? `下一条先发：${advice.nextTopic}` : (firstRows[0]?.topic ? `下一条先发：${firstRows[0].topic}` : '下一条先换一个更具体的标题'),
+    review.less ? `少发：${review.less}` : '少发泛泛服务介绍，改成客户真实问题',
+  ].filter(Boolean).slice(0, 3);
+  const fallbackActions = firstRows.map((row)=>row.action || row.angle || row.topic).filter(Boolean).slice(0, 3);
+  const actionList = (actions.length >= 3 ? actions : [...actions, ...fallbackActions]).slice(0, 3);
+  box.innerHTML = `<p class="customer-loop-kicker">下一个七天建议</p>
+    <h3>${esc(nextRound.customer_summary || advice.judgment || '先根据这条内容的数据，调整下一条内容角度。')}</h3>
+    <ul class="customer-next-actions">
+      ${actionList.map((item)=>`<li><span aria-hidden="true">✓</span>${esc(item)}</li>`).join('')}
+    </ul>
+    <details class="customer-next-evidence">
+      <summary>查看判断依据</summary>
+      <p>发布数据：曝光 ${esc(nums.views)}，互动 ${esc(nums.engagement)}，咨询 ${esc(nums.consultations)}。</p>
+      <p>本次内容：${esc(selectedPlan?.topic || latest.plan_topic || '已发布内容')}。</p>
+      <p>${esc(advice.history_signal || '已结合当天内容和当天数据判断。')}</p>
+    </details>`;
 }
 
 async function requestCustomerDailyAdvice(saved = {}, record = {}){
@@ -2059,13 +2082,15 @@ function initCustomerTrial(){
   $('#customerAssessmentForm')?.addEventListener('input', hideStaleCustomerResultIfNeeded);
   $('#customerAssessmentForm')?.addEventListener('change', hideStaleCustomerResultIfNeeded);
   document.querySelectorAll('a[href="#customerFormCard"]').forEach((link)=>{
-    link.addEventListener('click', () => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
       const current = loadCustomerTrialState();
       if (current.assessment || current.draft_assessment) {
         fillCustomerFormFromAssessment(current.assessment || current.draft_assessment);
-        setCustomerFormCollapsed(false);
-        updateCustomerProgress(1);
       }
+      setCustomerFormCollapsed(false);
+      updateCustomerProgress(1);
+      $('#customerFormCard')?.scrollIntoView({behavior:'smooth', block:'start'});
     });
   });
   $('#customerAssessmentForm')?.addEventListener('submit', async (e) => {
@@ -2137,10 +2162,14 @@ function initCustomerTrial(){
       $('#customerPlanBlock')?.scrollIntoView({behavior:'smooth', block:'center'});
       return;
     }
-    const engagement = toNonNegative(data.engagement) || (toNonNegative(data.likes) + toNonNegative(data.favorites) + toNonNegative(data.comments) + toNonNegative(data.shares));
+    const splitEngagement = toNonNegative(data.likes) + toNonNegative(data.favorites) + toNonNegative(data.comments) + toNonNegative(data.shares);
+    const engagement = toNonNegative(data.engagement) || splitEngagement;
+    if (engagement && !splitEngagement) data.likes = String(engagement);
     data.publish_link = normalizeExternalUrl(data.publish_link || '');
-    let record = {...data, client_id: customerClientId(), engagement, content_plan_id: planIdValue(selectedPlan), plan_topic: selectedPlan.topic || '', created_at: localTimestamp()};
-    let nextState = {...current, records: [record, ...records], selected_plan_id: planIdValue(selectedPlan), updated_at: localTimestamp()};
+    const selectedPlanId = planIdValue(selectedPlan);
+    const markedPlans = customerPlans(current).map((plan)=>samePlanId(planIdValue(plan), selectedPlanId) ? {...plan, status: '已记录效果'} : plan);
+    let record = {...data, client_id: customerClientId(), engagement, content_plan_id: selectedPlanId, plan_topic: selectedPlan.topic || '', created_at: localTimestamp()};
+    let nextState = {...current, plans: markedPlans.length ? markedPlans : current.plans, records: [record, ...records], selected_plan_id: selectedPlanId, updated_at: localTimestamp()};
     try {
       const dailyAdvice = await requestCustomerDailyAdvice(nextState, record);
       record = {...record, daily_advice: dailyAdvice};
@@ -2161,7 +2190,6 @@ function initCustomerTrial(){
     }
     saveCustomerTrialState(nextState);
     if (clientState.plans?.length) {
-      const selectedPlanId = planIdValue(selectedPlan);
       const livePlan = clientState.plans.find((plan)=>samePlanId(planIdValue(plan), selectedPlanId)) || selectedPlan;
       const feedback = {
         id: Date.now(),
@@ -2183,7 +2211,7 @@ function initCustomerTrial(){
         notes: record.notes || '',
         created_at: record.created_at,
       };
-      livePlan.status = record.publish_link ? '已发布' : livePlan.status;
+      livePlan.status = record.publish_link ? '已发布' : '已记录效果';
       if (record.publish_link) livePlan.publish_link = record.publish_link;
       clientState.feedback = [feedback, ...clientState.feedback.filter((item)=>!(samePlanId(item.content_plan_id, selectedPlanId) && String(item.feedback_stage || 'T+24') === 'T+24'))];
       clientState.review = createLocalReview();
@@ -2193,9 +2221,13 @@ function initCustomerTrial(){
     const advice = record.daily_advice?.advice || buildCustomerNextAdvice(nextState, record);
     const nextRound = record.daily_advice?.next_round || buildCustomerNextRoundPlan(nextState, record, advice);
     setCustomerMessage('#customerEffectMessage', `已记录这条内容。系统已生成复盘判断和下一轮 7 天计划：${nextRound.review_judgment?.type || '继续观察'}。`);
-    renderCustomerEffects();
+    renderCustomerEffects(nextState);
     renderCustomerRecordSummary(nextState);
     renderCustomerNextAdvice(nextState);
+    const planList = $('#customerPlanList');
+    const planBlock = $('#customerPlanBlock');
+    if (planList) planList.innerHTML = buildCustomerPlanList(nextState.assessment || current.assessment || {}, nextState.plans || customerPlans(nextState));
+    if (planBlock) planBlock.hidden = !customerPlans(nextState).length;
     updateCustomerSelectedPlanDisplay(nextState);
     updateCustomerProgress(3);
   });

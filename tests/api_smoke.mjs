@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY'].forEach((key) => {
   delete process.env[key];
 });
 const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
@@ -350,7 +350,7 @@ assert(appJs.includes('function buildCustomerNextAdvice') && appJs.includes('fun
 assert(indexHtml.includes('name="content_plan_id" type="hidden" required') && indexHtml.includes('id="customerSelectedPlan"'), 'customer daily refill must carry an explicit selected content_plan_id');
 assert(appJs.includes('data-customer-record-plan') && appJs.includes('selectCustomerEffectPlan') && appJs.includes('请先在上方 7 天计划里选择实际发布的那一条'), 'customer refill should require the customer to select the exact published plan');
 assert(!appJs.includes('const firstPlan = clientState.plans[0]') && !appJs.includes('content_plan_id: firstPlan.id'), 'customer refill must not default feedback to the first plan');
-assert(appJs.includes("api('/api/customer-growth-advice'") && appJs.includes('daily_advice') && appJs.includes('next_round') && appJs.includes('AI调用未完成'), 'customer next-round advice should call the daily AI advice endpoint and transparently show fallback');
+assert(appJs.includes("api('/api/customer-growth-advice'") && appJs.includes('daily_advice') && appJs.includes('next_round') && appJs.includes('下一个七天建议'), 'customer next-round advice should call the daily advice endpoint and render lightweight next actions');
 assert(apiSourceIncludes('callArkChatCompletion') && apiSourceIncludes('ARK_API_KEY') && apiSourceIncludes('VOLCENGINE_ARK_API_KEY') && apiSourceIncludes('ARK_MODEL') && apiSourceIncludes('DOUBAO_MODEL') && apiSourceIncludes('VOLCENGINE_ARK_MODEL') && apiSourceIncludes('CUSTOMER_PUBLIC_MODEL'), 'public customer generation should support Volcengine Ark/Doubao through backend env vars');
 assert(apiSourceIncludes('modelProviderFor') && apiSourceIncludes('model_provider') && apiSourceIncludes('model_mode') && apiSourceIncludes('CUSTOMER_STRATEGY_MODEL') && apiSourceIncludes('OPENAI_API_KEY') && apiSourceIncludes('CUSTOMER_COPY_MODEL') && apiSourceIncludes('ANTHROPIC_API_KEY'), 'internal mode should keep lightweight model routing for Ark/OpenAI/Anthropic/local');
 assert(apiSourceIncludes("path === '/customer-growth-advice'") && apiSourceIncludes('每日回填必须绑定具体内容计划'), 'API should expose customer-growth-advice and reject unbound daily refill');
@@ -401,9 +401,12 @@ assert(indexHtml.includes('<h2>内容数据回填</h2>') && indexHtml.includes('
 assert(indexHtml.indexOf('内容表现依据') > indexHtml.indexOf('回填记录'), 'review evidence should appear after feedback records');
 assert(indexHtml.lastIndexOf('客户输入与诊断依据') > indexHtml.indexOf('系统判断与下一步') && indexHtml.includes('客户输入 / 系统诊断依据'), 'customer/diagnosis evidence should be grouped inside the weekly review evidence area instead of interrupting plan execution');
 assert(indexHtml.includes('保存反馈') && indexHtml.includes('↻ 更新复盘'), 'feedback buttons should be clear');
-assert(indexHtml.includes('id="customerRecordSummary"') && indexHtml.includes('本期只做轻量记录，不做复杂运营跟踪'), 'customer result after saving should show record summary while clarifying P0 is not full operations tracking');
+assert(indexHtml.includes('id="customerRecordSummary"') && indexHtml.includes('只填几个关键数字'), 'customer result after saving should show a lightweight record summary area');
 assert(indexHtml.includes('id="customerRegenerateBtn"') && indexHtml.includes('修改信息并重新生成'), 'customer side should provide a lightweight regenerate entry without exposing internal version history');
 assert(appJs.includes('function renderCustomerRecordSummary') && appJs.includes('本条内容结果') && appJs.includes('咨询率'), 'customer feedback submit should render actionable result metrics, not only a saved record');
+assert(appJs.includes('为什么这样发 ›') && appJs.includes('这条发完了，去记录效果') && appJs.includes('customer-plan-lite'), 'client plan cards should be scan-friendly with collapsed reasoning and one primary action');
+assert(indexHtml.includes('填几个数') && indexHtml.includes('曝光') && indexHtml.includes('互动') && indexHtml.includes('咨询') && indexHtml.includes('一句话观察'), 'client effect recording should use the three-step lightweight form with only key numbers and an observation');
+assert(appJs.includes('customer-next-actions') && appJs.includes('查看判断依据'), 'client next-seven advice should render one conclusion, checklist actions and folded evidence');
 assert(appJs.includes('企业主发内容没咨询，通常不是内容太少') && !appJs.includes('发了很多内容为什么还是没人咨询'), 'internal sample plans should also use target-customer-facing topics');
 assert(indexHtml.includes('class="panel-head review-panel-head"') && indexHtml.includes('class="review-primary-btn"'), 'weekly review action should sit in the title row as an obvious primary button');
 assert(appJs.includes('review-metric-grid') && appJs.includes('review-decision-grid') && appJs.includes('review-next'), 'weekly review should render as visual cards instead of dense paragraphs');
@@ -857,13 +860,16 @@ assert(submittedVideo.task.status === 'generating', 'video submit should enter g
 assert(submittedVideo.task.provider_job_id, 'video submit should return provider_job_id');
 assert(submittedVideo.task.actual_model === 'Seedance 2.0', 'mock video adapter should set actual_model to requested model');
 assert(submittedVideo.task.provider === 'seedance-video', 'video adapter provider should be seedance-video');
-assert(submittedVideo.task.fallback === false, 'mock video adapter success should not fallback');
+assert(submittedVideo.task.fallback === true && submittedVideo.task.fallback_reason === 'MOCK_KEY_MISSING', 'missing Ark key should return explicit Seedance mock evidence');
+assert(submittedVideo.task.adapter_manifest?.mode === 'mock', 'video submit should persist adapter manifest');
 
 const videoPoll1 = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
 assert(videoPoll1.task.status === 'generating', 'first video poll should remain generating');
+assert(videoPoll1.task.adapter_state?.backoff_ms > 0, 'video poll should persist retry/backoff state for resume');
 const videoPoll2 = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
 assert(videoPoll2.task.status === 'qa_pending', 'second video poll should produce output and enter qa_pending');
 assert(videoPoll2.task.output_asset_ids.length === 1, 'generated video should create one output asset');
+assert(videoPoll2.task.adapter_manifest?.provider === 'seedance-video', 'video poll should keep output manifest');
 
 const qaFailed = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/qa`, {
   client_id: qaClientId,
@@ -922,6 +928,7 @@ assert(coverTask.task.requested_model === 'GPT-Image-2', 'cover task should requ
 const submittedCover = await (await handler(request('POST', `generation-tasks/${coverTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedCover.task.status === 'qa_pending', 'cover task should synchronously generate and enter qa_pending');
 assert(submittedCover.task.actual_model === 'GPT-Image-2' && submittedCover.task.provider === 'openai-image', 'cover task should use openai-image mock adapter');
+assert(submittedCover.task.fallback === true && submittedCover.task.fallback_reason === 'MOCK_KEY_MISSING', 'missing OpenAI key should return explicit image mock evidence');
 const coverPassed = await (await handler(request('POST', `generation-tasks/${coverTask.task.task_id}/qa`, {
   client_id: qaClientId,
   qa_status: 'passed',
@@ -933,6 +940,24 @@ const coverPassed = await (await handler(request('POST', `generation-tasks/${cov
   client_visibility_check: true,
 }))).json();
 assert(coverPassed.task.status === 'client_ready', 'cover QA passed should enter client_ready');
+
+const copyTask = await (await handler(request('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  content_plan_record_id: 'qa_content_plan_003',
+  platform: '小红书',
+  content_type: '脚本',
+  generation_type: 'copy',
+  requested_model: 'Claude + GLM A/B',
+  prompt: '生成一段 A/B 文案测试脚本',
+  output_spec: { style: 'A/B', client_visible: false },
+}))).json();
+const submittedCopy = await (await handler(request('POST', `generation-tasks/${copyTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
+assert(submittedCopy.task.status === 'qa_pending', 'copy task should synchronously generate and enter qa_pending');
+assert(submittedCopy.task.provider === 'claude-text+glm-text', 'copy task should run Claude + GLM A/B adapter');
+assert(submittedCopy.task.fallback === true && submittedCopy.task.fallback_reason.includes('MOCK_KEY_MISSING'), 'missing text keys should return explicit A/B mock evidence');
+assert(submittedCopy.task.adapter_manifest?.output?.variants?.claude && submittedCopy.task.adapter_manifest?.output?.variants?.glm, 'copy task manifest should include both text adapter variants');
 
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
