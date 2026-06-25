@@ -905,15 +905,25 @@ const recommendPlatforms = (assessment) => {
   return { strategy, primary: primary.slice(0, 3), support: support.slice(0, 3), avoid: avoid.slice(0, 3), client_platforms: clientPlatforms.slice(0, 3) };
 };
 
+const platformCore = (s) => String(s || '').split(/[\/、,，]/)[0].trim();
+const platformMatch = (a, b) => {
+  const ca = platformCore(a), cb = platformCore(b);
+  return Boolean(ca) && (ca === cb || String(a).includes(cb) || String(b).includes(ca));
+};
 const planPlatforms = (recommendations, fallbackChannels) => {
-  // 用户明确选了平台就只用用户选的，不被诊断推荐覆盖；只有"还不确定/未选"才用系统推荐。
+  // 用户明确选了平台 → 只用用户选中的；保留推荐里的规范名/优先序，所选中推荐没有的补在后面。
   const chosen = platformsFor(fallbackChannels).filter((p) => p && !/不确定/.test(p));
-  if (chosen.length) return chosen;
   let parsed = recommendations;
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch { parsed = null; }
   }
   const primary = (parsed?.primary || []).map((item) => item.platform).filter(Boolean);
+  if (chosen.length) {
+    const recFiltered = primary.filter((p) => chosen.some((c) => platformMatch(p, c)));
+    const extras = chosen.filter((c) => !primary.some((p) => platformMatch(p, c)));
+    const result = [...recFiltered, ...extras];
+    return result.length ? result : chosen;
+  }
   return primary.length ? primary : ['小红书'];
 };
 

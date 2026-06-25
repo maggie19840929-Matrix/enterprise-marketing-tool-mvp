@@ -692,7 +692,7 @@ const basketballText = JSON.stringify(basketball.plans.map((plan) => [plan.topic
 assert(/篮球|体能|体验课|6-12岁|家长|教练|班型|课堂|运球|投篮/.test(basketballText), 'basketball plans should speak to parents choosing youth basketball training');
 assert(!basketballText.includes('课程/体验课') && !basketballText.includes('家长报名前，最容易踩的3个坑') && !basketballText.includes('相关服务'), 'basketball plans should not fall back to generic education/service wording');
 assert(basketball.diagnosis.platform_recommendations.primary.map((x) => x.platform).join('|') === '抖音|小红书|视频号', 'basketball should use Douyin + Xiaohongshu + Shipinhao content matrix');
-assert(basketball.plans.slice(0, 3).map((p) => p.platform).join('|') === '抖音|小红书|视频号', 'basketball plans should rotate the full-platform matrix first');
+assert(basketball.plans.every((p) => p.platform === '小红书'), 'basketball plans should use only the user-selected platform (小红书), not spread to recommended matrix');
 assert(basketball.generation_meta.provider === 'local' && basketball.generation_meta.actual_model === 'rule_template' && basketball.generation_meta.fallback === true && basketball.generation_meta.fallback_reason === 'missing_ark_api_key', 'without Ark env, assessment generation should expose rule_template fallback evidence');
 assert(basketball.plans.every((plan) => plan.actual_model === 'rule_template' && plan.provider === 'local' && plan.fallback === true && plan.fallback_reason === 'missing_ark_api_key'), 'without Ark env, plan rows should carry fallback model evidence');
 assertCustomerFacingPlans('basketball service output', basketball);
