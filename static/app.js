@@ -2058,11 +2058,7 @@ function initCustomerTrial(){
   initCustomerGuide();
   renderCustomerEffects();
   const savedCustomerState = loadCustomerTrialState();
-  if (hasDifferentCustomerDraft(savedCustomerState)) {
-    fillCustomerFormFromAssessment(savedCustomerState.draft_assessment);
-    clearCustomerGeneratedView();
-    setCustomerFormCollapsed(false);
-  } else if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
+  if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
     clientState = buildVersionedProjectState(
       {assessment: savedCustomerState.assessment, diagnosis: savedCustomerState.diagnosis, plans: savedCustomerState.plans || []},
       savedCustomerState.assessment,
@@ -2071,6 +2067,10 @@ function initCustomerTrial(){
       '浏览器恢复'
     );
     renderCustomerGeneratedState(savedCustomerState);
+  } else if (hasDifferentCustomerDraft(savedCustomerState)) {
+    fillCustomerFormFromAssessment(savedCustomerState.draft_assessment);
+    clearCustomerGeneratedView();
+    setCustomerFormCollapsed(false);
   } else if (savedCustomerState.draft_assessment || savedCustomerState.assessment) {
     fillCustomerFormFromAssessment(savedCustomerState.draft_assessment || savedCustomerState.assessment);
   }
@@ -2139,7 +2139,7 @@ function initCustomerTrial(){
           customer_key: stateAssessment.customer_key,
           ...(dedicated ? {dedicated_customer: dedicated} : {}),
         };
-        saveCustomerTrialState(generatedState);
+        saveCustomerTrialState({ ...generatedState, draft_assessment: null });
         renderCustomerGeneratedState(generatedState, {focus: true});
       } catch (error) {
         setCustomerMessage(errorBox, customerFriendlyError(error));
