@@ -2369,9 +2369,89 @@ const projectUpdatedAt = (item = {}) => String(
   || ''
 ).trim();
 
+const normalizeCustomerGroupName = (value = '') => String(value || '')
+  .replace(/作战台/g, '')
+  .replace(/项目/g, '')
+  .replace(/客户$/g, '')
+  .replace(/[\s　]+/g, '')
+  .replace(/[｜|·・\-_/]+/g, '')
+  .trim()
+  .toLowerCase();
+
+const customerDisplayNameFromNames = (names = [], clientId = '') => {
+  const cleanNames = (Array.isArray(names) ? names : [])
+    .map((name) => String(name || '').trim())
+    .filter(Boolean);
+  const preferred = cleanNames.find((name) => !/未命名|anonymous|default/i.test(name)) || cleanNames[0] || clientId || '未命名客户';
+  let label = String(preferred || '').replace(/作战台\s*$/g, '').trim();
+  // 名字常被填成整段行业描述：只取第一段（逗号/句号前），并截断过长，列表才干净
+  label = label.split(/[，,。.；;、\n]/)[0].trim();
+  if (label.length > 16) label = `${label.slice(0, 16)}…`;
+  return label || clientId || '未命名客户';
+};
+
+const sortCustomerRecords = (records = []) => [...records].sort((a, b) =>
+  String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
+  || String(a.client_id || '').localeCompare(String(b.client_id || ''))
+);
+
+const groupCustomerRecords = (records = []) => {
+  const groups = new Map();
+  records.forEach((record) => {
+    const displayName = customerDisplayNameFromNames(record.names, record.client_id);
+    const key = normalizeCustomerGroupName(displayName) || normalizeCustomerGroupName(record.client_id) || String(record.client_id || '');
+    if (!groups.has(key)) {
+      groups.set(key, {
+        display_name: displayName,
+        normalized_name: key,
+        is_test: Boolean(record.is_test),
+        records: [],
+      });
+    }
+    const group = groups.get(key);
+    group.records.push(record);
+    group.is_test = group.is_test || Boolean(record.is_test);
+    if (String(record.updated_at || '') > String(group.updated_at || '')) {
+      group.display_name = displayName;
+      group.updated_at = record.updated_at || '';
+    }
+  });
+  return [...groups.values()].map((group) => {
+    const recordsSorted = sortCustomerRecords(group.records);
+    const primary = recordsSorted[0] || {};
+    const names = [...new Set(recordsSorted.flatMap((record) => Array.isArray(record.names) ? record.names : []).filter(Boolean))];
+    const projectCount = recordsSorted.reduce((sum, record) => sum + Number(record.project_count || 0), 0);
+    return {
+      display_name: group.display_name,
+      normalized_name: group.normalized_name,
+      is_test: Boolean(group.is_test),
+      records: recordsSorted.map((record) => ({
+        client_id: record.client_id,
+        names: record.names || [],
+        project_count: Number(record.project_count || 0),
+        updated_at: record.updated_at || '',
+        storage: record.storage || '',
+        storage_key: record.storage_key || '',
+        etag: record.etag || '',
+        is_test: Boolean(record.is_test),
+      })),
+      primary_client_id: primary.client_id || '',
+      client_id: primary.client_id || '',
+      names,
+      project_count: projectCount,
+      updated_at: primary.updated_at || group.updated_at || '',
+      record_count: recordsSorted.length,
+    };
+  }).sort((a, b) =>
+    Number(a.is_test) - Number(b.is_test)
+    || String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
+    || String(a.display_name || '').localeCompare(String(b.display_name || ''), 'zh-Hans-CN')
+  );
+};
+
 const listCustomersFromCloudState = async () => {
   const keyMetas = await listCloudStateKeys();
-  const customers = [];
+  const customerRecords = [];
   const errors = [];
   for (const keyMeta of keyMetas) {
     const key = keyMeta.key;
@@ -2393,23 +2473,115 @@ const listCustomersFromCloudState = async () => {
         || data.saved_at
         || keyMeta.updated_at
         || '';
-      customers.push({
+      customerRecords.push({
         client_id: clientId,
         names,
         project_count: projects.length,
         updated_at: updatedAt,
         is_test: isDemoCustomer(clientId, names),
         storage,
+        storage_key: key,
+        etag: keyMeta.etag || '',
       });
     } catch (error) {
       errors.push({ client_id: clientId, key, reason: error?.message || 'read_failed' });
     }
   }
+  const customers = groupCustomerRecords(customerRecords);
   return {
-    customers: customers.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || ''))),
+    customers,
     errors,
     storage_key_prefix: CLOUD_STATE_KEY,
     readonly: true,
+    grouped: true,
+    raw_record_count: customerRecords.length,
+  };
+};
+
+const customerKeyForRecord = (clientId = '') => clientId === 'default' ? CLOUD_STATE_KEY : clientScopedCloudStateKey(clientId);
+
+const previewCustomerMerge = async ({ clientIds = [], displayName = '', canonicalClientId = '' } = {}) => {
+  const listing = await listCustomersFromCloudState();
+  const normalizedDisplayName = normalizeCustomerGroupName(displayName);
+  const explicitIds = [...new Set((Array.isArray(clientIds) ? clientIds : String(clientIds || '').split(','))
+    .map((id) => String(id || '').trim())
+    .filter(Boolean))];
+  const group = normalizedDisplayName
+    ? listing.customers.find((item) => item.normalized_name === normalizedDisplayName || normalizeCustomerGroupName(item.display_name) === normalizedDisplayName)
+    : listing.customers.find((item) => explicitIds.some((id) => item.records.some((record) => record.client_id === id)));
+  const records = explicitIds.length
+    ? listing.customers.flatMap((item) => item.records).filter((record) => explicitIds.includes(record.client_id))
+    : (group?.records || []);
+  if (!records.length) {
+    return {
+      dry_run: true,
+      readonly: true,
+      would_write: false,
+      error: '没有找到可预演的客户记录',
+      requested: { client_ids: explicitIds, display_name: displayName },
+    };
+  }
+  const sortedRecords = sortCustomerRecords(records);
+  const canonical = canonicalClientId
+    ? sortedRecords.find((record) => record.client_id === canonicalClientId) || sortedRecords[0]
+    : sortedRecords[0];
+  const projectById = new Map();
+  const conflicts = [];
+  const sourceSnapshots = [];
+  for (const record of sortedRecords) {
+    const key = customerKeyForRecord(record.client_id);
+    const { data, storage } = await readCloudProjectStoreByKey(key);
+    const normalized = normalizeCloudProjectStore(stripGenericInternalCrossProjectSeeds(data?.project_store || data || {}, record.client_id));
+    const projects = normalized.projects || [];
+    sourceSnapshots.push({
+      client_id: record.client_id,
+      storage_key: key,
+      storage,
+      project_count: projects.length,
+      updated_at: record.updated_at || '',
+      etag: record.etag || '',
+      project_ids: projects.map((project) => project.id).filter(Boolean),
+    });
+    projects.forEach((project) => {
+      const id = String(project.id || '').trim();
+      if (!id) return;
+      const existing = projectById.get(id);
+      if (existing && existing.client_id !== record.client_id) {
+        conflicts.push({
+          project_id: id,
+          clients: [...new Set([existing.client_id, record.client_id])],
+          resolution: 'dry_run_only_keep_newer_updated_at',
+        });
+      }
+      if (!existing || String(projectUpdatedAt(project) || '') >= String(projectUpdatedAt(existing.project) || '')) {
+        projectById.set(id, { client_id: record.client_id, project });
+      }
+    });
+  }
+  return {
+    dry_run: true,
+    readonly: true,
+    would_write: false,
+    confirm_supported: false,
+    note: 'V1 只做预演，不写入、不归档、不删除任何 blobs 键；真正合并需单独人工确认和备份。',
+    display_name: group?.display_name || customerDisplayNameFromNames(sortedRecords[0]?.names, sortedRecords[0]?.client_id),
+    canonical_client_id: canonical.client_id,
+    source_client_ids: sortedRecords.map((record) => record.client_id),
+    source_keys: sortedRecords.map((record) => customerKeyForRecord(record.client_id)),
+    backup_plan: {
+      required: true,
+      suggested_prefix: `backup/customer-merge/${Date.now()}/`,
+      keys_to_export: sortedRecords.map((record) => customerKeyForRecord(record.client_id)),
+    },
+    result_preview: {
+      project_count_before: sourceSnapshots.reduce((sum, item) => sum + item.project_count, 0),
+      merged_project_count: projectById.size,
+      canonical_storage_key: customerKeyForRecord(canonical.client_id),
+      source_keys_preserved: true,
+    },
+    conflicts,
+    records: sortedRecords,
+    source_snapshots: sourceSnapshots,
   };
 };
 
@@ -3126,6 +3298,14 @@ export default async (request) => {
       if (path === '/customers') {
         if (!isInternalCustomersRequest(url, request)) return json({ error: '仅内部视图可访问客户聚合列表' }, 403);
         return json(await listCustomersFromCloudState());
+      }
+      if (path === '/customers/merge-preview') {
+        if (!isInternalCustomersRequest(url, request)) return json({ error: '仅内部视图可访问客户合并预演' }, 403);
+        return json(await previewCustomerMerge({
+          clientIds: url.searchParams.get('client_ids') || '',
+          displayName: url.searchParams.get('display_name') || url.searchParams.get('customer_name') || '',
+          canonicalClientId: url.searchParams.get('canonical_client_id') || '',
+        }));
       }
       if (path === '/state') return json(await readCloudState(requestClientId, {internal: requestClientId === 'internal' || isInternalStateRequest(url)}));
       if (path === '/assets') return json({ assets: await listAssets({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '' }) });
