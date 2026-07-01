@@ -6,8 +6,8 @@ const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 
-const APP_VERSION = '1.6.46';
-const VERSION_LABEL = 'v1.6.46 · 平台策略飞轮 MVP';
+const APP_VERSION = '1.6.47';
+const VERSION_LABEL = 'v1.6.47 · 连续内容周期产品化版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -21,7 +21,7 @@ const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/p
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
 const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 23000), 1000), 32000);
 const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 30000), 8000), 32000);
-const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 30000), 8000), 32000);
+const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 10000), 5000), 12000);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
 const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -1434,6 +1434,93 @@ const feedbackEngagement = (item = {}) => {
   if (item.engagement !== undefined && item.engagement !== null && item.engagement !== '') return numValue(item.engagement);
   return numValue(item.likes) + numValue(item.favorites) + numValue(item.comments) + numValue(item.shares);
 };
+const topicKey = (value = '') => sanitizeCustomerText(value)
+  .toLowerCase()
+  .replace(/[^\u4e00-\u9fa5a-z0-9]+/g, '');
+const uniqueTopics = (candidates = [], forbidden = []) => {
+  const used = new Set(forbidden.map(topicKey).filter(Boolean));
+  const rows = [];
+  candidates.forEach((candidate) => {
+    const text = String(candidate || '').trim();
+    const key = topicKey(text);
+    if (!text || !key || used.has(key)) return;
+    used.add(key);
+    rows.push(text);
+  });
+  return rows;
+};
+const nextRoundTopicPool = ({ assessment = {}, selected_plan = {}, daily_data = {}, judgmentType = '标题问题' } = {}) => {
+  const service = serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '');
+  const audience = shortAudience(assessment.target_customer || '目标客户');
+  const offer = assessment.offer || service.service || '具体服务';
+  const selectedTopic = selected_plan.topic || '本次发布内容';
+  if (service.type === 'youth_basketball') {
+    if (judgmentType === '加码') {
+      return [
+        '家长问体验课前，最想确认孩子能不能跟上',
+        '零基础孩子上少儿篮球课，第一节会练什么',
+        '为什么体能提升，比投篮准更先被家长看见',
+        '周末班怎么安排，孩子不累还能坚持',
+        '6-12岁孩子报名篮球课，家长最该看哪3点',
+        '体验课后要不要继续报班，看这几个课堂信号',
+        '家长担心安全和强度，少儿篮球课怎么处理',
+        '孩子不爱运动，篮球启蒙先从哪一步开始',
+        '家长看少儿篮球课，不只看教练会不会打球',
+      ];
+    }
+    if (judgmentType === '换角度') {
+      return [
+        '家长收藏篮球课内容后，为什么还没有预约体验课',
+        '孩子零基础能不能上篮球课，先看这3个课堂细节',
+        '少儿篮球体验课，家长最怕的安全问题怎么解决',
+        '周末给孩子报篮球课，家长通常会卡在哪一步',
+        '想提升体能的孩子，篮球课第一阶段练什么',
+        '6-12岁孩子选篮球培训，别只看投篮准不准',
+        '体验课前，家长可以先问清楚这几个问题',
+      ];
+    }
+    return [
+      '孩子适不适合学篮球，家长先看这3个信号',
+      '少儿篮球启蒙第一节课，应该让孩子获得什么',
+      '家长给孩子选体能课，为什么会考虑篮球',
+      '附近孩子周末学篮球，先了解上课节奏',
+      '孩子怕球不敢运球，篮球启蒙怎么开始',
+      '体验课预约前，家长最该确认哪几件事',
+      '小学生篮球训练，不是先追求投篮命中率',
+    ];
+  }
+  if (judgmentType === '加码') {
+    return [
+      `${audience}咨询${offer}前，最想确认哪3件事`,
+      `已经对${offer}感兴趣的人，下一步通常卡在哪里`,
+      `${offer}适合什么样的人，先用真实场景讲清楚`,
+      `${audience}问到价格前，其实更想知道什么`,
+      `一次${offer}服务/体验，过程里最能建立信任的细节`,
+      `从一次咨询看出，${audience}最在意的不是表面问题`,
+      `为什么${selectedTopic}能带来咨询，下一条这样延展`,
+    ];
+  }
+  if (judgmentType === '换角度') {
+    return [
+      `${audience}收藏了但不咨询，通常卡在${offer}的哪3个顾虑`,
+      `${offer}看起来不错，为什么客户还是迟迟不问`,
+      `把${offer}讲清楚之前，先回答客户最担心的事`,
+      `${audience}做决定前，需要看到哪些真实证据`,
+      `别只介绍${offer}，先讲一个客户会代入的场景`,
+      `${offer}内容有互动没咨询，下一条补这类信任信息`,
+      `${audience}从感兴趣到咨询，还差一个明确理由`,
+    ];
+  }
+  return [
+    `${audience}看到这个标题，会不会立刻想到自己`,
+    `${offer}别先讲服务清单，先讲客户正在卡的问题`,
+    `${audience}第一次了解${offer}，最容易误解哪件事`,
+    `把${offer}讲得更具体：人群、场景、下一步`,
+    `${audience}为什么需要先了解${offer}，用一个场景说清楚`,
+    `${offer}内容曝光偏小，下一条先改第一句话`,
+    `客户真正会停下来的${offer}标题，通常长这样`,
+  ];
+};
 
 const customerAdviceContext = (payload = {}) => {
   const assessment = payload.assessment || {};
@@ -1441,6 +1528,10 @@ const customerAdviceContext = (payload = {}) => {
   const plans = Array.isArray(payload.plans) ? payload.plans : [];
   const records = Array.isArray(payload.records) ? payload.records : [];
   const record = payload.record || {};
+  const previousRoundTopics = [
+    ...(Array.isArray(payload.previous_plan_topics) ? payload.previous_plan_topics : []),
+    ...(Array.isArray(payload.previous_rounds) ? payload.previous_rounds.flatMap((round) => Array.isArray(round?.plans) ? round.plans.map((plan) => plan.topic) : []) : []),
+  ].filter(Boolean);
   const selectedId = String(payload.selected_plan_id || record.content_plan_id || '').trim();
   const selected_plan = plans.find((plan) => samePlanRef(planIdString(plan), selectedId)) || null;
   if (!selected_plan) throw new Error('每日回填必须绑定具体内容计划，不能默认第一条');
@@ -1496,7 +1587,15 @@ const customerAdviceContext = (payload = {}) => {
     notes: record.notes || '',
     publish_link: record.publish_link || '',
   };
-  return { assessment, diagnosis, selected_plan, daily_data, history_feedback, unpublished_plans };
+  return {
+    assessment,
+    diagnosis,
+    selected_plan,
+    daily_data,
+    history_feedback,
+    unpublished_plans,
+    all_plan_topics: uniqueTopics([...plans.map((plan) => plan.topic), ...previousRoundTopics].filter(Boolean), []),
+  };
 };
 
 const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => {
@@ -1542,22 +1641,19 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
         : views === 0 && engagement === 0 && consultations === 0
           ? '暂停原表达，先重写标题/开头'
           : '继续小样本验证';
-  const seedTopics = unpublished_plans.length
-    ? unpublished_plans
-    : Array.from({ length: 7 }, (_, index) => ({
-      topic: [
-        audience + '为什么需要先了解' + offer,
-        offer + '适合什么样的人',
-        '真实客户最常问的' + offer + '问题',
-        offer + '前后要注意什么',
-        '选择' + offer + '时怎么避坑',
-        offer + '的过程和细节',
-        '本周' + offer + '咨询答疑',
-      ][index],
-      platform: selected_plan.platform || '小红书/视频号',
-      angle: '围绕客户顾虑拆解',
-      cta: '引导咨询适合情况',
-    }));
+  const forbiddenTopics = [
+    ...(ctx.all_plan_topics || []),
+    selected_plan.topic,
+    ...history_feedback.map((item) => item.plan_topic),
+    ...unpublished_plans.map((plan) => plan.topic),
+  ].filter(Boolean);
+  const generatedTopics = uniqueTopics([
+    ...(advice.nextTopic ? [advice.nextTopic] : []),
+    ...nextRoundTopicPool({ assessment, selected_plan, daily_data, judgmentType }),
+  ], forbiddenTopics);
+  const fallbackTopics = uniqueTopics(Array.from({ length: 10 }, (_, index) => `${audience}下周第${index + 1}个${offer}决策问题`), forbiddenTopics.concat(generatedTopics));
+  const seedTopics = [...generatedTopics, ...fallbackTopics].slice(0, 7);
+  const platformSeeds = unpublished_plans.map((plan) => plan.platform).filter(Boolean);
   const actions = judgmentType === '加码'
     ? ['复制有效结构', '补充案例证据', '回答价格/周期', '展示过程细节', '处理适合人群', '集中答疑', '复盘最高咨询主题']
     : judgmentType === '换角度'
@@ -1566,8 +1662,8 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
         ? ['同题换平台测试', '优化标题钩子', '缩短开头', '改同城/搜索表达', '复用有效素材', '记录平台差异', '保留高信号平台']
         : ['重写标题', '强化第一句话', '换客户视角', '减少服务堆叠', '加入具体问题', '增加证据', '复盘点击原因'];
   const plan = Array.from({ length: 7 }, (_, index) => {
-    const base = seedTopics[index % seedTopics.length] || {};
-    const platform = base.platform || selected_plan.platform || '小红书/视频号';
+    const topic = seedTopics[index] || (audience + '关心的' + offer + '问题');
+    const platform = platformSeeds[index % Math.max(platformSeeds.length, 1)] || selected_plan.platform || '小红书/视频号';
     const platformStrategy = platformStrategyFor(platform, {
       category: offer,
       primary_offer: offer,
@@ -1577,15 +1673,17 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
     return {
       day: 'Day ' + (index + 1),
       planned_date: todayIso(index + 1),
-      topic: base.topic || advice.nextTopic || (audience + '关心的' + offer + '问题'),
-      angle: base.angle || actions[index],
+      topic,
+      angle: actions[index],
       platform,
       experiment_type: growthExperimentTypes[index % growthExperimentTypes.length],
       action: actions[index],
       reason: index === 0 ? '承接本次回填判断：' + judgmentType : '延续同一轮复盘结论，避免每天推倒重来。',
       target_metric: consultations > 0 || appointments > 0 ? '咨询/预约' : (views >= 800 ? '收藏/私信咨询' : '曝光/播放'),
       based_on: todayTopic,
-      cta: base.cta || '引导客户咨询是否适合',
+      cta: serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '').type === 'youth_basketball'
+        ? '引导家长咨询孩子年龄和体验课时间'
+        : '引导客户咨询是否适合',
       why_platform_fit: platformStrategy.why,
       observe_metrics: platformStrategy.observe_metrics,
       next_adjustment: platformStrategy.next_adjustment,
@@ -1710,9 +1808,14 @@ const compactCustomerAdviceContext = (ctx = {}) => ({
   notes: String(ctx.daily_data?.notes || '').slice(0, 80),
   history_count: ctx.history_feedback?.length || 0,
   next_topics: (ctx.unpublished_plans || []).slice(0, 3).map((plan) => plan.topic).filter(Boolean),
+  used_topics: [
+    ctx.selected_plan?.topic,
+    ...(ctx.all_plan_topics || []),
+    ...(ctx.history_feedback || []).map((item) => item.plan_topic),
+  ].filter(Boolean).slice(0, 12),
 });
 
-const customerAdvicePrompt = (ctx = {}) => `输出JSON对象。字段:title,nextTopic,judgment,action,copy_suggestion,review_judgment:{type,more,less,why},customer_summary。所有字符串<=24字。规则:有咨询/预约=加码;有曝光互动无咨询=补信任;样本小=扩大样本;禁CRM/ERP/销售跟进/评论区关键词。上下文:${JSON.stringify(compactCustomerAdviceContext(ctx))}`;
+const customerAdvicePrompt = (ctx = {}) => `输出JSON对象。字段:title,nextTopic,judgment,action,copy_suggestion,review_judgment:{type,more,less,why},customer_summary,next_7_day_plan:[{day,topic,angle,platform,action,target_metric}]。next_7_day_plan必须7条,要基于本次反馈生成新选题,不得重复used_topics/selected/next_topics里的旧标题。所有字符串<=28字。规则:有咨询/预约=加码;有曝光互动无咨询=补信任;样本小=扩大样本;禁CRM/ERP/销售跟进/评论区关键词。上下文:${JSON.stringify(compactCustomerAdviceContext(ctx))}`;
 
 const callArkCustomerAdviceModel = async (ctx = {}) => {
   const call = await callArkChatCompletion({
@@ -1766,6 +1869,28 @@ const createCustomerGrowthAdvice = async (payload = {}) => {
     const meta = normalizeModelMeta(model.meta);
     const modelNextRound = localNextRoundPlan(ctx, advice, meta.fallback ? 'rule_template' : 'volcengine_guided_rule_plan');
     const modelRows = Array.isArray(modelData.next_7_day_plan) ? modelData.next_7_day_plan : (Array.isArray(modelData.next_plan_days) ? modelData.next_plan_days : []);
+    const usedModelTopicKeys = new Set([
+      ...(ctx.all_plan_topics || []),
+      ctx.selected_plan?.topic,
+      ...(ctx.history_feedback || []).map((item) => item.plan_topic),
+    ].map(topicKey).filter(Boolean));
+    const safeModelRows = modelRows.length === 7 ? modelRows.map((row, index) => {
+      const fallbackRow = modelNextRound.next_7_day_plan[index] || {};
+      const proposedTopic = row?.topic || row?.title || '';
+      const proposedKey = topicKey(proposedTopic);
+      const safeTopic = proposedTopic && proposedKey && !usedModelTopicKeys.has(proposedKey)
+        ? proposedTopic
+        : fallbackRow.topic;
+      const safeKey = topicKey(safeTopic);
+      if (safeKey) usedModelTopicKeys.add(safeKey);
+      return {
+        ...fallbackRow,
+        ...row,
+        topic: safeTopic || fallbackRow.topic,
+        day: row.day || fallbackRow.day,
+        planned_date: row.planned_date || row.date || fallbackRow.planned_date,
+      };
+    }) : [];
     const nextRound = {
       ...modelNextRound,
       review_judgment: {
@@ -1773,12 +1898,7 @@ const createCustomerGrowthAdvice = async (payload = {}) => {
         ...(modelData.review_judgment && typeof modelData.review_judgment === 'object' ? modelData.review_judgment : {}),
       },
       customer_summary: modelData.customer_summary || modelNextRound.customer_summary,
-      next_7_day_plan: modelRows.length === 7 ? modelRows.map((row, index) => ({
-        ...modelNextRound.next_7_day_plan[index],
-        ...row,
-        day: row.day || modelNextRound.next_7_day_plan[index].day,
-        planned_date: row.planned_date || row.date || modelNextRound.next_7_day_plan[index].planned_date,
-      })) : modelNextRound.next_7_day_plan,
+      next_7_day_plan: safeModelRows.length === 7 ? safeModelRows : modelNextRound.next_7_day_plan,
       source: meta.fallback ? 'rule_template' : 'volcengine_ark',
     };
     return {

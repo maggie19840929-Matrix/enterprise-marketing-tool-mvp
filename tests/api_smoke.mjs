@@ -98,7 +98,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.46', `expected app_version 1.6.46, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.47', `expected app_version 1.6.47, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -188,6 +188,26 @@ const basketballAssessmentsGet = await handler(request('GET', 'assessments?clien
 const basketballAssessments = await basketballAssessmentsGet.json();
 assert(basketballAssessments.some((item) => item.company_name === '星跃少儿篮球训练营'), 'basketball assessments should include basketball client');
 assert(!basketballAssessments.some((item) => item.company_name === '社区口腔门诊' || item.company_name === '清屿花艺工作室'), 'basketball assessment list must not include dental/florist clients');
+const postProjectStore = (clientId, projectId, name, data, updatedAt) => handler(request('POST', 'state', {
+  client_id: clientId,
+  project_store: {
+    activeProjectId: projectId,
+    projects: [{
+      id: projectId,
+      name,
+      updated_at: updatedAt,
+      state: {
+        client_id: clientId,
+        project: { id: projectId, client_id: clientId, name, updated_at: updatedAt },
+        assessment: { ...data.assessment, client_id: clientId, company_name: name },
+        diagnosis: { ...data.diagnosis, client_id: clientId },
+        plans: data.plans.map((plan) => ({ ...plan, client_id: clientId })),
+        feedback: [],
+        updated_at: updatedAt,
+      },
+    }],
+  },
+}));
 const dentalStatePost = await handler(request('POST', 'state', {
   client_id: 'dental',
   project_store: {
@@ -209,6 +229,15 @@ const dentalStatePost = await handler(request('POST', 'state', {
 assert(dentalStatePost.status === 201, 'POST /state should accept client_id');
 const dentalState = await dentalStatePost.json();
 assert(dentalState.client_id === 'dental' && dentalState.storage_key.includes('dental'), 'POST /state response should be scoped by client_id');
+const ziwuxianOldStatePost = await postProjectStore('anonymous-mqap9sxv-k803wl', 'project-zwx-old', '子武限武术搏击俱乐部', basketballData, '2026-06-13 11:07');
+const ziwuxianMidStatePost = await postProjectStore('anonymous-mqd67u5o-i5irvr', 'project-zwx-mid', '子武限武术搏击俱乐部作战台', basketballData, '2026-06-14 10:36');
+const ziwuxianNewStatePost = await postProjectStore('anonymous-mqbrw6q8-q6nkmw', 'project-zwx-new', '子武限武术搏击俱乐部', basketballData, '2026-06-15 09:20');
+assert(ziwuxianOldStatePost.status === 201 && ziwuxianMidStatePost.status === 201 && ziwuxianNewStatePost.status === 201, 'duplicate ziwuxian states should be accepted for grouped customer list smoke');
+const basketballCanonicalStatePost = await postProjectStore('basketball', 'project-basketball-primary', '中傲少儿篮球训练营', basketballData, '2026-06-16 08:00');
+const basketballDefaultStatePost = await postProjectStore('default', 'project-basketball-default', '中傲少儿篮球训练营作战台', basketballData, '2026-06-12 08:00');
+assert(basketballCanonicalStatePost.status === 201 && basketballDefaultStatePost.status === 201, 'basketball duplicate states should be accepted for grouped customer list smoke');
+const floristStatePost = await postProjectStore('florist', 'project-florist', '清屿花艺工作室作战台', floristData, '2026-06-11 10:00');
+assert(floristStatePost.status === 201, 'florist demo state should be accepted for grouped customer list smoke');
 const qaProbeStatePost = await handler(request('POST', 'state', {
   client_id: 'qa-probe-customer-list',
   project_store: {
@@ -230,13 +259,30 @@ const qaProbeStatePost = await handler(request('POST', 'state', {
 assert(qaProbeStatePost.status === 201, 'POST /state should create a qa probe state for customer-list filtering');
 const customersPublicGet = await handler(request('GET', 'customers'));
 assert(customersPublicGet.status === 403, `GET /customers without internal gate should be rejected, got ${customersPublicGet.status}`);
+const mergePreviewPublicGet = await handler(request('GET', 'customers/merge-preview?display_name=' + encodeURIComponent('子武限武术搏击俱乐部')));
+assert(mergePreviewPublicGet.status === 403, `GET /customers/merge-preview without internal gate should be rejected, got ${mergePreviewPublicGet.status}`);
 const customersInternalGet = await handler(request('GET', 'customers?mode=internal'));
 assert(customersInternalGet.status === 200, `GET /customers?mode=internal should succeed, got ${customersInternalGet.status}`);
 const customersInternal = await customersInternalGet.json();
 assert(Array.isArray(customersInternal.customers), 'GET /customers should return a customers array');
 assert(customersInternal.readonly === true, 'GET /customers must explicitly be readonly');
-assert(customersInternal.customers.some((item) => item.client_id === 'dental' && item.names.includes('社区口腔门诊')), 'GET /customers should aggregate the dental customer from its own blob key');
-assert(!customersInternal.customers.some((item) => String(item.client_id).startsWith('qa-')), 'GET /customers should filter qa/probe customer keys from the operations list');
+assert(customersInternal.grouped === true, 'GET /customers should return grouped customer records');
+assert(customersInternal.customers.some((item) => item.primary_client_id === 'dental' && item.names.includes('社区口腔门诊')), 'GET /customers should aggregate the dental customer from its own blob key');
+const ziwuxianGroup = customersInternal.customers.find((item) => item.display_name === '子武限武术搏击俱乐部');
+assert(ziwuxianGroup && ziwuxianGroup.records.length === 3 && ziwuxianGroup.primary_client_id === 'anonymous-mqbrw6q8-q6nkmw', 'GET /customers should group duplicate ziwuxian clients and pick the newest primary_client_id');
+const basketballGroup = customersInternal.customers.find((item) => item.display_name === '中傲少儿篮球训练营');
+assert(basketballGroup && basketballGroup.records.length === 2 && basketballGroup.primary_client_id === 'basketball', 'GET /customers should group duplicate basketball clients into one visible customer');
+const floristGroup = customersInternal.customers.find((item) => item.display_name === '清屿花艺工作室');
+assert(floristGroup?.is_test === true, '清屿花艺 should remain folded as test/demo group');
+assert(!customersInternal.customers.some((item) => item.records?.some((record) => String(record.client_id).startsWith('qa-'))), 'GET /customers should filter qa/probe customer keys from the operations list');
+const ziwuxianPreviewGet = await handler(request('GET', 'customers/merge-preview?mode=internal&display_name=' + encodeURIComponent('子武限武术搏击俱乐部')));
+assert(ziwuxianPreviewGet.status === 200, `GET /customers/merge-preview should succeed, got ${ziwuxianPreviewGet.status}`);
+const ziwuxianPreview = await ziwuxianPreviewGet.json();
+assert(ziwuxianPreview.dry_run === true && ziwuxianPreview.readonly === true && ziwuxianPreview.would_write === false, 'merge preview must be dry-run and readonly');
+assert(ziwuxianPreview.source_client_ids.length === 3 && ziwuxianPreview.backup_plan.required === true, 'merge preview should include source keys and backup plan');
+const customersAfterPreview = await (await handler(request('GET', 'customers?mode=internal'))).json();
+const ziwuxianAfterPreview = customersAfterPreview.customers.find((item) => item.display_name === '子武限武术搏击俱乐部');
+assert(ziwuxianAfterPreview?.records.length === 3, 'merge preview must not mutate or merge customer blob records');
 const floristStateGet = await handler(request('GET', 'state?client_id=florist'));
 const floristState = await floristStateGet.json();
 assert(!floristState.project_store.projects.some((item) => item.id === 'project-dental'), 'GET /state?client_id=florist must not return dental project store');
@@ -298,7 +344,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.46'"), 'app should expose v1.6.46 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.47'"), 'app should expose v1.6.47 internally/API-side');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -311,8 +357,11 @@ assert(appJs.includes('function initCustomerTrial()') && appJs.includes('CUSTOME
 assert(appJs.includes("location.replace('/internal/');") && !appJs.includes("params.get('mode') === 'internal'"), 'public ?mode=internal entries must not open the internal workbench');
 assert(appJs.includes("return path === '/internal' || path.startsWith('/internal/');") && appJs.includes("currentPath() === '/internal/generation-workbench'"), 'internal rendering should be path-gated to /internal/ and the generation workbench route');
 assert(appJs.includes('function syncRouteState') && appJs.includes('function initInternalRouteNavigation') && appJs.includes('history.pushState') && appJs.includes("window.addEventListener('popstate', syncRouteState)") && appJs.includes('generationWorkbenchInitialized'), 'internal navigation should re-apply shell/workbench visibility and initialize the workbench after route changes');
-assert(apiSource.includes("path === '/customers'") && apiSource.includes('listCustomersFromCloudState') && apiSource.includes("store.list({ prefix: CLOUD_STATE_KEY") && apiSource.includes('isTestCustomerKey'), 'API should expose a read-only internal customer aggregation endpoint backed by blob key listing');
-assert(indexHtml.includes('id="allCustomersPanel"') && indexHtml.includes('全部客户') && indexHtml.includes('只读聚合各 client_id') && appJs.includes('function loadAllCustomers') && appJs.includes("api('/api/customers?mode=internal&client_id=internal')"), 'internal app should render and load the all-customers aggregation panel');
+assert(appJs.includes('function activateCustomerNextRound') && appJs.includes('data-customer-activate-round') && appJs.includes('previous_rounds') && appJs.includes('content_rounds'), 'customer client should support activating the next 7-day round and carrying prior round topics forward');
+assert(indexHtml.includes('id="customerRoundHistory"') && appJs.includes('function renderCustomerRoundHistory') && appJs.includes('customerArchivedPlanTopics') && appJs.includes('renderCustomerRoundHistory(nextState)'), 'customer client should expose content-round history and refresh it after round changes');
+assert(apiSource.includes("path === '/customers'") && apiSource.includes('listCustomersFromCloudState') && apiSource.includes("store.list({ prefix: CLOUD_STATE_KEY") && apiSource.includes('isTestCustomerKey') && apiSource.includes('groupCustomerRecords'), 'API should expose a read-only grouped internal customer aggregation endpoint backed by blob key listing');
+assert(apiSource.includes("path === '/customers/merge-preview'") && apiSource.includes('previewCustomerMerge') && apiSource.includes('would_write: false'), 'API should expose a dry-run-only customer merge preview endpoint');
+assert(indexHtml.includes('id="allCustomersPanel"') && indexHtml.includes('全部客户') && indexHtml.includes('只读聚合各 client_id') && appJs.includes('function loadAllCustomers') && appJs.includes("api('/api/customers?mode=internal&client_id=internal')") && appJs.includes('primary_client_id') && appJs.includes('data-all-customer-client'), 'internal app should render and load the grouped all-customers panel with specific-record drill-down');
 assert(redirects.includes('/internal /index.html 200') && redirects.includes('/internal/ /index.html 200') && redirects.includes('/internal/* /index.html 200') && !redirects.includes('/?mode=internal'), 'internal routes should rewrite to the app shell without a Netlify self-redirect loop');
 assert(!existsSync(new URL('../static/internal/index.html', import.meta.url)), 'static/internal/index.html must not exist because it shadows the /internal/ SPA rewrite on Netlify');
 assert(localDevServer.includes("pathname === '/internal'") && localDevServer.includes("location: '/internal/'") && localDevServer.includes("pathname.startsWith('/internal/')"), 'local dev server should mirror /internal -> /internal/ and /internal/* -> app-shell behavior');
@@ -531,6 +580,49 @@ assert(dailyAdvice[2].next_round.review_judgment.type === '加码', `day 3 next-
 assert(dailyAdvice[2].next_round.review_judgment.decision === '加码', 'day 3 next-round judgment should explicitly decide to amplify after consultation data');
 assert(dailyAdvice[2].customer_summary.includes('多发') && dailyAdvice[2].customer_summary.includes('少发'), 'customer summary should say what to post more and less next week');
 assert(dailyAdvice[2].next_7_day_plan.every((row) => row.target_metric && row.based_on && row.experiment_type && row.why_platform_fit && Array.isArray(row.observe_metrics) && row.next_adjustment), 'next-round plan rows should include target_metric, based_on, experiment type, platform fit, metrics and adjustment');
+const firstRoundBasketballTopics = new Set(basketballAdviceCase.plans.map((plan) => plan.topic));
+dailyAdvice.forEach((item, index) => {
+  const nextRoundTopics = item.next_7_day_plan.map((row) => row.topic);
+  assert(nextRoundTopics.length === new Set(nextRoundTopics).size, 'next-round basketball topics should be unique on day ' + (index + 1));
+  assert(!nextRoundTopics.some((topic) => firstRoundBasketballTopics.has(topic)), 'next-round basketball topics should not repeat first-round plan topics on day ' + (index + 1));
+});
+const basketballNextRoundText = JSON.stringify(dailyAdvice[2].next_7_day_plan.map((row) => row.topic));
+assert(/体验课|家长|孩子|体能|周末班|零基础/.test(basketballNextRoundText), 'next-round basketball plan should use feedback-specific basketball semantics instead of generic education templates');
+const secondRoundPlans = dailyAdvice[2].next_7_day_plan.map((row, index) => ({
+  ...row,
+  id: `basketball-r2-${index + 1}`,
+  topic: row.topic,
+  platform: row.platform || '小红书',
+}));
+const secondRoundRecord = {
+  content_plan_id: secondRoundPlans[0].id,
+  plan_topic: secondRoundPlans[0].topic,
+  published_at: shanghaiDateIso(8),
+  created_at: shanghaiDateIso(8) + ' 10:00:00',
+  publish_link: 'https://example.com/basketball-round-2-day-1',
+  views: 1720,
+  engagement: 88,
+  consultations: 7,
+  notes: '第二轮第一条也有体验课咨询，家长继续问零基础和周末班。',
+};
+const thirdRoundRes = await handler(request('POST', 'customer-growth-advice', {
+  assessment: basketballAdviceCase.assessment,
+  diagnosis: basketballAdviceCase.diagnosis,
+  plans: secondRoundPlans,
+  previous_rounds: [{ round_number: 1, plans: basketballAdviceCase.plans }],
+  records: [secondRoundRecord, ...basketballRecords],
+  record: secondRoundRecord,
+  selected_plan_id: secondRoundPlans[0].id,
+}));
+if (thirdRoundRes.status !== 200) throw new Error('customer-growth-advice third round expected 200, got ' + thirdRoundRes.status + ': ' + await thirdRoundRes.text());
+const thirdRoundAdvice = await thirdRoundRes.json();
+const secondRoundTopicSet = new Set(secondRoundPlans.map((plan) => plan.topic));
+const thirdRoundTopics = thirdRoundAdvice.next_7_day_plan.map((row) => row.topic);
+assert(thirdRoundAdvice.next_7_day_plan.length === 7, 'third-round basketball advice should return another 7-day plan');
+assert(thirdRoundTopics.length === new Set(thirdRoundTopics).size, 'third-round basketball topics should be unique');
+assert(!thirdRoundTopics.some((topic) => secondRoundTopicSet.has(topic)), 'third-round basketball topics should not repeat second-round plan topics');
+assert(!thirdRoundTopics.some((topic) => firstRoundBasketballTopics.has(topic)), 'third-round basketball topics should not revive first-round plan topics when previous_rounds are provided');
+assert(/体验课|家长|孩子|体能|周末班|零基础/.test(JSON.stringify(thirdRoundTopics)), 'third-round basketball plan should continue using basketball-specific feedback semantics');
 assert(dailyAdvice.every((item) => item.model_info && item.generation_meta), 'customer-growth-advice should return model evidence');
 assert(dailyAdvice.every((item) => item.model_info.provider === 'local' && item.model_info.actual_model === 'rule_template' && item.model_info.fallback === true), 'without Ark env, customer-growth-advice should transparently fall back to rule_template');
 assert(dailyAdvice.every((item) => item.model_info.fallback_reason === 'missing_ark_api_key' && item.transparent_note.includes('missing_ark_api_key')), 'fallback model calls must expose missing Ark key reason');

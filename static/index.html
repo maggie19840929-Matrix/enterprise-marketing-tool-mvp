@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>企业内容增长助手 · 生成发布计划与效果复盘</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.46" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.46" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.47" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.47" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -212,6 +212,10 @@
           <div id="customerPlanList" class="customer-plan-list"></div>
           <p class="customer-plan-note">发布工作仍然由你或团队人工完成。发完哪一条，就点那张卡上的“去记录效果”。</p>
         </div>
+        <details id="customerRoundHistory" class="customer-round-history" hidden>
+          <summary>查看历史内容周期</summary>
+          <div id="customerRoundHistoryList"></div>
+        </details>
 
         <div class="customer-result-actions">
           <button id="copyCustomerSuggestion" class="customer-secondary" type="button">复制全部建议</button>
@@ -679,6 +683,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.46"></script>
+  <script src="/app.js?v=1.6.47"></script>
 </body>
 </html>
