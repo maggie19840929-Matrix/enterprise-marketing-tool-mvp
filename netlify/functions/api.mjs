@@ -6,8 +6,8 @@ const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 
-const APP_VERSION = '1.6.54';
-const VERSION_LABEL = 'v1.6.54 · 商户画像差异化建议版';
+const APP_VERSION = '1.6.55';
+const VERSION_LABEL = 'v1.6.55 · 客户版品牌与产品感收敛版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -1176,10 +1176,10 @@ const applyInternalSmartDiagnosis = (diagnosis, assessment) => {
   diagnosis.smart_context = ctx;
   diagnosis.score_note = `内测智能诊断：先识别业务类型/交易链路/客户决策场景，再生成策略；置信度 ${Math.round(ctx.confidence * 100)}%。`;
   diagnosis.insight = `系统判断这不是单纯的“${assessment.industry || '行业'}模板”，而是「${ctx.business_type}」场景：${ctx.customer_decision_scene}。当前核心瓶颈是「${ctx.growth_bottleneck}」，内容任务应转向：${ctx.content_task}。`;
-  diagnosis.weekly_action = `本周按「${ctx.category}」的真实成交链路设计 7 条小样本内容：先覆盖决策顾虑，再验证哪类内容能带来「${ctx.conversion_action}」。`;
+  diagnosis.weekly_action = `本轮按「${ctx.category}」的真实成交链路设计一组小样本内容：先覆盖决策顾虑，再验证哪类内容能带来「${ctx.conversion_action}」。`;
   diagnosis.next_step = ctx.missing_info.length
     ? `先补齐「${ctx.missing_info.slice(0, 3).join('、')}」，再把内容计划细化到具体产品/服务和价格带。`
-    : `直接进入 7 天内容实验：每条内容都绑定一个顾虑、一个素材证据和一个转化动作「${ctx.conversion_action}」。`;
+    : `直接进入本轮内容实验：每条内容都绑定一个顾虑、一个素材证据和一个转化动作「${ctx.conversion_action}」。`;
   diagnosis.risk_warning = ctx.risk_gates.join('；') || '不要按泛行业模板输出，必须基于客户目标客户的购买/预约决策生成内容。';
   return diagnosis;
 };

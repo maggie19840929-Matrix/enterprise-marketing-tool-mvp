@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.54';
-const VERSION_LABEL = 'v1.6.54 · 商户画像差异化建议版';
+const APP_VERSION = '1.6.55';
+const VERSION_LABEL = 'v1.6.55 · 客户版品牌与产品感收敛版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -113,7 +113,7 @@ const isInternalProfile = (profile = currentProfile()) => isInternalDataScope() 
 const profileHasTab = (tab, profile = currentProfile()) => Array.isArray(profile.tabs) && profile.tabs.includes(tab);
 const profileDeliveryView = (profile = currentProfile()) => profile.delivery === 'qa_passed_only' ? 'client' : 'internal';
 const profileSanitizePayload = (value, profile = currentProfile()) => profile.sanitize ? sanitizeCustomerPayload(value) : value;
-const SHARED_HERO_TITLE = '多平台内容增长助手';
+const SHARED_HERO_TITLE = '引客罗盘';
 window.VIEW_PROFILES = VIEW_PROFILES;
 window.getProfile = getProfile;
 const CONTENT_DECISION_SAMPLE = {
@@ -844,7 +844,7 @@ function renderCustomerGeneratedState(saved = {}, options = {}){
     planBlock.hidden = !(plans && plans.length);
     const planTitle = planBlock.querySelector('.customer-plan-head h3');
     const roundNumber = customerActiveRound(saved);
-    if (planTitle) planTitle.textContent = roundNumber > 1 ? `第 ${roundNumber} 轮：这 7 天可以这样安排` : '这 7 天可以这样安排';
+    if (planTitle) planTitle.textContent = roundNumber > 1 ? `第 ${roundNumber} 轮内容计划` : '本轮内容计划';
   }
   renderCustomerRoundHistory(saved);
   updateCustomerSelectedPlanDisplay(saved);
@@ -1352,7 +1352,7 @@ function updateCustomerStepCopy(step = 'intake'){
   if (step === 'next') {
     if (kicker) kicker.textContent = 'STEP 5 · 下一轮建议';
     if (title) title.textContent = '看下一轮怎么调整';
-    if (desc) desc.textContent = '系统会根据刚记录的数据，给你下一轮内容方向和 7 天计划入口。';
+    if (desc) desc.textContent = '系统会根据刚记录的数据，给你下一轮内容方向和优化入口。';
     return;
   }
   if (kicker) kicker.textContent = 'STEP 4 · 效果记录';
@@ -1366,7 +1366,7 @@ function showCustomerStepMessage(step){
     : step === 'plan'
       ? '请先生成内容建议。'
       : step === 'record'
-        ? '请先生成 7 天内容计划，再记录发布效果。'
+        ? '请先生成本轮内容计划，再记录发布效果。'
         : '请先保存一条发布效果，系统会生成下一轮建议。';
   toast(msg);
   setCustomerMessage('#customerFormError', msg, 'error');
@@ -2159,7 +2159,7 @@ function updateCustomerSelectedPlanDisplay(saved = {}){
   if (!plan) {
     input.value = '';
     box.dataset.empty = 'true';
-    box.textContent = '先从上方 7 天计划中选择你实际发布的那一条，再保存数据。';
+    box.textContent = '先从上方内容计划中选择你实际发布的那一条，再保存数据。';
     $$('#customerPlanList [data-customer-plan-id]').forEach((item)=>item.classList.remove('is-selected'));
     return;
   }
@@ -2581,9 +2581,9 @@ function renderCustomerNextAdvice(saved = {}){
   const alreadyActivated = saved.activated_next_round_from === latestKey;
   const nextRoundNumber = customerActiveRound(saved) + 1;
   const activateHtml = rows.length
-    ? `<button class="customer-secondary customer-next-round-btn" type="button" data-customer-activate-round="${esc(latestKey)}" ${alreadyActivated ? 'disabled' : ''}>${alreadyActivated ? `已进入第 ${customerActiveRound(saved)} 轮` : `开始使用第 ${nextRoundNumber} 轮 7 天计划`}</button>`
+    ? `<button class="customer-secondary customer-next-round-btn" type="button" data-customer-activate-round="${esc(latestKey)}" ${alreadyActivated ? 'disabled' : ''}>${alreadyActivated ? `已进入第 ${customerActiveRound(saved)} 轮` : `开始使用第 ${nextRoundNumber} 轮内容计划`}</button>`
     : '';
-  box.innerHTML = `<p class="customer-loop-kicker">下一个七天建议</p>
+  box.innerHTML = `<p class="customer-loop-kicker">下一轮优化建议</p>
     <h3>${esc(nextRound.customer_summary || advice.judgment || '先根据这条内容的数据，调整下一条内容角度。')}</h3>
     <ul class="customer-next-actions">
       ${actionList.map((item)=>`<li><span aria-hidden="true">✓</span>${esc(item)}</li>`).join('')}
@@ -3035,7 +3035,7 @@ function initCustomerTrial(){
     const basePayload = customerPendingCoCreationPayload || customerScopedPayload(currentCustomerFormPayload());
     const coCreation = collectCustomerCoCreation();
     if (!coCreation) {
-      setCustomerMessage('#customerCoCreationMessage', '请先选择这周最想测试的内容方向。', 'error');
+      setCustomerMessage('#customerCoCreationMessage', '请先选择本轮最想测试的内容方向。', 'error');
       return;
     }
     const scopedPayload = sanitizeCustomerPayload({...basePayload, co_creation: coCreation});
@@ -3059,7 +3059,7 @@ function initCustomerTrial(){
     const data = formData(e.target);
     const selectedPlan = customerPlanById(current, data.content_plan_id);
     if (!selectedPlan) {
-      setCustomerMessage('#customerEffectMessage', '请先在上方 7 天计划里选择实际发布的那一条；系统不会默认绑定第一条。', 'error');
+      setCustomerMessage('#customerEffectMessage', '请先在上方内容计划里选择实际发布的那一条；系统不会默认绑定第一条。', 'error');
       $('#customerPlanBlock')?.scrollIntoView({behavior:'smooth', block:'center'});
       return;
     }
@@ -3129,7 +3129,7 @@ function initCustomerTrial(){
     });
     const advice = record.daily_advice?.advice || buildCustomerNextAdvice(nextState, record);
     const nextRound = record.daily_advice?.next_round || buildCustomerNextRoundPlan(nextState, record, advice);
-    setCustomerMessage('#customerEffectMessage', `已记录这条内容。系统已生成复盘判断和下一轮 7 天计划：${nextRound.review_judgment?.type || '继续观察'}。`);
+    setCustomerMessage('#customerEffectMessage', `已记录这条内容。系统已生成复盘判断和下一轮内容计划：${nextRound.review_judgment?.type || '继续观察'}。`);
     renderCustomerEffects(nextState);
     renderCustomerRecordSummary(nextState);
     renderCustomerNextAdvice(nextState);
@@ -4740,8 +4740,8 @@ function renderInternalWorkspaceShell(productionActive = isGenerationWorkbenchRo
     }
     : {
       kicker: '内测版 · 智能诊断内核',
-      title: '多平台内容增长助手',
-      desc: '主流程与客户版保持一致：先填写/确认业务信息，生成 7 天内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。',
+      title: '引客罗盘',
+      desc: '主流程与客户版保持一致：先填写/确认业务信息，生成本轮内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。',
     };
   const kicker = $('#internalHeroKicker');
   const title = $('#internalHeroTitle');

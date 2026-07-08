@@ -3,23 +3,52 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>企业内容增长助手 · 生成发布计划与效果复盘</title>
+  <title>引客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.51" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.51" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.55" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.55" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
     <header class="customer-hero">
       <div class="customer-hero-copy">
-        <p class="customer-kicker">企业内容增长助手</p>
-        <h1>多平台内容增长助手</h1>
-        <p>系统会基于你已填写的业务信息，生成抖音/小红书/视频号等多平台内容建议、7 天发布计划和效果记录建议；发完后记录数据，下一轮继续优化。</p>
+        <p class="customer-kicker">引客罗盘</p>
+        <h1>让内容持续带来客户咨询</h1>
+        <p>系统会基于你已填写的业务信息，生成抖音/小红书/视频号等多平台内容建议、本轮发布计划和效果记录建议；发完后记录数据，下一轮继续优化。</p>
         <div class="customer-hero-actions">
-          <a class="customer-hero-primary" href="#customerFormCard" data-customer-step-link="intake">开始填写/补充信息</a>
+          <a class="customer-hero-primary" href="#customerFormCard" data-customer-step-link="intake">开始生成内容建议</a>
           <a class="customer-hero-secondary" href="#customerResultSection" data-customer-step-link="plan">查看已生成建议</a>
         </div>
       </div>
+      <aside class="customer-hero-product" aria-label="产品能力预览">
+        <div class="customer-product-top">
+          <span>内容增长循环</span>
+          <strong>从选题到下一轮优化</strong>
+        </div>
+        <div class="customer-product-flow" aria-label="使用流程">
+          <span>业务诊断</span>
+          <i></i>
+          <span>本轮计划</span>
+          <i></i>
+          <span>记录效果</span>
+          <i></i>
+          <span>下一轮优化</span>
+        </div>
+        <div class="customer-product-grid">
+          <article>
+            <b>平台建议</b>
+            <p>小红书 / 抖音 / 视频号分别怎么发</p>
+          </article>
+          <article>
+            <b>内容选题</b>
+            <p>围绕真实客户顾虑生成可执行主题</p>
+          </article>
+          <article>
+            <b>效果记录</b>
+            <p>把曝光、互动、咨询变成下一轮判断</p>
+          </article>
+        </div>
+      </aside>
     </header>
 
     <main class="customer-main">
@@ -36,7 +65,7 @@
         <div class="cps-line" aria-hidden="true"></div>
         <button class="cps-item" type="button" data-step="3" data-customer-step-target="plan">
           <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">本周计划</span>
+          <span class="cps-label">本轮计划</span>
         </button>
         <div class="cps-line" aria-hidden="true"></div>
         <button class="cps-item" type="button" data-step="4" data-customer-step-target="record">
@@ -197,7 +226,7 @@
               <li><strong>内容方向</strong><span>先围绕什么主题发</span></li>
               <li><strong>平台矩阵</strong><span>抖音、小红书、视频号分别怎么发</span></li>
               <li><strong>首批选题</strong><span>按平台区分，可直接改写使用</span></li>
-              <li><strong>7 天计划</strong><span>每天发什么、按什么顺序发</span></li>
+              <li><strong>本轮计划</strong><span>先发什么、按什么顺序发</span></li>
               <li><strong>首条建议</strong><span>第一条先怎么发</span></li>
             </ul>
           </article>
@@ -208,15 +237,15 @@
       <section id="customerCoCreationSection" class="customer-card customer-cocreation-card" hidden>
         <div class="customer-section-head">
           <p>STEP 2 · 方向确认</p>
-          <h2>先确认这周内容方向</h2>
-          <span>系统先给你 3 个方向。选一个最想测试的，再生成 7 天计划。</span>
+          <h2>先确认本轮内容方向</h2>
+          <span>系统先给你 3 个方向。选一个最想测试的，再生成本轮内容计划。</span>
         </div>
         <form id="customerCoCreationForm" class="customer-cocreation-form" novalidate>
           <input type="hidden" name="selected_direction" />
           <div id="customerCoCreationDirections" class="customer-direction-grid"></div>
 
           <fieldset class="customer-choice-group customer-cocreation-avoid">
-            <legend>这周不想发什么？可多选</legend>
+            <legend>本轮不想发什么？可多选</legend>
             <input type="hidden" name="avoided_content" />
             <div class="customer-choice-row" data-customer-avoid-content data-multi-select="true">
               <button class="customer-choice-chip" type="button" data-value="不想太硬广"><span></span>不想太硬广</button>
@@ -234,7 +263,7 @@
 
           <div id="customerCoCreationMessage" class="customer-message error" role="alert" hidden></div>
           <div class="customer-cocreation-actions">
-            <button id="customerCoCreationSubmit" class="customer-primary" type="submit">按这个方向生成 7 天计划</button>
+            <button id="customerCoCreationSubmit" class="customer-primary" type="submit">按这个方向生成本轮计划</button>
             <button id="customerCoCreationBack" class="customer-secondary" type="button">返回修改业务信息</button>
           </div>
         </form>
@@ -242,7 +271,7 @@
 
       <section id="customerResultSection" class="customer-card customer-result-card" hidden>
         <div class="customer-section-head">
-          <p>STEP 3 · 本周计划</p>
+          <p>STEP 3 · 本轮计划</p>
           <h2>你的专属发布建议</h2>
           <span>根据你刚填的业务情况生成。选一条先发，不需要全部用完——发完一条后在下方记录效果。</span>
         </div>
@@ -250,8 +279,8 @@
 
         <div id="customerPlanBlock" class="customer-plan-block" hidden>
           <div class="customer-plan-head">
-            <p>7 天发布计划</p>
-            <h3>这 7 天可以这样安排</h3>
+            <p>本轮发布计划</p>
+            <h3>本轮可以这样安排</h3>
             <span>每张卡先看一句话标题和平台。想了解原因，再点开“为什么这样发”。</span>
           </div>
           <div id="customerPlanList" class="customer-plan-list"></div>
@@ -292,7 +321,7 @@
             <span>1</span>
             <div>
               <h3>我发了哪一条</h3>
-              <div id="customerSelectedPlan" class="customer-selected-plan" data-empty="true">先从上方 7 天计划中选择你实际发布的那一条。</div>
+              <div id="customerSelectedPlan" class="customer-selected-plan" data-empty="true">先从上方内容计划中选择你实际发布的那一条。</div>
             </div>
           </div>
           <div class="customer-effect-step customer-wide customer-effect-number-step">
@@ -340,8 +369,8 @@
   <header class="customer-hero internal-hero">
     <div class="customer-hero-copy">
       <p id="internalHeroKicker" class="customer-kicker">内测版 · 智能诊断内核</p>
-      <h1 id="internalHeroTitle">多平台内容增长助手</h1>
-      <p id="internalHeroDesc">主流程与客户版保持一致：先填写/确认业务信息，生成 7 天内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。</p>
+      <h1 id="internalHeroTitle">引客罗盘</h1>
+      <p id="internalHeroDesc">主流程与客户版保持一致：先填写/确认业务信息，生成本轮内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。</p>
       <div class="customer-hero-actions">
         <a class="customer-hero-primary" href="/internal/#diagnosisWorkflow">客户运营工作区</a>
         <a class="customer-hero-secondary" href="/internal/#planSection">查看内容计划</a>
@@ -739,6 +768,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.51"></script>
+  <script src="/app.js?v=1.6.55"></script>
 </body>
 </html>
