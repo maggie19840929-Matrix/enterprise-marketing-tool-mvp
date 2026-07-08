@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>企业增长作战室 v2.0 · 运营周期设计图</title>
+  <style>
+    :root{
+      --bg:#08090a; --panel:#0f1011; --surface:#161719; --surface2:#1d1f23;
+      --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.05);
+      --text:#f7f8f8; --sub:#c8ced8; --muted:#8a8f98; --weak:#62666d;
+      --accent:#7170ff; --accent2:#5e6ad2; --orange:#f59e0b; --green:#10b981; --red:#ef4444; --blue:#60a5fa; --purple:#a78bfa;
+      --radius:16px; --radius-sm:10px; --shadow:0 24px 80px rgba(0,0,0,.45);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(circle at 28% -10%,rgba(113,112,255,.22),transparent 34%),var(--bg);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-feature-settings:"cv01","ss03";}
+    .board{width:1440px;min-height:1220px;margin:0 auto;padding:34px 38px 48px;}
+    .top{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:26px}
+    .eyebrow{color:var(--muted);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
+    h1{margin:0;font-size:34px;line-height:1;letter-spacing:-.7px;font-weight:590}
+    .top p{margin:10px 0 0;color:var(--muted);font-size:15px}.pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:rgba(255,255,255,.035);border-radius:999px;padding:6px 10px;font-size:12px;color:var(--sub);white-space:nowrap}.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 18px var(--green)}
+    .grid{display:grid;grid-template-columns:920px 410px;gap:22px;align-items:start}.frame{background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.025));border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);overflow:hidden}.frame-title{height:54px;border-bottom:1px solid var(--line2);display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:rgba(0,0,0,.12)}.frame-title strong{font-size:14px}.frame-title span{font-size:12px;color:var(--muted)}
+    .app{background:#0b0c0e;min-height:760px}.nav{height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;border-bottom:1px solid var(--line2);background:rgba(15,16,17,.78);backdrop-filter:blur(18px)}.brand{display:flex;align-items:center;gap:10px;font-weight:590}.mark{width:24px;height:24px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#20d4ff)}.tabs{display:flex;gap:6px}.tab{font-size:13px;color:var(--muted);padding:8px 11px;border-radius:9px}.tab.active{color:var(--text);background:rgba(255,255,255,.06)}.user{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}.avatar{width:26px;height:26px;border-radius:50%;background:#24262d;border:1px solid var(--line)}
+    .content{padding:22px}.status-hero{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center;padding:20px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(135deg,rgba(113,112,255,.13),rgba(255,255,255,.025) 48%,rgba(16,185,129,.05))}.status-hero h2{margin:0 0 12px;font-size:26px;letter-spacing:-.5px}.meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.tag{font-size:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);padding:5px 8px;border-radius:999px;color:var(--sub)}.tag.orange{color:#ffd38a;border-color:rgba(245,158,11,.32);background:rgba(245,158,11,.1)}.tag.green{color:#8ff2cb;border-color:rgba(16,185,129,.32);background:rgba(16,185,129,.1)}.tag.purple{color:#d8c8ff;border-color:rgba(167,139,250,.32);background:rgba(167,139,250,.1)}.actions{display:flex;gap:9px}.btn{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);border-radius:10px;padding:10px 13px;font-size:13px;font-weight:510}.btn.primary{background:var(--accent2);border-color:rgba(255,255,255,.12);box-shadow:0 10px 28px rgba(94,106,210,.3)}
+    .main-row{display:grid;grid-template-columns:1.22fr .78fr;gap:16px;margin-top:16px}.card{border:1px solid var(--line);background:rgba(255,255,255,.035);border-radius:16px;padding:16px}.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.label{font-size:12px;color:var(--muted);letter-spacing:.04em}.tiny-link{font-size:12px;color:var(--accent)}.todo h3{font-size:20px;margin:0 0 9px;letter-spacing:-.25px}.todo .reason{font-size:13px;color:var(--muted);line-height:1.45;margin:0 0 14px}.one-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.decision{display:flex;flex-direction:column;gap:11px}.decision-main{font-size:18px;line-height:1.25}.confidence{height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}.confidence i{display:block;width:68%;height:100%;background:linear-gradient(90deg,var(--green),var(--accent));border-radius:inherit}.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:16px 0}.metric{padding:14px 13px;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:14px}.metric .num{font-size:25px;font-weight:590;letter-spacing:-.55px}.metric .name{font-size:12px;color:var(--muted);margin-top:4px}.metric.warn{border-color:rgba(245,158,11,.34);background:rgba(245,158,11,.08)}
+    .section-head{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px}.section-head h3{margin:0;font-size:16px}.view-toggle{display:flex;border:1px solid var(--line);border-radius:10px;padding:3px;background:rgba(255,255,255,.025)}.view-toggle span{font-size:12px;padding:5px 9px;color:var(--muted);border-radius:7px}.view-toggle span.active{background:rgba(255,255,255,.08);color:var(--text)}.experiment{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:15px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.027);margin-bottom:10px}.exp-title{font-size:15px;font-weight:590;margin-bottom:8px}.exp-meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.mini-stat{display:flex;gap:18px;color:var(--sub);font-size:13px}.mini-stat b{color:var(--text);font-weight:590}.side-action{display:flex;flex-direction:column;align-items:flex-end;gap:8px}.small-btn{font-size:12px;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text)}
+    .rightcol{display:grid;gap:22px}.mobile-frame{height:398px;background:#0b0c0e}.drawer{padding:18px}.drawer h3{font-size:18px;margin:0 0 6px}.drawer .sub{color:var(--muted);font-size:13px;margin-bottom:14px}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field{border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,.03)}.field span{display:block;font-size:11px;color:var(--muted);margin-bottom:8px}.field em{display:block;height:20px;border-radius:6px;background:rgba(255,255,255,.06);font-style:normal}.textarea{height:74px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.03);margin:10px 0;padding:10px;color:var(--weak);font-size:12px}.collapse{border-top:1px solid var(--line2);padding-top:12px;color:var(--muted);font-size:12px;display:flex;justify-content:space-between}.drawer-actions{display:flex;gap:9px;margin-top:14px}.drawer-actions .btn{flex:1;text-align:center}.review-card{height:352px;padding:18px;background:#0b0c0e}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:13px 0}.review-box{border:1px solid var(--line);border-radius:14px;padding:13px;background:rgba(255,255,255,.03)}.review-box .big{font-size:24px;font-weight:590}.review-box .cap{font-size:12px;color:var(--muted)}.quote{font-size:13px;line-height:1.5;color:var(--sub);border-left:2px solid var(--accent);padding-left:10px;margin:12px 0}.bottom{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:22px}.flow{padding:18px}.states{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.state{border:1px solid var(--line);border-radius:16px;padding:14px;background:rgba(255,255,255,.03);min-height:118px}.state b{display:block;font-size:15px;margin:7px 0}.state p{font-size:12px;color:var(--muted);line-height:1.4;margin:0}.circle{width:25px;height:25px;border-radius:50%;background:rgba(113,112,255,.18);border:1px solid rgba(113,112,255,.35);display:grid;place-items:center;font-size:12px;color:#d8d8ff}.principles{padding:18px}.principle-list{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.principle{border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:13px;padding:11px;font-size:13px;color:var(--sub)}.principle b{color:var(--text);font-weight:590} .note{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.5}
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="top">
+      <div><div class="eyebrow">Enterprise Growth War Room · v2.0 UI Mockup</div><h1>企业增长作战室｜运营周期优先设计图</h1><p>设计目标：老板一眼看状态，一秒识别风险，一键完成动作；解释收起，数据和操作前置。</p></div>
+      <div class="pill"><i class="dot"></i> High fidelity direction · Dark SaaS dashboard</div>
+    </section>
+
+    <section class="grid">
+      <div class="frame">
+        <div class="frame-title"><strong>主界面：作战台 / 运营中</strong><span>首屏只保留状态、今日动作、关键数字、内容实验</span></div>
+        <div class="app">
+          <div class="nav"><div class="brand"><div class="mark"></div>内容决策局</div><div class="tabs"><span class="tab active">作战台</span><span class="tab">内容实验</span><span class="tab">反馈复盘</span><span class="tab">设置</span></div><div class="user"><span>本周第 1 轮</span><div class="avatar"></div></div></div>
+          <div class="content">
+            <div class="status-hero">
+              <div><h2>第 1 轮增长实验 · 运营中</h2><div class="meta"><span class="tag green">状态正常</span><span class="tag purple">复盘日 周五 18:00</span><span class="tag">本周假设：复盘表主题能否带来企业主咨询</span></div></div>
+              <div class="actions"><button class="btn primary">回填数据</button><button class="btn">查看计划</button><button class="btn">周复盘</button></div>
+            </div>
+            <div class="main-row">
+              <div class="card todo"><div class="card-head"><span class="label">今日动作 · P1</span><span class="tag orange">待处理</span></div><h3>回填 #02 内容的 T+72 数据</h3><p class="reason one-line">已发布 3 天，缺少反馈，无法判断是否继续复制该方向。</p><button class="btn primary">立即回填</button><button class="btn" style="margin-left:8px">为什么？</button></div>
+              <div class="card decision"><div class="card-head"><span class="label">下一步判断</span><span class="tiny-link">查看依据</span></div><div class="decision-main">“复盘表”方向值得继续观察</div><div class="confidence"><i></i></div><div class="meta"><span class="tag green">咨询 3</span><span class="tag">收藏率偏高</span></div></div>
+            </div>
+            <div class="metrics"><div class="metric"><div class="num">7</div><div class="name">本周计划</div></div><div class="metric"><div class="num">3/7</div><div class="name">已发布</div></div><div class="metric warn"><div class="num">2</div><div class="name">待回填</div></div><div class="metric"><div class="num">4</div><div class="name">有效咨询</div></div><div class="metric"><div class="num">43%</div><div class="name">闭环率</div></div></div>
+            <div class="section-head"><h3>内容实验</h3><div class="view-toggle"><span class="active">卡片</span><span>表格</span></div></div>
+            <div class="experiment"><div><div class="exp-title">#01 一条内容有没有获客价值，不是看点赞</div><div class="exp-meta"><span class="tag">小红书</span><span class="tag green">已回填 T+72</span><span class="tag green">值得复制</span></div></div><div class="side-action"><div class="mini-stat"><span>曝光 <b>1800</b></span><span>收藏 <b>39</b></span><span>咨询 <b>3</b></span></div><button class="small-btn">查看详情</button></div></div>
+            <div class="experiment"><div><div class="exp-title">#02 发了很多内容，为什么还是没人咨询</div><div class="exp-meta"><span class="tag">小红书</span><span class="tag orange">待回填 T+72</span><span class="tag">影响周复盘</span></div></div><div class="side-action"><div class="mini-stat"><span>发布时间 <b>5/22</b></span></div><button class="small-btn">回填数据</button></div></div>
+            <div class="experiment"><div><div class="exp-title">#03 老板做内容最容易忽略的一个数据</div><div class="exp-meta"><span class="tag">小红书</span><span class="tag">待发布</span></div></div><div class="side-action"><button class="small-btn">复制发布稿</button></div></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="rightcol">
+        <div class="frame">
+          <div class="frame-title"><strong>交互：回填抽屉</strong><span>7 个核心字段以内</span></div>
+          <div class="mobile-frame drawer"><h3>回填 T+72 数据</h3><div class="sub">#02 发了很多内容，为什么还是没人咨询</div><div class="field-grid"><div class="field"><span>曝光 / 播放</span><em></em></div><div class="field"><span>点赞</span><em></em></div><div class="field"><span>收藏</span><em></em></div><div class="field"><span>评论</span><em></em></div><div class="field"><span>私信 / 咨询</span><em></em></div><div class="field"><span>有效咨询</span><em></em></div></div><div class="textarea">用户主要问了什么？</div><div class="collapse"><span>展开更多数据</span><span>⌄</span></div><div class="drawer-actions"><button class="btn primary">提交回填</button><button class="btn">取消</button></div></div>
+        </div>
+        <div class="frame">
+          <div class="frame-title"><strong>交互：周复盘抽屉</strong><span>从数据到下一轮动作</span></div>
+          <div class="review-card"><div class="label">本周结论</div><h3 style="margin:7px 0 0;font-size:18px">复盘表主题可继续测试</h3><div class="review-grid"><div class="review-box"><div class="big">2</div><div class="cap">值得复制</div></div><div class="review-box"><div class="big">1</div><div class="cap">建议暂停</div></div></div><div class="quote">客户原话：“我们发了很多内容，但不知道哪条真的能带咨询。”</div><button class="btn primary" style="width:100%">生成下一轮计划</button><button class="btn" style="width:100%;margin-top:9px">查看判断依据</button></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="bottom">
+      <div class="frame flow"><div class="frame-title" style="margin:-18px -18px 16px"><strong>用户状态分流</strong><span>不同阶段看到不同首页</span></div><div class="states"><div class="state"><div class="circle">S0</div><b>新用户</b><p>只展示诊断入口，不展示运营复杂数据。</p></div><div class="state"><div class="circle">S1</div><b>已诊断</b><p>显示诊断摘要和“启动第一轮实验”。</p></div><div class="state"><div class="circle">S2</div><b>待启动</b><p>确认本周假设、内容计划、复盘时间。</p></div><div class="state"><div class="circle">S3</div><b>运营中</b><p>默认进入作战台：今日动作 + 关键数字。</p></div></div></div>
+      <div class="frame principles"><div class="frame-title" style="margin:-18px -18px 16px"><strong>界面原则</strong><span>避免文档化和后台化</span></div><div class="principle-list"><div class="principle"><b>一屏一个主动作</b>：不要并列 5 个按钮</div><div class="principle"><b>数字先于解释</b>：解释默认收起</div><div class="principle"><b>卡片先于表格</b>：首页给老板扫读</div><div class="principle"><b>状态先于详情</b>：颜色和标签快速识别</div><div class="principle"><b>抽屉完成操作</b>：减少跳页迷路</div><div class="principle"><b>首页只服务决策</b>：全量数据进二级页</div></div><div class="note">视觉参考：Linear / Vercel 式暗色专业 SaaS；克制、清晰、操作导向，不做花哨 AI 营销页。</div></div>
+    </section>
+  </main>
+</body>
+</html>

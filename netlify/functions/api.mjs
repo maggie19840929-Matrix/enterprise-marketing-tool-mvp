@@ -6,8 +6,8 @@ const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 
-const APP_VERSION = '1.6.47';
-const VERSION_LABEL = 'v1.6.47 · 连续内容周期产品化版';
+const APP_VERSION = '1.6.54';
+const VERSION_LABEL = 'v1.6.54 · 商户画像差异化建议版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -358,6 +358,8 @@ const compactTopicWords = (text = '') => String(text || '')
   .split(/\s+/)
   .map((item) => item.trim())
   .filter(Boolean);
+const isMartialArtsText = (text = '') => hasAny(text, ['武术', '搏击', '散打', '拳击', '泰拳', '跆拳道', '格斗', '防身术', '少儿武术', '少儿搏击', '武馆', '搏击俱乐部', '武术搏击']);
+const isYouthBasketballText = (text = '') => hasAny(text, ['少儿篮球', '小学生篮球', '幼儿篮球', '青少年篮球', '篮球培训', '篮球训练', '篮球启蒙', '篮球课', '运球训练', '投篮训练']);
 const serviceTopicFor = (industry = '', offer = '') => {
   const text = `${industry} ${offer}`;
   if (hasAny(text, ['盆底肌', '漏尿', '产后修复', '产康', '骨盆修复'])) return { service: '盆底肌修复', scene: '做产后修复前', owner: '产后修复案例/科普内容', type: 'postpartum' };
@@ -369,7 +371,8 @@ const serviceTopicFor = (industry = '', offer = '') => {
   if (hasAny(text, ['女装', '服装', '穿搭', '包包', '鞋履', '香薰', '礼物', '买手店', '零售', '上新'])) return { service: '商品款式', scene: '挑选商品时', owner: '商品种草/场景搭配内容', type: 'aesthetic_retail' };
   if (hasAny(text, ['篮球销售', '卖篮球', '篮球售卖', '篮球零售', '篮球专卖', '篮球店', '篮球用品', '篮球器材', '篮球装备', '篮球商品', '训练篮球', '比赛篮球'])) return { service: '篮球商品', scene: '挑选篮球时', owner: '篮球商品/训练场景内容', type: 'basketball_goods' };
   if (hasAny(text, ['美睫'])) return { service: '美睫效果', scene: '做美睫前', owner: '美睫案例内容', type: 'lash' };
-  if (hasAny(text, ['篮球培训', '篮球训练', '篮球启蒙', '篮球课', '少儿篮球课', '小学生篮球课', '幼儿篮球课', '青少年篮球课', '运球训练', '投篮训练', '体适能', '体能训练', '运动培训', '体育培训', '寒暑假班', '周末班'])) return { service: '少儿篮球体验课', scene: '报名少儿篮球课前', owner: '少儿篮球课堂/体能训练内容', type: 'youth_basketball' };
+  if (isMartialArtsText(text)) return { service: '武术搏击课程', scene: '报名武术/搏击课前', owner: '武术搏击课堂/训练安全内容', type: 'martial_arts' };
+  if (isYouthBasketballText(text)) return { service: '少儿篮球体验课', scene: '报名少儿篮球课前', owner: '少儿篮球课堂/体能训练内容', type: 'youth_basketball' };
   if (hasAny(text, ['美容', '皮肤管理', '医美'])) return { service: '皮肤管理项目', scene: '到店前', owner: '真实案例/过程内容', type: 'beauty' };
   if (hasAny(text, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规验证', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) return { service: '医疗器械检测/注册/安规认证服务', scene: '做产品注册/检测认证前', owner: '医疗器械合规科普/企业案例内容', type: 'medical_device_compliance' };
   if (hasAny(text, ['安标', '安全生产标准化', '安全标准化', '安全生产', '验厂', '认证辅导', '合规辅导', '工厂合规'])) return { service: '安全生产标准化辅导', scene: '做安标/验厂/合规准备前', owner: '安标合规科普/企业案例内容', type: 'safety_compliance' };
@@ -402,6 +405,17 @@ const naturalPlanTitles = ({ audience, industry, offer, painShort, goal }) => {
       `第一次体验课，家长要观察孩子哪几个变化`,
       `孩子胆小/零基础/不爱运动，适不适合篮球课`,
       `周末班和寒暑假班，篮球训练怎么安排更有效`,
+    ];
+  }
+  if (service.type === 'martial_arts') {
+    return [
+      `孩子学武术/搏击，家长最该先看哪3点`,
+      `零基础孩子第一次上搏击课，会不会跟不上`,
+      `武术搏击课不是打架，真正训练的是什么`,
+      `附近怎么选靠谱的武术搏击俱乐部`,
+      `第一次体验课，家长要观察这几个课堂信号`,
+      `孩子胆小、坐不住，适不适合学武术搏击`,
+      `武术搏击课的安全保护，家长应该怎么判断`,
     ];
   }
   if (service.type === 'basketball_goods') {
@@ -491,6 +505,17 @@ const customerPlanRowsFor = ({ titles, service, offer }) => {
       [titles[4], '体验课观察：告诉家长第一次课重点看孩子兴趣、出汗量、听指令、互动和教练反馈', '图文/短视频', '第一次体验后，我们会根据孩子状态给训练建议和班型建议。', '咨询数', '可直接进入草稿', '适合承接体验课预约，建议加入真实试听片段'],
       [titles[5], '适配人群：回应胆小、零基础、不爱运动、怕跟不上、怕受伤的家庭顾虑', '图文', '不确定孩子能不能适应，可以先从一次体验课看反应。', '咨询数', '需要人工润色', '重点降低报名阻力，避免承诺立刻长高/变强'],
       [titles[6], '节点营销：结合周末班、寒暑假班和新学期体能需求，给家长低压力训练安排', '图文/短视频', '想了解周末班或假期班，可以咨询孩子年龄、篮球基础和可训练时间。', '咨询数', '仅为策略方向', '需结合真实班型、名额、场馆位置和上课时间发布'],
+    ];
+  }
+  if (service.type === 'martial_arts') {
+    return [
+      [titles[0], '家长决策切入：先讲清安全保护、教练带课方式、孩子纪律感和基础适配', '图文/短视频', '想判断孩子适不适合，可以先咨询年龄、性格和运动基础。', '收藏/咨询', '可直接进入草稿', '必须写武术/搏击课堂，不得出现篮球课、运球、投篮、篮筐等错行业词'],
+      [titles[1], '体验课预期：解释第一次课的热身、基础动作、防护、强度和老师反馈', '图文', '保存这条，带孩子体验前可以对照观察课堂节奏。', '收藏数', '可直接进入草稿', '适合降低家长对受伤、跟不上、太激烈的顾虑'],
+      [titles[2], '价值解释：把武术搏击从“会打架”转成体能、专注力、规则感、自信和自我保护', '短视频/图文', '如果孩子胆小或坐不住，可以先从低强度体验课了解。', '咨询数', '可直接进入草稿', '建议补真实课堂片段、护具、防护和教练纠正动作画面'],
+      [titles[3], '同城选择：围绕距离、接送、班型、教练资质、课堂秩序和安全保护降低决策成本', '图文', '附近家长可以咨询孩子年龄、基础和可上课时间，先判断适合哪个班型。', '咨询数', '需要人工润色', '适合本地获客；不要写成泛教育或篮球模板'],
+      [titles[4], '课堂观察：告诉家长第一次体验重点看孩子是否敢参与、能否听指令、动作是否安全', '图文/短视频', '体验后可根据孩子状态咨询后续训练建议。', '咨询数', '可直接进入草稿', '适合承接体验课预约，建议加入真实试听片段'],
+      [titles[5], '适配人群：回应胆小、好动、零基础、怕疼、怕受伤、怕太累的家庭顾虑', '图文', '不确定孩子能不能适应，可以先从一次体验课看反应。', '咨询数', '需要人工润色', '重点降低报名阻力，避免承诺速成或攻击性效果'],
+      [titles[6], '安全信任：展示护具、垫面、分级训练、热身拉伸和教练保护细节', '图文/短视频', '想了解体验课和班型安排，可以咨询孩子年龄和可训练时间。', '咨询数', '仅为策略方向', '需结合真实场馆、班型、教练和安全规则发布'],
     ];
   }
   if (service.type === 'basketball_goods') {
@@ -654,7 +679,7 @@ const platformStrategyFor = (platform = '', ctx = {}) => {
       content_type: '短视频',
       why: '适合用3秒开头、真实场景和过程画面快速验证' + audience + '是否对「' + service + '」有兴趣。',
       expression: '开头先抛具体顾虑，中段给课堂/服务/案例画面，结尾只承接一次咨询动作。',
-      observe_metrics: ['播放完成率', '主页访问', '私信/咨询', '预约/到店'],
+      observe_metrics: ['播放完成率', '主页访问', '咨询', '预约/到店'],
       next_adjustment: '播放高但咨询低时，下一条补信任证据、价格/周期边界和「' + conversion + '」入口。',
     };
   }
@@ -663,7 +688,7 @@ const platformStrategyFor = (platform = '', ctx = {}) => {
       content_type: '图文/短视频',
       why: '适合承接搜索和收藏决策，把' + audience + '关心的避坑、清单、效果边界讲清楚。',
       expression: '标题像真实问题，正文用清单/对比/案例分段，封面突出一个可保存判断点。',
-      observe_metrics: ['曝光', '收藏', '评论提问', '私信/咨询'],
+      observe_metrics: ['曝光', '收藏', '评论提问', '咨询'],
       next_adjustment: '收藏高但咨询低时，下一条把案例、流程、价格区间或适合人群写得更具体。',
     };
   }
@@ -672,7 +697,7 @@ const platformStrategyFor = (platform = '', ctx = {}) => {
       content_type: '口播短视频',
       why: '适合在微信生态建立专业信任，用负责人/老师/顾问口播承接熟人转发和咨询。',
       expression: '表达更稳，少用夸张网感，重点说清为什么可信、适合谁、下一步怎么问。',
-      observe_metrics: ['播放', '转发', '评论/咨询', '微信咨询/预约'],
+      observe_metrics: ['播放', '转发', '评论提问/咨询', '微信咨询/预约'],
       next_adjustment: '播放低时先换开头问题；有咨询但少预约时补案例复盘和明确下一步。',
     };
   }
@@ -691,6 +716,100 @@ const platformStrategyFor = (platform = '', ctx = {}) => {
     expression: '按平台语境调整标题、开头、封面和咨询入口。',
     observe_metrics: ['曝光/播放', '互动', '咨询', '预约/到店'],
     next_adjustment: '数据不好时先换标题/开头，再判断是否暂停该平台。',
+  };
+};
+
+const merchantProfileFor = (assessment = {}, ctx = inferBusinessContext(assessment)) => {
+  const service = serviceTopicFor([
+    assessment.industry,
+    assessment.main_goal,
+    assessment.offer,
+    assessment.customer_pain,
+    assessment.content_assets,
+  ].filter(Boolean).join(' '), assessment.offer || '');
+  const platforms = platformsFor(assessment.current_channels || '').filter((item) => item && !/不确定/.test(item));
+  const assets = [assessment.content_assets, assessment.best_recent_content, assessment.coach_credentials, assessment.store_location, assessment.course_schedule]
+    .filter(Boolean)
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+  return {
+    service_type: service.type,
+    service_name: assessment.offer || ctx.primary_offer || service.service,
+    audience: assessment.target_customer || ctx.target_customer || shortAudience(assessment.target_customer || '目标客户'),
+    goal: assessment.main_goal || '获得更多有效咨询',
+    bottleneck: ctx.growth_bottleneck || priorityFor(assessment.biggest_problem || assessment.customer_pain || ''),
+    conversion_action: ctx.conversion_action || '咨询具体情况',
+    decision_scene: ctx.customer_decision_scene || `${shortAudience(assessment.target_customer || '目标客户')}选择${service.service}前的真实顾虑`,
+    platform_focus: platforms.length ? platforms : planPlatforms(recommendPlatforms(assessment), assessment.current_channels).slice(0, 3),
+    proof_assets: assets.slice(0, 3),
+    differentiation_note: ctx.content_task || '围绕客户真实顾虑、素材证据和下一步咨询动作生成内容，不套统一行业模板。',
+  };
+};
+
+const auditChecksForPublish = ({ platform = '', topic = '', angle = '', cta = '', qualityNote = '', assessment = {} } = {}) => {
+  const text = [topic, angle, cta, qualityNote].filter(Boolean).join(' ');
+  const service = serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '');
+  const checks = [];
+  const add = (level, label, message, suggestion) => checks.push({ level, label, message, suggestion });
+
+  if (/微信|VX|v信|手机号|电话|二维码|扫码|加我|站外|私域|联系方式|主页电话|[1][3-9]\d{9}/i.test(text)) {
+    add('high', '联系方式/站外导流风险', '内容里可能出现联系方式、二维码或站外承接表达。', '改成“主页咨询”或“咨询具体情况”，发布前去掉电话、二维码和联系方式。');
+  }
+  if (/最强|最好|第一|唯一|全网|顶级|100%|百分百|一定|保证|包过|包会|立刻|马上见效|永久/.test(text)) {
+    add('medium', '绝对化用词风险', '内容里可能有绝对化或承诺式表达。', '改成“通常、适合、可以先观察、建议对照”这类更稳妥表达。');
+  }
+  if (/评论区|留言|关键词|领取|暗号|扣\d|回复/.test(text)) {
+    add('medium', '互动诱导风险', '内容里可能出现平台容易误判的互动诱导。', '改成“保存这份清单”“主页咨询”“对照这几项判断”。');
+  }
+  if (['youth_basketball', 'martial_arts', 'education'].includes(service.type) && /保证|一定|速成|快速变强|明显提升|长高|升学|包会/.test(text)) {
+    add('medium', '培训效果承诺风险', '课程类内容不宜承诺确定结果或速成效果。', '改成课堂过程、适合人群、体验观察和阶段目标。');
+  }
+
+  if (String(platform).includes('小红书')) {
+    add('info', '小红书发布前自查', '封面和正文要避免电话、二维码、过大 logo、水印和夸张承诺。', '发布前人工看一遍封面、首图、正文第一段和结尾动作。');
+  }
+  if (!checks.length) {
+    add('info', '发布前自查', '暂未命中明显高风险词，但仍建议发布前人工复核。', '重点检查标题是否具体、素材是否真实、结尾是否自然承接咨询。');
+  }
+  return checks;
+};
+
+const publishAuditFor = (input = {}) => {
+  const platform = input.platform || '';
+  const checks = auditChecksForPublish(input);
+  const hasHigh = checks.some((item) => item.level === 'high');
+  const hasMedium = checks.some((item) => item.level === 'medium');
+  const riskLevel = hasHigh ? 'high' : hasMedium ? 'medium' : 'low';
+  const riskLabel = riskLevel === 'high' ? '高风险' : riskLevel === 'medium' ? '中风险' : '低风险';
+  return {
+    platform: platform || '当前平台',
+    risk_level: riskLevel,
+    risk_label: riskLabel,
+    summary: riskLevel === 'low'
+      ? '低风险：未命中明显高风险表达，发布前仍需人工复核素材。'
+      : `${riskLabel}：建议先按提示改文案或封面，再发布。`,
+    checks,
+    disclaimer: '这是经验规则检查，不代表平台官方审核结果。',
+  };
+};
+
+const customerReasoningFor = ({ assessment = {}, ctx = {}, merchantProfile = {}, title = '', angle = '', platform = '', experimentType = '', strategy = {}, cta = '' } = {}) => {
+  const pain = assessment.customer_pain || assessment.biggest_problem || merchantProfile.bottleneck || '当前卡点';
+  const service = merchantProfile.service_name || ctx.primary_offer || assessment.offer || '服务';
+  const audience = shortAudience(assessment.target_customer || merchantProfile.audience || '目标客户');
+  const proof = merchantProfile.proof_assets?.[0] || assessment.content_assets || assessment.best_recent_content || '真实案例、过程或客户问题';
+  return {
+    pain_basis: `围绕「${audience}」的「${pain}」展开，不再套通用行业模板。`,
+    platform_basis: strategy.why || `${platform || '当前平台'}适合先验证客户是否愿意停下来看「${service}」相关问题。`,
+    conversion_basis: `结尾动作指向「${cta || merchantProfile.conversion_action || '咨询具体情况'}」，目标是把浏览变成有效咨询。`,
+    validation_goal: `本条重点验证「${title || service}」是否能带来${(strategy.observe_metrics || ['曝光','收藏','咨询']).slice(0, 3).join('、')}信号。`,
+    publish_note: `发布前补充${proof}，并检查平台规则、封面和承诺用语。`,
+    merchant_profile: {
+      service_type: merchantProfile.service_type,
+      bottleneck: merchantProfile.bottleneck,
+      conversion_action: merchantProfile.conversion_action,
+      experiment_type: experimentType,
+    },
   };
 };
 
@@ -714,6 +833,26 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
   const contentType = row[2] || strategy.content_type;
   const cta = row[3] || '引导' + (ctx.conversion_action || '咨询具体情况');
   const targetMetric = row[4] || strategy.observe_metrics.join(' / ');
+  const merchantProfile = merchantProfileFor(assessment || {}, ctx);
+  const customerReasoning = customerReasoningFor({
+    assessment,
+    ctx,
+    merchantProfile,
+    title,
+    angle,
+    platform,
+    experimentType,
+    strategy,
+    cta,
+  });
+  const publishAudit = publishAuditFor({
+    platform,
+    topic: title,
+    angle,
+    cta,
+    qualityNote: row[6],
+    assessment,
+  });
   return {
     experiment_type: experimentType,
     target_customer: assessment?.target_customer || ctx.target_customer || '目标客户',
@@ -727,6 +866,9 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
     content_brief: platform + '｜' + experimentType + '｜' + angle + '｜' + cta,
     content_type: contentType,
     target_metric: targetMetric,
+    merchant_profile: merchantProfile,
+    customer_reasoning: customerReasoning,
+    publish_audit: publishAudit,
   };
 };
 
@@ -850,7 +992,14 @@ const recommendPlatforms = (assessment) => {
     addPlatform(support, '淘宝/微信小店', '适合作为下单承接入口，不替代内容种草。');
     addPlatform(avoid, '美团/大众点评', '商品零售不以到店评价为主，除非有强线下门店场景。');
     addPlatform(avoid, 'B站', '内容生产成本高，不适合作为第一轮曝光拿订单主渠道。');
-  } else if (hasAny(accountText, ['篮球', '少儿篮球', '小学生篮球', '幼儿篮球', '青少年篮球', '篮球培训', '篮球训练', '篮球启蒙', '篮球课', '运球', '投篮', '体适能', '体能训练', '运动培训', '体育培训', '寒暑假班', '周末班'])) {
+  } else if (isMartialArtsText(accountText)) {
+    addPlatform(primary, '抖音', '适合用课堂训练片段、教练防护动作、孩子专注变化和同城短视频放大曝光。');
+    addPlatform(primary, '小红书', '适合做家长决策清单、安全保护、体验课避坑和本地搜索收藏。');
+    addPlatform(primary, '视频号', '适合微信生态家长转化、教练讲解、课堂秩序展示和熟人推荐。');
+    addPlatform(support, '朋友圈/私域', '适合跟进体验课、班型名额、家长反馈和转介绍报名。');
+    addPlatform(support, '美团/大众点评', '如有线下场馆，可承接同城搜索、评价和体验课团购。');
+    addPlatform(avoid, 'B站', '适合长期教学资产，不适合短期体验课预约主渠道。');
+  } else if (isYouthBasketballText(accountText)) {
     addPlatform(primary, '抖音', '建议优先验证抖音，适合用课堂训练画面、孩子变化和同城短视频放大曝光。');
     addPlatform(primary, '小红书', '建议同步验证小红书；平台用户与6-12岁孩子家长决策场景匹配，适合家长信任、种草收藏和体验课转化。');
     addPlatform(primary, '视频号', '适合微信生态家长转化、教练出镜讲解、课堂片段、熟人推荐和本地社群传播。');
@@ -944,7 +1093,7 @@ const inferBusinessContext = (assessment = {}) => {
   const target = shortAudience(assessment.target_customer || '目标客户');
   const isGoods = ['basketball_goods', 'fashion_accessory', 'aesthetic_retail'].includes(service.type);
   const isLocalService = ['nail', 'lash', 'beauty', 'postpartum', 'photo', 'dental', 'localfood', 'pet_service'].includes(service.type);
-  const isTraining = ['youth_basketball', 'education'].includes(service.type);
+  const isTraining = ['youth_basketball', 'martial_arts', 'education'].includes(service.type);
   const isComplianceService = ['medical_device_compliance', 'safety_compliance'].includes(service.type);
   const isMeta = isMetaMarketingAccount(assessment);
   const missingInfo = [];
@@ -970,7 +1119,9 @@ const inferBusinessContext = (assessment = {}) => {
     offerType = '课程/体验课';
     decisionScene = `${target}报名前会比较安全、师资、班型、效果边界和孩子适应度`;
     conversionAction = '预约体验课 / 咨询年龄基础和上课时间';
-    contentTask = '用家长顾虑、课堂片段、训练价值和体验课观察降低报名阻力';
+    contentTask = service.type === 'martial_arts'
+      ? '用家长安全顾虑、课堂秩序、防护细节、教练分层和体验课观察降低报名阻力'
+      : '用家长顾虑、课堂片段、训练价值和体验课观察降低报名阻力';
   } else if (isLocalService) {
     businessType = '本地到店服务';
     offerType = '到店项目/预约服务';
@@ -996,6 +1147,7 @@ const inferBusinessContext = (assessment = {}) => {
   const riskGates = [];
   if (service.type === 'basketball_goods') riskGates.push('禁止写成篮球培训、体验课、教练、班型或到店服务流程');
   if (service.type === 'youth_basketball') riskGates.push('必须写给家长，禁止写成篮球商品下单或器材销售');
+  if (service.type === 'martial_arts') riskGates.push('必须写武术/搏击课堂、安全保护、教练分层和体验课观察，禁止出现篮球课、运球、投篮、篮筐等错行业词');
   if (service.type === 'pet_service') riskGates.push('必须围绕宠物洗护/寄养/门店信任，禁止写成泛商品款式或其他行业样例');
   if (service.type === 'medical_device_compliance') riskGates.push('必须写给企业决策/注册/质量负责人，禁止写成C端种草、到店预约或泛营销焦虑');
   if (isGoods) riskGates.push('商品零售类内容必须指向款式/参数/场景/询价/订单，不能套服务预约模板');
@@ -1072,6 +1224,144 @@ const planTemplates = (priority, industry, goal, target, offer, pain, problem = 
   return items;
 };
 
+const splitCoCreationList = (value) => (Array.isArray(value) ? value : String(value || '').split(/[,，、\n\r]+/))
+  .map((item) => sanitizeCustomerText(item).trim())
+  .filter(Boolean);
+
+const normalizeCoCreation = (payload = {}) => {
+  const raw = payload.co_creation && typeof payload.co_creation === 'object' ? payload.co_creation : {};
+  const selected = sanitizeCustomerText(raw.selected_direction || payload.co_creation_selected_direction || '').trim();
+  const avoided = splitCoCreationList(raw.avoided_content || payload.co_creation_avoided_content || '');
+  return {
+    selected_direction: selected,
+    support_direction: sanitizeCustomerText(raw.support_direction || payload.co_creation_support_direction || '').trim(),
+    avoided_content: avoided.includes('暂时没有限制') ? [] : avoided,
+    customer_emphasis: sanitizeCustomerText(raw.customer_emphasis || payload.co_creation_customer_emphasis || '').trim(),
+    confirmed_at: sanitizeCustomerText(raw.confirmed_at || payload.co_creation_confirmed_at || nowIso()).trim(),
+  };
+};
+
+const hasCoCreation = (co = {}) => Boolean(co.selected_direction || co.support_direction || co.customer_emphasis || (co.avoided_content || []).length);
+
+const coCreationTopicSeeds = (assessment = {}) => {
+  const co = assessment.co_creation || {};
+  const direction = co.selected_direction || '';
+  const emphasis = co.customer_emphasis || '';
+  const biz = [assessment.industry, assessment.main_goal, assessment.offer, assessment.target_customer].filter(Boolean).join(' ');
+  const audience = shortAudience(assessment.target_customer || '目标客户');
+  const service = serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '');
+  const offer = assessment.offer || service.service || '服务';
+  const basketball = service.type === 'youth_basketball';
+  const martialArts = service.type === 'martial_arts' || isMartialArtsText(biz);
+  const withEmphasis = (rows) => emphasis
+    ? [{ topic: `${emphasis}，客户最想先确认什么`, angle: `围绕客户特别强调的「${emphasis}」展开`, cta: basketball ? '引导家长咨询孩子年龄和体验课时间' : martialArts ? '引导家长咨询孩子年龄、基础和体验课时间' : '引导客户咨询具体情况' }, ...rows]
+    : rows;
+  if (basketball) {
+    if (direction.includes('教练') || direction.includes('信任')) {
+      return withEmphasis([
+        { topic: '少儿篮球课一节课到底怎么练', angle: '用课堂流程建立专业信任', cta: '引导家长咨询体验课安排' },
+        { topic: '家长看篮球教练，不只看会不会打球', angle: '解释教练带孩子的安全和分层方法', cta: '引导咨询孩子年龄和基础' },
+        { topic: '零基础孩子第一次上篮球课，教练会怎么带', angle: '展示孩子从热身到运球的第一节课过程', cta: '引导预约体验课' },
+      ]);
+    }
+    if (direction.includes('体验') || direction.includes('转化')) {
+      return withEmphasis([
+        { topic: '少儿篮球体验课，家长预约前最该问什么', angle: '把咨询问题集中到年龄、时间和孩子基础', cta: '引导家长咨询体验课时间' },
+        { topic: '周末想给孩子约篮球课，先确认这3件事', angle: '把周末班和体验课转成决策清单', cta: '引导咨询周末可约时间' },
+        { topic: '6-12岁孩子适不适合篮球体验课', angle: '明确适合年龄、基础和体验课目标', cta: '引导家长说孩子年龄和运动基础' },
+      ]);
+    }
+    return withEmphasis([
+      { topic: '孩子零基础学篮球，家长最担心的3件事', angle: '先回答跟不上、安全和有没有效果', cta: '引导家长咨询孩子年龄和体验课时间' },
+      { topic: '孩子不爱运动，篮球启蒙先从哪一步开始', angle: '把家长痛点转成可执行的第一节课', cta: '引导预约体验课' },
+      { topic: '家长怕篮球课只是玩一玩，课堂里到底练什么', angle: '用训练内容回应效果顾虑', cta: '引导咨询课程安排' },
+    ]);
+  }
+  if (martialArts) {
+    if (direction.includes('教练') || direction.includes('信任')) {
+      return withEmphasis([
+        { topic: '武术搏击课一节课到底怎么练', angle: '用热身、防护、分层动作和老师反馈建立专业信任', cta: '引导家长咨询体验课安排' },
+        { topic: '家长看搏击教练，不只看会不会打', angle: '解释教练带孩子的安全保护、规则感和分层方法', cta: '引导咨询孩子年龄和基础' },
+        { topic: '零基础孩子第一次上搏击课，教练会怎么带', angle: '展示从热身到基础动作的第一节课过程', cta: '引导预约体验课' },
+      ]);
+    }
+    if (direction.includes('体验') || direction.includes('转化')) {
+      return withEmphasis([
+        { topic: '武术搏击体验课，家长预约前最该问什么', angle: '把咨询问题集中到安全保护、适合年龄和课堂强度', cta: '引导家长咨询体验课时间' },
+        { topic: '周末想给孩子约搏击课，先确认这3件事', angle: '把周末班和体验课转成决策清单', cta: '引导咨询周末可约时间' },
+        { topic: '孩子胆小或好动，适不适合武术搏击体验课', angle: '明确适合人群、基础和体验课观察重点', cta: '引导家长说孩子年龄和性格' },
+      ]);
+    }
+    return withEmphasis([
+      { topic: '孩子零基础学武术搏击，家长最担心的3件事', angle: '先回答安全、强度和能不能坚持', cta: '引导家长咨询孩子年龄和体验课时间' },
+      { topic: '孩子胆小或坐不住，武术搏击怎么开始', angle: '把家长痛点转成可观察的第一节课', cta: '引导预约体验课' },
+      { topic: '家长怕搏击课太激烈，课堂里到底怎么保护', angle: '用防护、护具和教练动作纠正回应顾虑', cta: '引导咨询课程安排' },
+    ]);
+  }
+  if (direction.includes('信任')) {
+    return withEmphasis([
+      { topic: `${audience}选择${offer}前，最该看哪3个证据`, angle: '用案例、流程和保障建立信任', cta: '引导客户咨询是否适合' },
+      { topic: `为什么同样是${offer}，客户会更信任这一种`, angle: '展示服务过程和真实细节', cta: '引导主页咨询' },
+      { topic: `${offer}不是越多越好，先看服务过程是否清楚`, angle: '把专业信任讲成客户能看懂的细节', cta: '引导咨询具体情况' },
+    ]);
+  }
+  if (direction.includes('转化') || direction.includes('咨询')) {
+    return withEmphasis([
+      { topic: `${audience}想咨询${offer}前，通常会先卡在哪一步`, angle: '把下一步行动说清楚', cta: '引导客户咨询是否适合' },
+      { topic: `适不适合${offer}，先用这3个问题判断`, angle: '用选择清单承接咨询', cta: '引导客户描述具体情况' },
+      { topic: `${offer}怎么开始，客户最需要知道的不是价格`, angle: '先给行动理由和适合人群', cta: '引导主页咨询' },
+    ]);
+  }
+  return withEmphasis([
+    { topic: `${audience}最容易误解${offer}的3件事`, angle: '先回答真实顾虑，而不是介绍服务清单', cta: '引导客户咨询具体情况' },
+    { topic: `${audience}为什么会迟迟不咨询${offer}`, angle: '拆解客户犹豫点', cta: '引导客户描述自己的情况' },
+    { topic: `第一次了解${offer}，先看这几个问题`, angle: '用客户视角降低理解门槛', cta: '引导主页咨询' },
+  ]);
+};
+
+const violatesCoCreationAvoidance = (row = [], avoided = []) => {
+  const text = row.join(' ');
+  return avoided.some((item) =>
+    (item.includes('价格') && /价格|收费|费用|多少钱/.test(text))
+    || (item.includes('露脸') && /露脸|出镜|真人出镜/.test(text))
+    || (item.includes('正脸') && /正脸|孩子正脸|学员正脸/.test(text))
+    || (item.includes('承诺效果') && /保证|承诺|一定|快速见效|包/.test(text))
+  );
+};
+
+const applyCoCreationToPlanRows = (rows = [], assessment = {}) => {
+  const co = assessment.co_creation || {};
+  if (!hasCoCreation(co)) return rows;
+  const next = rows.map((row) => [...row]);
+  const seeds = coCreationTopicSeeds(assessment);
+  seeds.slice(0, 3).forEach((seed, index) => {
+    const existing = next[index] || [];
+    next[index] = [
+      seed.topic || existing[0] || '',
+      seed.angle || existing[1] || '',
+      existing[2] || '图文/短视频',
+      seed.cta || existing[3] || '引导客户咨询具体情况',
+      existing[4] || '咨询/预约',
+      existing[5] || '可直接进入草稿',
+      `客户共创方向：${co.selected_direction || '已确认方向'}${co.customer_emphasis ? `；强调：${co.customer_emphasis}` : ''}`,
+    ];
+  });
+  const avoided = Array.isArray(co.avoided_content) ? co.avoided_content : [];
+  return next.map((row, index) => {
+    if (!violatesCoCreationAvoidance(row, avoided)) return row;
+    const fallback = seeds[index] || seeds[0];
+    return [
+      fallback?.topic || row[0],
+      fallback?.angle || row[1],
+      row[2] || '图文/短视频',
+      fallback?.cta || row[3] || '引导客户咨询具体情况',
+      row[4] || '咨询/预约',
+      row[5] || '需要人工润色',
+      '已按客户限制调整，去掉绝对化效果表达',
+    ];
+  });
+};
+
 const createAssessment = (payload, clientId = clientIdFrom(payload)) => {
   const required = ['industry', 'main_goal', 'target_customer', 'current_channels', 'biggest_problem'];
   const missing = required.filter((key) => !clean(payload, key));
@@ -1111,6 +1401,7 @@ const createAssessment = (payload, clientId = clientIdFrom(payload)) => {
     best_recent_content: clean(payload, 'best_recent_content'),
     account_preference: clean(payload, 'account_preference'),
     benchmark: normalizeBenchmark(payload),
+    co_creation: normalizeCoCreation(payload),
     contact: clean(payload, 'contact'),
     client_mode: clean(payload, 'client_mode') || clean(payload, '_mode'),
     source: clean(payload, 'source') || clean(payload, 'client_mode') || clean(payload, '_mode') || 'api_assessment',
@@ -1135,6 +1426,7 @@ const generateDiagnosis = (assessmentId) => {
   const platformRecommendations = recommendPlatforms(assessment);
   const benchmarkReference = benchmarkReferenceFor(assessment);
   const businessContext = inferBusinessContext(assessment);
+  const merchantProfile = merchantProfileFor(assessment, businessContext);
   const growthGaps = growthGapPromptsFor(assessment, businessContext);
   const diagnosis = {
     id: state.next.diagnosis++,
@@ -1152,10 +1444,11 @@ const generateDiagnosis = (assessmentId) => {
     weekly_action: '',
     next_step: '',
     platform_recommendations: platformRecommendations,
+    merchant_profile: merchantProfile,
     strategy_mvp: {
       target_customer: assessment.target_customer || businessContext.target_customer,
       growth_goal: goal,
-      content_hypothesis: '第一轮7天不是平均发内容，而是用痛点型、效果型、信任型、场景型、转化型等方向验证哪个角度能带来真实咨询。',
+      content_hypothesis: `第一轮7天不是平均发内容，而是围绕「${merchantProfile.service_name}」「${merchantProfile.audience}」「${merchantProfile.bottleneck}」验证哪个角度能带来真实咨询。`,
       recommended_platforms: planPlatforms(platformRecommendations, assessment.current_channels),
       growth_gaps: growthGaps,
       seven_day_flywheel: growthExperimentTypes.map((type, index) => ({
@@ -1221,8 +1514,9 @@ const contentPlanPrompt = (assessment, diagnosis) => {
 2. 标题短、具体、可发布，不要泛化模板；
 3. 禁止评论区/留言关键词引导；
 4. 如果客户选择的是抖音，优先给短视频开头钩子、场景/案例/口播方向，不要默认输出小红书标签或小红书种草话术；
-5. 每条必须包含 topic, angle, content_type, cta, target_metric, publish_quality, quality_note；
-6. 只返回 JSON 数组，不要解释。
+5. 如果客户提供 co_creation，必须优先围绕 selected_direction 和 customer_emphasis，避开 avoided_content；
+6. 每条必须包含 topic, angle, content_type, cta, target_metric, publish_quality, quality_note；
+7. 只返回 JSON 数组，不要解释。
 客户输入：${JSON.stringify({assessment, diagnosis}, null, 2)}`;
 };
 
@@ -1240,6 +1534,7 @@ const arkContentPlanPrompt = (assessment = {}, diagnosis = {}) => {
     priority_problem: diagnosis.priority_problem || '',
     weekly_action: diagnosis.weekly_action || '',
     benchmark_signal: diagnosis.benchmark_reference?.recent_topics?.slice?.(0, 3) || [],
+    co_creation: assessment.co_creation || {},
     platforms,
   };
   return [
@@ -1371,7 +1666,10 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   const platforms = planPlatforms(diagnosis.platform_recommendations, assessment?.current_channels);
   // 不再在生成新诊断时清空反馈/复盘。serverless 内存不是可信数据库，
   // 但至少避免新诊断把同一实例中的历史反馈直接抹掉。
-  const sourceRows = modelRows?.length ? modelRows : planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference);
+  const sourceRows = applyCoCreationToPlanRows(
+    modelRows?.length ? modelRows : planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference),
+    assessment || {}
+  );
   const generation = normalizeModelMeta(modelMeta || { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, fallback_reason: 'model_not_requested', failure_reason: 'model_not_requested' });
   diagnosis.content_generation = generation;
   diagnosis.generation_meta = generation;
@@ -1408,6 +1706,9 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
       observe_metrics: enriched.observe_metrics,
       next_adjustment: enriched.next_adjustment,
       content_brief: enriched.content_brief,
+      merchant_profile: enriched.merchant_profile,
+      customer_reasoning: enriched.customer_reasoning,
+      publish_audit: enriched.publish_audit,
       requested_model: generation.requested_model,
       actual_model: generation.actual_model,
       provider: generation.provider,
@@ -1454,6 +1755,40 @@ const nextRoundTopicPool = ({ assessment = {}, selected_plan = {}, daily_data = 
   const audience = shortAudience(assessment.target_customer || '目标客户');
   const offer = assessment.offer || service.service || '具体服务';
   const selectedTopic = selected_plan.topic || '本次发布内容';
+  if (service.type === 'martial_arts') {
+    if (judgmentType === '加码') {
+      return [
+        '家长问体验课前，最想确认安全保护怎么做',
+        '零基础孩子上武术搏击课，第一节会练什么',
+        '为什么规则感和专注力，比动作帅更先被家长看见',
+        '周末班怎么安排，孩子不怕累还能坚持',
+        '孩子报名武术搏击课，家长最该看哪3点',
+        '体验课后要不要继续报班，看这几个课堂信号',
+        '家长担心受伤和强度，搏击课怎么处理',
+        '孩子胆小或好动，武术搏击先从哪一步开始',
+      ];
+    }
+    if (judgmentType === '换角度') {
+      return [
+        '家长收藏搏击课内容后，为什么还没有预约体验课',
+        '孩子零基础能不能上武术搏击课，先看这3个课堂细节',
+        '武术搏击体验课，家长最怕的安全问题怎么解决',
+        '周末给孩子报搏击课，家长通常会卡在哪一步',
+        '想提升专注和体能的孩子，第一阶段练什么',
+        '孩子选武术搏击，别只看动作帅不帅',
+        '体验课前，家长可以先问清楚这几个问题',
+      ];
+    }
+    return [
+      '孩子适不适合学武术搏击，家长先看这3个信号',
+      '武术搏击启蒙第一节课，应该让孩子获得什么',
+      '家长给孩子选体能课，为什么会考虑武术搏击',
+      '附近孩子周末学武术搏击，先了解上课节奏',
+      '孩子怕对抗不敢练，武术搏击启蒙怎么开始',
+      '体验课预约前，家长最该确认哪几件事',
+      '小学生武术搏击训练，不是先追求动作多帅',
+    ];
+  }
   if (service.type === 'youth_basketball') {
     if (judgmentType === '加码') {
       return [
@@ -1559,6 +1894,7 @@ const customerAdviceContext = (payload = {}) => {
       consultations: numValue(item.consultations),
       appointments: numValue(item.appointments),
       notes: item.notes || '',
+      observation_tags: item.observation_tags || '',
     }));
   const unpublished_plans = plans
     .filter((plan, index) => selectedIndex < 0 || index > selectedIndex)
@@ -1585,6 +1921,7 @@ const customerAdviceContext = (payload = {}) => {
     consultations: numValue(record.consultations),
     appointments: numValue(record.appointments),
     notes: record.notes || '',
+    observation_tags: record.observation_tags || '',
     publish_link: record.publish_link || '',
   };
   return {
@@ -1607,6 +1944,7 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
   const audience = shortAudience(assessment.target_customer || '目标客户');
   const offer = assessment.offer || serviceTopicFor([assessment.industry, assessment.main_goal].filter(Boolean).join(' '), '').service || '服务';
   const todayTopic = selected_plan.topic || '当天发布内容';
+  const observationText = [daily_data.observation_tags, daily_data.notes].filter(Boolean).join('；');
   let judgmentType = '标题问题';
   let more = '更具体的人群痛点、课堂/服务证据和决策问题';
   let less = '泛泛介绍服务、只说欢迎咨询';
@@ -1632,6 +1970,21 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
     less = '在低样本平台继续机械发布';
     why = '多条内容曝光样本都偏小，需要先校准平台和第一眼表达。';
   }
+  if (/体验课时间|预约时间|周末|寒暑假|上课时间/.test(observationText)) {
+    judgmentType = consultations > 0 || appointments > 0 ? judgmentType : '换角度';
+    more = '把体验课时间、适合年龄、孩子基础和预约方式讲清楚';
+    less = '只讲课程好处、不回答家长怎么预约';
+    why = '客户观察显示，家长已经在问时间和预约细节，下一轮要把转化路径讲清楚。';
+  } else if (/价格|多少钱|费用/.test(observationText)) {
+    more = '补适合人群、课程价值、体验课流程和价格前的判断标准';
+    less = '直接打价格战或只强调便宜';
+    why = '客户观察显示，价格是顾虑，但需要先补信任和适合人群。';
+  } else if (/收藏多但没咨询|收藏.*咨询少|有兴趣.*没咨询/.test(observationText)) {
+    judgmentType = '换角度';
+    more = '把收藏兴趣转成下一步咨询理由，补案例和行动入口';
+    less = '继续只做知识点收藏';
+    why = '客户观察显示，内容有兴趣信号，但转化承接不够。';
+  }
   const decision = judgmentType === '加码'
     ? '加码'
     : judgmentType === '平台不匹配'
@@ -1654,6 +2007,14 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
   const fallbackTopics = uniqueTopics(Array.from({ length: 10 }, (_, index) => `${audience}下周第${index + 1}个${offer}决策问题`), forbiddenTopics.concat(generatedTopics));
   const seedTopics = [...generatedTopics, ...fallbackTopics].slice(0, 7);
   const platformSeeds = unpublished_plans.map((plan) => plan.platform).filter(Boolean);
+  const serviceType = serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '').type;
+  const ctxForRows = inferBusinessContext(assessment);
+  const merchantProfile = merchantProfileFor(assessment, ctxForRows);
+  const planCta = serviceType === 'youth_basketball'
+    ? '引导家长咨询孩子年龄和体验课时间'
+    : serviceType === 'martial_arts'
+      ? '引导家长咨询孩子年龄、基础和体验课时间'
+      : '引导客户咨询是否适合';
   const actions = judgmentType === '加码'
     ? ['复制有效结构', '补充案例证据', '回答价格/周期', '展示过程细节', '处理适合人群', '集中答疑', '复盘最高咨询主题']
     : judgmentType === '换角度'
@@ -1670,23 +2031,44 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
       target_customer: assessment.target_customer || audience,
       conversion_action: consultations > 0 || appointments > 0 ? '咨询/预约' : '咨询具体情况',
     });
+    const experimentType = growthExperimentTypes[index % growthExperimentTypes.length];
+    const reasoning = customerReasoningFor({
+      assessment,
+      ctx: ctxForRows,
+      merchantProfile,
+      title: topic,
+      angle: actions[index],
+      platform,
+      experimentType,
+      strategy: platformStrategy,
+      cta: planCta,
+    });
+    const audit = publishAuditFor({
+      platform,
+      topic,
+      angle: actions[index],
+      cta: planCta,
+      qualityNote: '下一轮计划，发布前补真实素材和平台规则自查。',
+      assessment,
+    });
     return {
       day: 'Day ' + (index + 1),
       planned_date: todayIso(index + 1),
       topic,
       angle: actions[index],
       platform,
-      experiment_type: growthExperimentTypes[index % growthExperimentTypes.length],
+      experiment_type: experimentType,
       action: actions[index],
       reason: index === 0 ? '承接本次回填判断：' + judgmentType : '延续同一轮复盘结论，避免每天推倒重来。',
-      target_metric: consultations > 0 || appointments > 0 ? '咨询/预约' : (views >= 800 ? '收藏/私信咨询' : '曝光/播放'),
+      target_metric: consultations > 0 || appointments > 0 ? '咨询/预约' : (views >= 800 ? '收藏/咨询' : '曝光/播放'),
       based_on: todayTopic,
-      cta: serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '').type === 'youth_basketball'
-        ? '引导家长咨询孩子年龄和体验课时间'
-        : '引导客户咨询是否适合',
+      cta: planCta,
       why_platform_fit: platformStrategy.why,
       observe_metrics: platformStrategy.observe_metrics,
       next_adjustment: platformStrategy.next_adjustment,
+      merchant_profile: merchantProfile,
+      customer_reasoning: reasoning,
+      publish_audit: audit,
     };
   });
   return {
@@ -1805,7 +2187,8 @@ const compactCustomerAdviceContext = (ctx = {}) => ({
     consultations: ctx.daily_data?.consultations || 0,
     appointments: ctx.daily_data?.appointments || 0,
   },
-  notes: String(ctx.daily_data?.notes || '').slice(0, 80),
+  notes: String([ctx.daily_data?.observation_tags, ctx.daily_data?.notes].filter(Boolean).join('；')).slice(0, 120),
+  co_creation: ctx.assessment?.co_creation || {},
   history_count: ctx.history_feedback?.length || 0,
   next_topics: (ctx.unpublished_plans || []).slice(0, 3).map((plan) => plan.topic).filter(Boolean),
   used_topics: [

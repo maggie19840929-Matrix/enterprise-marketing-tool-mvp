@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 *.sqlite3
 .DS_Store
+node_modules/
+test-results/
+.claude/
 
 # Local Netlify folder
 .netlify

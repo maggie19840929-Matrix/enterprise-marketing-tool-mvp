@@ -90,6 +90,7 @@ const submitAssessmentForClient = async (client_id, overrides = {}) => submitAss
   content_assets: overrides.content_assets || payload.content_assets,
   current_channels: overrides.current_channels || payload.current_channels,
   biggest_problem: overrides.biggest_problem || payload.biggest_problem,
+  co_creation: overrides.co_creation,
 });
 
 const data = await submitAssessment(payload);
@@ -98,7 +99,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.47', `expected app_version 1.6.47, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.54', `expected app_version 1.6.54, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -112,6 +113,10 @@ assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platfor
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
 assert(diagnosis.strategy_mvp && diagnosis.strategy_mvp.seven_day_flywheel.length === 7, 'diagnosis should expose platform strategy MVP and 7-day flywheel');
 assert(plans.every((plan) => plan.experiment_type && plan.why_platform_fit && Array.isArray(plan.observe_metrics) && plan.observe_metrics.length >= 3 && plan.next_adjustment && plan.content_hypothesis), 'plans should include experiment type, platform fit, metrics, next adjustment and hypothesis');
+assert(diagnosis.merchant_profile && diagnosis.merchant_profile.bottleneck && diagnosis.merchant_profile.conversion_action, 'diagnosis should expose merchant_profile for differentiated customer advice');
+assert(plans.every((plan) => plan.customer_reasoning?.pain_basis && plan.customer_reasoning?.platform_basis && plan.customer_reasoning?.conversion_basis && plan.customer_reasoning?.validation_goal && plan.customer_reasoning?.publish_note), 'plans should include concrete customer_reasoning fields for why-this-plan explanations');
+assert(plans.every((plan) => plan.publish_audit?.risk_level && Array.isArray(plan.publish_audit.checks) && plan.publish_audit.checks.length >= 1), 'plans should include publish_audit checks for platform-rule review');
+assert(plans.some((plan) => plan.platform === '小红书' && plan.publish_audit.checks.some((check) => String(check.label || '').includes('小红书'))), 'XHS plans should include a 小红书 publish pre-check');
 assert(data.model_info && data.generation_meta, 'POST /assessments should return model_info and generation_meta');
 assert(data.generation_meta.provider === 'local' && data.generation_meta.actual_model === 'rule_template' && data.generation_meta.fallback === true && data.generation_meta.fallback_reason === 'missing_ark_api_key', 'missing Ark env should produce explicit local rule_template fallback evidence');
 
@@ -124,8 +129,17 @@ const basketballData = await submitAssessmentForClient('basketball', {
   customer_pain: '家长担心安全、孩子跟不上、时间不合适',
   content_assets: '课堂训练视频、教练资质、家长反馈',
   current_channels: '抖音,小红书,视频号',
+  co_creation: {
+    selected_direction: '体验课转化型',
+    avoided_content: ['不想承诺效果'],
+    customer_emphasis: '暑期班周末体验课',
+    confirmed_at: '2026-07-01 12:00:00',
+  },
 });
 const basketballPlanText = JSON.stringify({assessment: basketballData.assessment, diagnosis: basketballData.diagnosis, plans: basketballData.plans});
+assert(basketballData.assessment.co_creation.selected_direction === '体验课转化型', 'assessment should preserve customer co-creation selected direction');
+assert(/体验课|周末|适合|预约/.test(basketballData.plans.slice(0, 3).map((plan)=>plan.topic).join(' ')), 'co-created basketball plans should prioritize the confirmed experience-class direction');
+assert(!/保证|承诺|一定/.test(basketballData.plans.map((plan)=>[plan.topic, plan.angle, plan.quality_note].join(' ')).join(' ')), 'co-created plans should avoid customer rejected promise/effect language');
 ['安标', '医疗器械', 'PTE', 'SunPace', 'Sunny', 'P01', 'P02', 'P03'].forEach((word) => {
   assert(!basketballPlanText.includes(word), `basketball strategy output must not leak cross-project term: ${word}`);
 });
@@ -137,6 +151,29 @@ assert(basketballPlatformStrategies.get('抖音') && basketballPlatformStrategie
 assert(new Set([...basketballPlatformStrategies.values()]).size >= 3, 'Douyin/XHS/Video Account strategy text should be clearly different');
 assert(new Set(basketballData.plans.map((plan) => plan.experiment_type)).size >= 5, 'basketball 7-day plan should cover multiple experiment types, not average posting');
 assert(Array.isArray(basketballData.diagnosis.strategy_mvp.growth_gaps), 'basketball diagnosis should expose growth gap prompts as a non-blocking array');
+
+const martialArtsData = await submitAssessmentForClient('ziwuxian-martial-arts', {
+  company_name: '子武限武术搏击俱乐部',
+  industry: '少儿武术搏击俱乐部，做武术、散打、搏击启蒙和体能训练，服务附近社区家庭',
+  main_goal: '希望获得附近家长咨询和体验课预约',
+  target_customer: '附近3公里内6-12岁孩子家长，担心孩子胆小、坐不住、缺少规则感',
+  offer: '武术搏击体验课和周末班',
+  customer_pain: '家长担心受伤、强度太大、孩子零基础跟不上',
+  content_assets: '课堂训练片段、护具和垫面、防护动作、教练资质、孩子课堂反馈',
+  current_channels: '抖音,小红书,视频号',
+  co_creation: {
+    selected_direction: '体验课转化型',
+    customer_emphasis: '安全保护和零基础体验课',
+    confirmed_at: '2026-07-09 10:00:00',
+  },
+});
+const martialArtsText = JSON.stringify({ diagnosis: martialArtsData.diagnosis, plans: martialArtsData.plans });
+assert(/武术|搏击|散打|防护|安全|体验课|规则感/.test(martialArtsText), 'martial arts plans should use martial arts / safety / experience-class semantics');
+assert(martialArtsData.diagnosis.merchant_profile.service_type === 'martial_arts', 'martial arts diagnosis should carry a martial_arts merchant profile');
+assert(martialArtsData.plans.every((plan) => plan.customer_reasoning?.pain_basis && plan.publish_audit?.risk_level), 'martial arts plans should carry customer reasoning and publish audit');
+['篮球课', '少儿篮球', '运球', '投篮', '篮筐', '篮球商品'].forEach((word) => {
+  assert(!martialArtsText.includes(word), `martial arts output must not leak basketball wording: ${word}`);
+});
 const lowInfoBasketball = await submitAssessment({
   client_id: 'basketball-low-info',
   customer_key: 'basketball-low-info',
@@ -336,6 +373,41 @@ const stateGet = await handler(request('GET', 'state'));
 assert(stateGet.status === 200, `GET /state should return project store, got ${stateGet.status}`);
 const cloudState = await stateGet.json();
 assert(cloudState.project_store.projects.some((item) => item.id === 'project-smoke-sync'), 'GET /state should include saved cross-device project');
+const customerCloudSyncPost = await handler(request('POST', 'state', {
+  client_id: 'customer-cloud-sync',
+  source: 'customer_public_cloud_sync',
+  sync_version: '1.6.54',
+  project_store: {
+    activeProjectId: 'project-customer-cloud-sync',
+    projects: [{
+      id: 'project-customer-cloud-sync',
+      name: '少儿篮球云端同步样本',
+      updated_at: '2026-07-01 10:00:00',
+      state: {
+        client_id: 'customer-cloud-sync',
+        project: { id: 'project-customer-cloud-sync', client_id: 'customer-cloud-sync', name: '少儿篮球云端同步样本' },
+        project_stage: '运营中',
+        current_cycle_id: 'customer-round-2',
+        assessment: { ...basketballData.assessment, client_id: 'customer-cloud-sync', company_name: '少儿篮球云端同步样本' },
+        diagnosis: { ...basketballData.diagnosis, client_id: 'customer-cloud-sync' },
+        plans: basketballData.plans.map((plan) => ({ ...plan, client_id: 'customer-cloud-sync', project_id: 'project-customer-cloud-sync', cycle_id: 'customer-round-2' })),
+        feedback: [{ id: 'record-1', client_id: 'customer-cloud-sync', content_plan_id: basketballData.plans[0].id, views: 1200, consultations: 4, source: 'customer_public_record' }],
+        records: [{ content_plan_id: basketballData.plans[0].id, views: 1200, consultations: 4, notes: '家长关注体验课时间', created_at: '2026-07-01 10:00:00' }],
+        content_rounds: [{ round_number: 1, plans: basketballData.plans.slice(0, 3), archived_at: '2026-07-01 10:00:00' }],
+        active_round: 2,
+        current_round: 2,
+        cloud_sync_version: '1.6.54',
+        source: 'customer_public_cloud_sync',
+      },
+    }],
+  },
+}));
+assert(customerCloudSyncPost.status === 201, 'POST /state should accept customer public cloud sync payload');
+const customerCloudSyncGet = await handler(request('GET', 'state?client_id=customer-cloud-sync'));
+const customerCloudSyncState = await customerCloudSyncGet.json();
+const syncedProject = customerCloudSyncState.project_store.projects.find((item) => item.id === 'project-customer-cloud-sync');
+assert(syncedProject?.state?.records?.length === 1, 'customer public cloud sync should preserve customer records in project state');
+assert(syncedProject?.state?.content_rounds?.length === 1 && syncedProject.state.active_round === 2, 'customer public cloud sync should preserve round history and active round');
 assertNoUnsafeCommentCta('content decision diagnosis/plans', { diagnosis, plans });
 const appJs = readFileSync(new URL('../static/app.js', import.meta.url), 'utf8');
 const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
@@ -344,7 +416,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.47'"), 'app should expose v1.6.47 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.54'"), 'app should expose v1.6.54 internally/API-side');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -357,8 +429,15 @@ assert(appJs.includes('function initCustomerTrial()') && appJs.includes('CUSTOME
 assert(appJs.includes("location.replace('/internal/');") && !appJs.includes("params.get('mode') === 'internal'"), 'public ?mode=internal entries must not open the internal workbench');
 assert(appJs.includes("return path === '/internal' || path.startsWith('/internal/');") && appJs.includes("currentPath() === '/internal/generation-workbench'"), 'internal rendering should be path-gated to /internal/ and the generation workbench route');
 assert(appJs.includes('function syncRouteState') && appJs.includes('function initInternalRouteNavigation') && appJs.includes('history.pushState') && appJs.includes("window.addEventListener('popstate', syncRouteState)") && appJs.includes('generationWorkbenchInitialized'), 'internal navigation should re-apply shell/workbench visibility and initialize the workbench after route changes');
+assert(indexHtml.includes('id="internalHeroTitle"') && indexHtml.includes('客户运营工作区') && indexHtml.includes('素材生产工作台'), 'internal hero should label operations and production workspaces separately');
+assert(appJs.includes('function renderInternalWorkspaceShell') && appJs.includes('document.body.dataset.internalWorkspace') && appJs.includes('internal-production-mode') && appJs.includes('if (planLink) planLink.hidden = active'), 'internal shell should switch copy/actions between operations and production routes');
+assert(warRoomCss.includes('body.internal-mode:not(.generation-workbench-mode) #generationWorkbench') && warRoomCss.includes('body.internal-mode.generation-workbench-mode #diagnosisWorkflow') && warRoomCss.includes('body.internal-mode.generation-workbench-mode #allCustomersPanel'), 'internal CSS should prevent production workbench and operations modules from rendering together');
 assert(appJs.includes('function activateCustomerNextRound') && appJs.includes('data-customer-activate-round') && appJs.includes('previous_rounds') && appJs.includes('content_rounds'), 'customer client should support activating the next 7-day round and carrying prior round topics forward');
 assert(indexHtml.includes('id="customerRoundHistory"') && appJs.includes('function renderCustomerRoundHistory') && appJs.includes('customerArchivedPlanTopics') && appJs.includes('renderCustomerRoundHistory(nextState)'), 'customer client should expose content-round history and refresh it after round changes');
+assert(appJs.includes('function syncCustomerTrialCloudState') && appJs.includes('customer_public_cloud_sync') && appJs.includes('scheduleCustomerTrialCloudSync(generatedState)') && appJs.includes('scheduleCustomerTrialCloudSync(nextState)'), 'customer public flow should sync generated plans, feedback records and round changes to cloud project store');
+assert(indexHtml.includes('id="customerCoCreationSection"') && appJs.includes('function renderCustomerCoCreation') && appJs.includes('function collectCustomerCoCreation') && appJs.includes('co_creation: coCreation'), 'customer public flow should include a co-creation confirmation layer before generating the 7-day plan');
+assert(indexHtml.includes('data-customer-observation-tags') && appJs.includes('observation_tags') && apiSource.includes('observation_tags'), 'customer feedback should capture observation tags for next-round advice');
+assert(indexHtml.includes('data-customer-step-target="intake"') && indexHtml.includes('data-customer-step-target="confirm"') && indexHtml.includes('data-customer-step-target="plan"') && indexHtml.includes('data-customer-step-target="record"') && indexHtml.includes('data-customer-step-target="next"') && appJs.includes("const CUSTOMER_FLOW_STEPS = ['intake', 'confirm', 'plan', 'record', 'next']") && appJs.includes('function setCustomerStep'), 'customer public flow should render as a five-step guided experience');
 assert(apiSource.includes("path === '/customers'") && apiSource.includes('listCustomersFromCloudState') && apiSource.includes("store.list({ prefix: CLOUD_STATE_KEY") && apiSource.includes('isTestCustomerKey') && apiSource.includes('groupCustomerRecords'), 'API should expose a read-only grouped internal customer aggregation endpoint backed by blob key listing');
 assert(apiSource.includes("path === '/customers/merge-preview'") && apiSource.includes('previewCustomerMerge') && apiSource.includes('would_write: false'), 'API should expose a dry-run-only customer merge preview endpoint');
 assert(indexHtml.includes('id="allCustomersPanel"') && indexHtml.includes('全部客户') && indexHtml.includes('只读聚合各 client_id') && appJs.includes('function loadAllCustomers') && appJs.includes("api('/api/customers?mode=internal&client_id=internal')") && appJs.includes('primary_client_id') && appJs.includes('data-all-customer-client'), 'internal app should render and load the grouped all-customers panel with specific-record drill-down');

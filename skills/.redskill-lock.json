@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "skills": {
+    "xiaohongshu-content-checker": {
+      "name": "xiaohongshu-content-checker",
+      "version": "1.3.3",
+      "source": "redskill",
+      "install_dir": "/Users/matrix_core/enterprise-marketing-tool-mvp/skills/xiaohongshu-content-checker",
+      "installed_at": "1783533098870",
+      "sha256": "2b753cabaa3d1dbfc19bfd6db4e1770ff4e7558fe9473a1545fd99339e752119"
+    }
+  }
+}

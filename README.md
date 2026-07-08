@@ -7,43 +7,45 @@
 ## 启动
 
 ```bash
-cd /Users/matrix_core/enterprise_marketing_mvp
-python3 seed.py
-python3 app.py
+cd /Users/matrix_core/enterprise-marketing-tool-mvp
+npm install
+npm run dev
 ```
 
-打开：<http://127.0.0.1:8787>
+打开：<http://127.0.0.1:8888>
 
 ## 已包含模块
 
-1. 3分钟营销体检
-2. 自动营销诊断
-3. 3条内容发布建议
-4. 本周发布计划
-5. 营销反馈回填
-6. 下一轮优化建议看板
+1. 客户版 3 个必填信息 + 可选补充的轻量录入
+2. 生成前客户共创确认，选择本周优先内容方向和不想发的内容
+3. 自动营销诊断与内容方向建议
+4. 首轮 7 天内容计划
+5. 发布后效果记录与客户观察标签
+6. 下一轮 7 天计划生成与一键启用
+7. 内容周期历史区，支持查看第 N 轮与已归档轮次
+8. 客户公开页数据云端同步，用于内部端查看和行业样本沉淀
+9. 内部端全部客户聚合、项目复盘、素材生成与 QA 交付工作台
 
 ## 数据库
 
-默认数据库：`marketing_mvp.sqlite3`
+当前线上版本不使用 SQLite。生产环境优先使用 Netlify Blobs 保存项目态；无 Blobs 环境时，Netlify Function 会降级为内存 fallback 以便本地 smoke test。
 
-表：
+主要 store：
 
-- `assessments`：营销体检
-- `diagnoses`：诊断结果
-- `content_plans`：发布计划
-- `feedback`：营销反馈
+- `enterprise-marketing-tool-state`：客户项目、内容计划、反馈记录、生成任务、素材登记等状态。
+- `global-project-store.<clientId>`：按客户/内部视图分隔的项目状态。
+- `assets/<client_id>`：内部素材工作台素材集合。
+- `tasks/<client_id>`：内部生成任务集合。
 
 ## API
 
 - `GET /api/health`
-- `GET /api/dashboard`
-- `GET /api/assessments`
-- `GET /api/diagnoses`
-- `GET /api/plans`
-- `GET /api/feedback`
 - `POST /api/assessments`
-- `POST /api/feedback`
+- `POST /api/customer-growth-advice`
+- `GET /api/state`
+- `POST /api/state`
+- `GET /api/customers?mode=internal`
+- `GET /api/customers/merge-preview?mode=internal`
 - `GET /api/assets?client_id&project_id`
 - `POST /api/assets`
 - `GET /api/generation-tasks?client_id&project_id&view=internal|client`
@@ -58,11 +60,10 @@ python3 app.py
 ## 验证
 
 ```bash
-python3 -m pytest tests -q
-python3 -m py_compile app.py business.py seed.py
-python3 app.py
-curl -s http://127.0.0.1:8787/api/health
-curl -s http://127.0.0.1:8787/api/dashboard
+npm test
+node --check static/app.js
+node --check netlify/functions/api.mjs
+curl -s http://127.0.0.1:8888/api/health
 ```
 
 ## Netlify
@@ -73,6 +74,43 @@ curl -s http://127.0.0.1:8787/api/dashboard
 - API rewrite: `/api/*` → `netlify/functions/api.mjs`
 
 Netlify Function 在生产环境优先使用 Netlify Blobs 保存项目态；无 Blobs 环境时自动降级为内存 fallback，便于本地验证。
+
+### 客户连续内容周期
+
+客户版主路径：
+
+```text
+/ → 填写业务信息 → 确认内容方向 → 查看本周 7 天计划 → 记录发布效果 → 查看下一轮建议 → 启用下一轮
+```
+
+v1.6.50 起，客户公开页改为分步式体验：
+
+- 页面一次只展示当前该做的一件事；
+- 顶部进度为“填写业务 / 确认方向 / 本周计划 / 记录效果 / 下一轮”；
+- 点击计划卡片后进入记录效果步骤；
+- 保存记录后进入下一轮建议步骤；
+- 内部版和生成内核不变，分步只影响客户版呈现。
+
+v1.6.51 起，客户公开页继续冻结在 v1.6.50 的分步体验；内部端拆成「客户运营工作区」和「素材生产工作台」，避免素材生产、QA、交付任务与客户内容策略流混在同一个页面。
+
+v1.6.49 起，客户公开页会在生成前加入轻量共创确认：
+
+- 系统先给出 3 个方向卡，例如家长痛点型、教练专业信任型、体验课转化型；
+- 客户选择本周优先方向，并可排除不想发的内容；
+- 系统按客户确认后的方向生成 7 天计划；
+- 发布后记录效果时，客户可补充“问体验课时间 / 问价格但没预约 / 收藏多但没咨询”等观察标签。
+
+这些共创字段会写入 `assessment.co_creation` 和反馈 `observation_tags`，用于后续同行业样本积累。
+
+v1.6.47 起，客户记录发布效果后会生成下一轮 7 天计划；点击“开始使用第 N 轮 7 天计划”后，当前计划会进入下一轮，旧计划归档到内容周期历史区。后续第 3 / 第 4 / 第 N 轮都会携带历史选题，避免重复旧主题。
+
+v1.6.48 起，客户公开页会在关键节点同步云端项目态：
+
+- 首次生成建议：同步业务信息、诊断和 7 天计划；
+- 记录发布效果：同步发布链接、曝光、互动、咨询、备注和下一轮建议；
+- 启用下一轮：同步当前轮次和历史内容周期。
+
+云端同步用于内部端“全部客户”列表和行业品类样本沉淀；如果同步失败，客户本地流程仍继续可用。
 
 ### 项目化素材生成与验收工作台 V1
 
@@ -129,18 +167,18 @@ CUSTOMER_PUBLIC_MODEL=
 
 如果未配置 `ARK_API_KEY` 或 `ARK_MODEL`，接口不会报错，但会明确返回 `provider: "local"`、`actual_model: "rule_template"`、`fallback: true` 和具体 `fallback_reason`，用于验收区分真实模型调用和规则兜底。
 
-## 第一版边界
+## 产品边界
 
 这是营销增长闭环 MVP，不是 CRM/ERP/管理系统。
 
-第一版不做：
+当前版本不做：
 
-- 登录和权限
 - 合同、报价、审批
 - 客户生命周期跟进
 - 多人协同冲突处理
-- 线上部署和备份
-- 平台自动采集/API 对接
+- 平台自动发布、自动评论、自动私信
+- 账号矩阵、养号、自动建号
+- 面向客户公开展示内部模型、QA、素材生产细节
 
 ## 下一步
 
@@ -149,6 +187,6 @@ CUSTOMER_PUBLIC_MODEL=
 1. 登录和角色权限
 2. Excel/飞书导入导出
 3. 客户真实案例模板库
-4. 每周营销复盘报告
+4. 跨周内容周期报表
 5. 平台数据自动采集
-6. 线上部署和定时备份
+6. 定时备份与运营审计

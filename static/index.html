@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>企业内容增长助手 · 生成发布计划与效果复盘</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.47" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.47" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.51" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.51" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -16,28 +16,38 @@
         <h1>多平台内容增长助手</h1>
         <p>系统会基于你已填写的业务信息，生成抖音/小红书/视频号等多平台内容建议、7 天发布计划和效果记录建议；发完后记录数据，下一轮继续优化。</p>
         <div class="customer-hero-actions">
-          <a class="customer-hero-primary" href="#customerFormCard">开始填写/补充信息</a>
-          <a class="customer-hero-secondary" href="#customerResultSection">查看已生成建议</a>
+          <a class="customer-hero-primary" href="#customerFormCard" data-customer-step-link="intake">开始填写/补充信息</a>
+          <a class="customer-hero-secondary" href="#customerResultSection" data-customer-step-link="plan">查看已生成建议</a>
         </div>
       </div>
     </header>
 
     <main class="customer-main">
       <div class="customer-progress-strip" id="customerProgressStrip" aria-label="操作进度">
-        <div class="cps-item cps-active" data-step="1">
+        <button class="cps-item cps-active" type="button" data-step="1" data-customer-step-target="intake">
           <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">填写信息</span>
-        </div>
+          <span class="cps-label">填写业务</span>
+        </button>
         <div class="cps-line" aria-hidden="true"></div>
-        <div class="cps-item" data-step="2">
+        <button class="cps-item" type="button" data-step="2" data-customer-step-target="confirm">
           <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">内容建议</span>
-        </div>
+          <span class="cps-label">确认方向</span>
+        </button>
         <div class="cps-line" aria-hidden="true"></div>
-        <div class="cps-item" data-step="3">
+        <button class="cps-item" type="button" data-step="3" data-customer-step-target="plan">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">本周计划</span>
+        </button>
+        <div class="cps-line" aria-hidden="true"></div>
+        <button class="cps-item" type="button" data-step="4" data-customer-step-target="record">
           <span class="cps-dot" aria-hidden="true"></span>
           <span class="cps-label">记录效果</span>
-        </div>
+        </button>
+        <div class="cps-line" aria-hidden="true"></div>
+        <button class="cps-item" type="button" data-step="5" data-customer-step-target="next">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">下一轮</span>
+        </button>
       </div>
       <section id="customerFormCard" class="customer-card customer-form-card">
         <div class="customer-section-head">
@@ -195,9 +205,44 @@
         </div>
       </section>
 
+      <section id="customerCoCreationSection" class="customer-card customer-cocreation-card" hidden>
+        <div class="customer-section-head">
+          <p>STEP 2 · 方向确认</p>
+          <h2>先确认这周内容方向</h2>
+          <span>系统先给你 3 个方向。选一个最想测试的，再生成 7 天计划。</span>
+        </div>
+        <form id="customerCoCreationForm" class="customer-cocreation-form" novalidate>
+          <input type="hidden" name="selected_direction" />
+          <div id="customerCoCreationDirections" class="customer-direction-grid"></div>
+
+          <fieldset class="customer-choice-group customer-cocreation-avoid">
+            <legend>这周不想发什么？可多选</legend>
+            <input type="hidden" name="avoided_content" />
+            <div class="customer-choice-row" data-customer-avoid-content data-multi-select="true">
+              <button class="customer-choice-chip" type="button" data-value="不想太硬广"><span></span>不想太硬广</button>
+              <button class="customer-choice-chip" type="button" data-value="不想强调价格"><span></span>不想强调价格</button>
+              <button class="customer-choice-chip" type="button" data-value="不想露脸"><span></span>不想露脸</button>
+              <button class="customer-choice-chip" type="button" data-value="不想拍孩子正脸"><span></span>不想拍孩子正脸</button>
+              <button class="customer-choice-chip" type="button" data-value="不想承诺效果"><span></span>不想承诺效果</button>
+              <button class="customer-choice-chip" type="button" data-value="暂时没有限制"><span></span>暂时没有限制</button>
+            </div>
+          </fieldset>
+
+          <label class="customer-wide">还有什么想特别强调？可选
+            <textarea name="customer_emphasis" placeholder="如：重点推周末体验课、寒暑假班、附近三公里家长、教练专业"></textarea>
+          </label>
+
+          <div id="customerCoCreationMessage" class="customer-message error" role="alert" hidden></div>
+          <div class="customer-cocreation-actions">
+            <button id="customerCoCreationSubmit" class="customer-primary" type="submit">按这个方向生成 7 天计划</button>
+            <button id="customerCoCreationBack" class="customer-secondary" type="button">返回修改业务信息</button>
+          </div>
+        </form>
+      </section>
+
       <section id="customerResultSection" class="customer-card customer-result-card" hidden>
         <div class="customer-section-head">
-          <p>STEP 2 · 内容建议已生成</p>
+          <p>STEP 3 · 本周计划</p>
           <h2>你的专属发布建议</h2>
           <span>根据你刚填的业务情况生成。选一条先发，不需要全部用完——发完一条后在下方记录效果。</span>
         </div>
@@ -220,7 +265,7 @@
         <div class="customer-result-actions">
           <button id="copyCustomerSuggestion" class="customer-secondary" type="button">复制全部建议</button>
           <button id="customerRegenerateBtn" class="customer-secondary" type="button">修改信息并重新生成</button>
-          <a href="#customerEffectSection" class="customer-inline-link">发完第一条 → 下方记录效果</a>
+          <a href="#customerEffectSection" class="customer-inline-link" data-customer-step-link="record">发完第一条 → 去记录效果</a>
         </div>
         <details class="customer-why">
           <summary>为什么这样建议</summary>
@@ -230,7 +275,7 @@
 
       <section id="customerEffectSection" class="customer-card customer-effect-card" hidden>
         <div class="customer-section-head">
-          <p>STEP 3 · 效果记录</p>
+          <p>STEP 4 · 效果记录</p>
           <h2>发完后，记录一下效果</h2>
           <span>只填几个关键数字。下次系统会根据真实效果，帮你优化下一条内容。</span>
         </div>
@@ -259,6 +304,17 @@
                 <label>互动<input name="engagement" type="number" min="0" value="0" /></label>
                 <label>咨询<input name="consultations" type="number" min="0" value="0" /></label>
               </div>
+              <fieldset class="customer-choice-group customer-observation-tags">
+                <legend>客户主要反馈是什么？可选</legend>
+                <input type="hidden" name="observation_tags" />
+                <div class="customer-choice-row" data-customer-observation-tags data-multi-select="true">
+                  <button class="customer-choice-chip" type="button" data-value="问体验课时间"><span></span>问体验课时间</button>
+                  <button class="customer-choice-chip" type="button" data-value="问价格但没预约"><span></span>问价格但没预约</button>
+                  <button class="customer-choice-chip" type="button" data-value="收藏多但没咨询"><span></span>收藏多但没咨询</button>
+                  <button class="customer-choice-chip" type="button" data-value="想看真实案例"><span></span>想看真实案例</button>
+                  <button class="customer-choice-chip" type="button" data-value="担心效果或适不适合"><span></span>担心效果/适不适合</button>
+                </div>
+              </fieldset>
               <label class="customer-observation">一句话观察（可选）<textarea name="notes" placeholder="例如：收藏多，但咨询少；评论集中问价格和预约时间"></textarea></label>
             </div>
           </div>
@@ -283,13 +339,13 @@
   <div id="internalApp" hidden class="internal-trial-app">
   <header class="customer-hero internal-hero">
     <div class="customer-hero-copy">
-      <p class="customer-kicker">内测版 · 智能诊断内核</p>
-      <h1>多平台内容增长助手</h1>
-      <p>主流程与客户版保持一致：先填写/确认业务信息，生成 7 天内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。</p>
+      <p id="internalHeroKicker" class="customer-kicker">内测版 · 智能诊断内核</p>
+      <h1 id="internalHeroTitle">多平台内容增长助手</h1>
+      <p id="internalHeroDesc">主流程与客户版保持一致：先填写/确认业务信息，生成 7 天内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。</p>
       <div class="customer-hero-actions">
-        <a class="customer-hero-primary" href="/internal/#diagnosisWorkflow">开始内测填写</a>
-        <a class="customer-hero-secondary" href="/internal/#planSection">查看生成结果</a>
-        <a class="customer-hero-secondary" href="/internal/generation-workbench">素材生成工作台</a>
+        <a class="customer-hero-primary" href="/internal/#diagnosisWorkflow">客户运营工作区</a>
+        <a class="customer-hero-secondary" href="/internal/#planSection">查看内容计划</a>
+        <a class="customer-hero-secondary" href="/internal/generation-workbench">素材生产工作台</a>
         <button id="topReturnProjectBtn" class="customer-hero-secondary top-return-project" type="button" onclick="returnToActiveProject()" hidden>返回当前运营项目</button>
       </div>
     </div>
@@ -683,6 +739,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.47"></script>
+  <script src="/app.js?v=1.6.51"></script>
 </body>
 </html>

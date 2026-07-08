@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.47';
-const VERSION_LABEL = 'v1.6.47 · 连续内容周期产品化版';
+const APP_VERSION = '1.6.54';
+const VERSION_LABEL = 'v1.6.54 · 商户画像差异化建议版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -148,6 +148,12 @@ const blankClientState = () => ({
   diagnosis: null,
   plans: [],
   feedback: [],
+  records: [],
+  content_rounds: [],
+  active_round: 1,
+  current_round: 1,
+  selected_plan_id: '',
+  latest_next_round: null,
   review: null,
   intake_history: [],
   diagnosis_history: [],
@@ -160,6 +166,7 @@ const blankClientState = () => ({
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
+let customerPendingCoCreationPayload = null;
 
 const api = async (url, opts={}) => {
   const {timeoutMs = 35000, ...fetchOptions} = opts;
@@ -205,12 +212,17 @@ const explicitInternalClientName = () => {
 const visibleClientName = () => {
   const assessment = clientState.assessment || {};
   const project = clientState.project || {};
-  const raw = cleanDisplayName(assessment.company_name)
+  const explicitName = explicitInternalClientName();
+  const raw = explicitName
+    || cleanDisplayName(assessment.company_name)
     || cleanDisplayName(project.name).replace(/作战台$/g, '')
-    || cleanDisplayName(assessment.industry)
-    || explicitInternalClientName();
+    || cleanDisplayName(assessment.industry);
   return raw || '';
 };
+const visibleClientSource = () => cleanDisplayName(clientState.source)
+  || cleanDisplayName(clientState.assessment?.source)
+  || cleanDisplayName(clientState.project?.source)
+  || cleanDisplayName(projectStore.projects.find((item) => String(item.id) === String(clientState.project?.id))?.source);
 const makeProject = (assessment = {}, existing = null) => existing || {
   id: assessment.project_id || `project-${assessment.client_id || 'customer'}-${Date.now()}`,
   client_id: assessment.client_id || customerClientId(),
@@ -242,6 +254,16 @@ const normalizeState = (state = {}) => {
     diagnosis: state.diagnosis || null,
     plans: withMeta(state.plans),
     feedback: withMeta(state.feedback),
+    records: Array.isArray(state.records) ? state.records : [],
+    content_rounds: Array.isArray(state.content_rounds) ? state.content_rounds : [],
+    active_round: Number(state.active_round || state.current_round || 1) || 1,
+    current_round: Number(state.current_round || state.active_round || 1) || 1,
+    selected_plan_id: state.selected_plan_id || '',
+    latest_next_round: state.latest_next_round || null,
+    activated_next_round_from: state.activated_next_round_from || '',
+    customer_key: state.customer_key || assessment?.customer_key || '',
+    dedicated_customer: state.dedicated_customer || assessment?.dedicated_customer || '',
+    cloud_sync_version: state.cloud_sync_version || '',
     review: state.review || null,
     intake_history: Array.isArray(state.intake_history) ? state.intake_history : (assessment ? [assessment] : []),
     diagnosis_history: Array.isArray(state.diagnosis_history) ? state.diagnosis_history : (state.diagnosis ? [state.diagnosis] : []),
@@ -390,7 +412,20 @@ const projectLeakText = (item = {}) => [
   item.state?.diagnosis?.insight,
 ].filter(Boolean).join(' ');
 const isKnownCrossProjectState = (item = {}) => /P0[123]|安标|安规|医疗器械|注册送检|EMC|SunPace|Sunny|PTE|德尔医生|del-doctor|feishu_bitable_p03/i.test(projectLeakText(item));
-const keepProjectForCurrentEntry = (item = {}) => !(isInternalDataScope() && !explicitCustomerClientId() && isKnownCrossProjectState(item));
+const explicitProjectClientText = (item = {}) => [
+  item.client_id,
+  item.state?.client_id,
+  item.state?.customer_key,
+  item.state?.project?.client_id,
+  item.state?.assessment?.client_id,
+  item.state?.assessment?.customer_key,
+].filter(Boolean).map((value) => normalizeClientId(value)).filter(Boolean);
+const keepProjectForCurrentEntry = (item = {}) => {
+  if (!isInternalDataScope()) return true;
+  const explicitId = explicitCustomerClientId();
+  if (explicitId) return explicitProjectClientText(item).includes(explicitId);
+  return !isKnownCrossProjectState(item);
+};
 function normalizeProjectItem(item = {}){
   const state = normalizeState(item.state || {});
   const name = customerDisplayName(state.assessment, state.project) || item.name || '我的内容增长作战台';
@@ -423,7 +458,7 @@ function loadProjectStore(){
       projectStore = {
         activeProjectId: parsed.activeProjectId || parsed.projects[0]?.id || null,
         lastActiveProjectId: parsed.lastActiveProjectId || null,
-        projects: parsed.projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state) && keepProjectForCurrentEntry(item)),
+        projects: parsed.projects.filter(keepProjectForCurrentEntry).map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state) && keepProjectForCurrentEntry(item)),
       };
     }
   } catch {
@@ -439,7 +474,7 @@ function normalizeProjectStoreShape(store = {}){
   return {
     activeProjectId: store.activeProjectId || projects[0]?.id || null,
     lastActiveProjectId: store.lastActiveProjectId || null,
-    projects: projects.map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state) && keepProjectForCurrentEntry(item)),
+    projects: projects.filter(keepProjectForCurrentEntry).map(normalizeProjectItem).filter((item)=>item.id && hasRestorableState(item.state) && keepProjectForCurrentEntry(item)),
   };
 }
 function mergeProjectStores(localStore = projectStore, cloudStore = {}){
@@ -524,6 +559,158 @@ const saveLocal = () => {
   scheduleCloudSync();
   return saved;
 };
+
+const customerCloudNumber = (value) => Math.max(0, Number(value || 0) || 0);
+
+function customerRecordToCloudFeedback(record = {}, saved = {}, index = 0){
+  const clientId = customerClientId();
+  const assessment = saved.assessment || clientState.assessment || {};
+  const projectId = saved.project_id || clientState.project?.id || assessment.project_id || `project-${clientId}`;
+  const activeRound = customerActiveRound(saved);
+  const contentPlanId = planIdValue(record.content_plan_id || saved.selected_plan_id || '');
+  return {
+    id: record.feedback_id || `customer-record-${contentPlanId || index + 1}-${String(record.created_at || Date.now()).replace(/[^a-z0-9]+/gi, '')}`,
+    client_id: clientId,
+    project_id: projectId,
+    cycle_id: saved.current_cycle_id || clientState.current_cycle_id || `customer-round-${activeRound}`,
+    content_plan_id: contentPlanId,
+    plan_topic: customerText(record.plan_topic || customerPlanById(saved, contentPlanId)?.topic || ''),
+    publish_link: normalizeExternalUrl(record.publish_link || ''),
+    feedback_stage: record.feedback_stage || `第 ${activeRound} 轮效果记录`,
+    views: customerCloudNumber(record.views || record.backend_views || record.backend_play_count || record.play_count || record.exposure),
+    backend_views: customerCloudNumber(record.views || record.backend_views || record.backend_play_count || record.play_count || record.exposure),
+    backend_play_count: customerCloudNumber(record.views || record.backend_views || record.backend_play_count || record.play_count || record.exposure),
+    likes: customerCloudNumber(record.likes),
+    comments: customerCloudNumber(record.comments),
+    favorites: customerCloudNumber(record.favorites),
+    shares: customerCloudNumber(record.shares),
+    engagement: customerCloudNumber(record.engagement) || customerCloudNumber(record.likes) + customerCloudNumber(record.comments) + customerCloudNumber(record.favorites) + customerCloudNumber(record.shares),
+    consultations: customerCloudNumber(record.consultations),
+    appointments: customerCloudNumber(record.appointments),
+    observation_tags: customerText(record.observation_tags || ''),
+    notes: customerText(record.notes || record.observation || ''),
+    source: 'customer_public_record',
+    round_number: activeRound,
+    created_at: record.created_at || localTimestamp(),
+  };
+}
+
+function customerCloudReview(saved = {}){
+  const records = Array.isArray(saved.records) ? saved.records : [];
+  const latest = records[0] || null;
+  if (!latest) return clientState.review || null;
+  const nextRound = latest.daily_advice?.next_round || saved.latest_next_round || {};
+  const review = nextRound.review_judgment || {};
+  return {
+    id: `customer-review-${customerRecordKey(latest) || Date.now()}`,
+    client_id: customerClientId(),
+    summary: nextRound.customer_summary || latest.daily_advice?.advice?.judgment || '客户已记录发布效果，等待下一轮内容验证。',
+    next_suggestion: review.decision || latest.daily_advice?.advice?.nextStep || '继续根据真实数据调整下一条内容。',
+    winning_theme: latest.plan_topic || customerPlanById(saved, latest.content_plan_id)?.topic || '',
+    bottleneck: review.less || latest.notes || '',
+    observation_tags: latest.observation_tags || '',
+    action_items: Array.isArray(nextRound.next_7_day_plan) ? nextRound.next_7_day_plan.slice(0, 3).map((row)=>row.topic || row.action).filter(Boolean) : [],
+    source: 'customer_public_record',
+    round_number: customerActiveRound(saved),
+    created_at: latest.created_at || localTimestamp(),
+  };
+}
+
+function customerCloudProjectStore(saved = {}){
+  const assessment = saved.assessment || clientState.assessment || null;
+  const diagnosis = saved.diagnosis || clientState.diagnosis || null;
+  const plans = customerPlans(saved);
+  if (!assessment || !diagnosis || !plans.length) return null;
+  const clientId = customerClientId();
+  const activeRound = customerActiveRound(saved);
+  const projectId = saved.project_id || clientState.project?.id || assessment.project_id || `project-${clientId}`;
+  const currentCycleId = saved.current_cycle_id || clientState.current_cycle_id || `customer-round-${activeRound}`;
+  const project = {
+    id: projectId,
+    client_id: clientId,
+    name: customerDisplayName(assessment, clientState.project || null),
+    created_at: clientState.project?.created_at || assessment.created_at || localTimestamp(),
+    updated_at: saved.updated_at || localTimestamp(),
+  };
+  const normalizedPlans = plans.map((plan, index)=>({
+    ...plan,
+    id: planIdValue(plan) || `plan-${index + 1}`,
+    client_id: clientId,
+    project_id: projectId,
+    cycle_id: currentCycleId,
+    round_number: plan.round_number || activeRound,
+  }));
+  const records = Array.isArray(saved.records) ? saved.records : [];
+  const feedbackFromRecords = records.map((record, index)=>customerRecordToCloudFeedback(record, saved, index));
+  const feedback = feedbackFromRecords.length ? feedbackFromRecords : (Array.isArray(clientState.feedback) ? clientState.feedback : []);
+  const cloudState = normalizeState({
+    project,
+    client_id: clientId,
+    project_stage: records.length ? '运营中' : '待启动',
+    current_cycle_id: currentCycleId,
+    assessment: {
+      ...assessment,
+      client_id: clientId,
+      customer_key: assessment.customer_key || saved.customer_key || explicitCustomerClientId() || clientId,
+      cloud_sync_version: APP_VERSION,
+    },
+    diagnosis,
+    plans: normalizedPlans,
+    feedback,
+    review: customerCloudReview(saved),
+    records,
+    content_rounds: Array.isArray(saved.content_rounds) ? saved.content_rounds : [],
+    active_round: activeRound,
+    current_round: activeRound,
+    selected_plan_id: saved.selected_plan_id || '',
+    latest_next_round: saved.latest_next_round || records[0]?.daily_advice?.next_round || null,
+    activated_next_round_from: saved.activated_next_round_from || '',
+    customer_key: saved.customer_key || assessment.customer_key || explicitCustomerClientId() || clientId,
+    dedicated_customer: saved.dedicated_customer || assessment.dedicated_customer || '',
+    intake_history: Array.isArray(clientState.intake_history) ? clientState.intake_history : [assessment],
+    diagnosis_history: Array.isArray(saved.diagnosis_history) ? saved.diagnosis_history : clientState.diagnosis_history,
+    source: 'customer_public_cloud_sync',
+    environment: 'customer_version',
+    app_version: APP_VERSION,
+    cloud_sync_version: APP_VERSION,
+    saved_at: saved.updated_at || localTimestamp(),
+  });
+  const summary = projectSummaryFromState(cloudState);
+  return {
+    activeProjectId: summary.id,
+    lastActiveProjectId: null,
+    projects: [summary],
+  };
+}
+
+async function syncCustomerTrialCloudState(saved = {}, {silent = true} = {}){
+  if (isInternalDataScope()) return false;
+  const projectStorePayload = customerCloudProjectStore(saved);
+  if (!projectStorePayload) return false;
+  try {
+    await api('/api/state', {
+      method: 'POST',
+      body: JSON.stringify({
+        client_id: customerClientId(),
+        source: 'customer_public_cloud_sync',
+        sync_version: APP_VERSION,
+        project_store: projectStorePayload,
+      }),
+    });
+    if (!silent) toast('已同步到云端，团队可在内部端查看。');
+    return true;
+  } catch (error) {
+    if (!silent) toast('本地已保存，云端同步稍后自动重试。');
+    return false;
+  }
+}
+
+function scheduleCustomerTrialCloudSync(saved = {}){
+  const snapshot = sanitizeCustomerPayload(saved || {});
+  window.setTimeout(() => {
+    syncCustomerTrialCloudState(snapshot, {silent: true}).catch(() => {});
+  }, 50);
+}
 
 function buildVersionedProjectState(result = {}, payload = {}, source = 'customer_public', existingState = null, reason = '首次诊断'){
   const existing = existingState || blankClientState();
@@ -617,18 +804,22 @@ function clearCustomerGeneratedView(){
   const effectSection = $('#customerEffectSection');
   const planBlock = $('#customerPlanBlock');
   const roundHistory = $('#customerRoundHistory');
+  const coCreationSection = $('#customerCoCreationSection');
   if (resultSection) resultSection.hidden = true;
   if (effectSection) effectSection.hidden = true;
   if (planBlock) planBlock.hidden = true;
   if (roundHistory) roundHistory.hidden = true;
+  if (coCreationSection) coCreationSection.hidden = true;
   const result = $('#customerResult');
   const planList = $('#customerPlanList');
   const roundList = $('#customerRoundHistoryList');
+  const coCreationList = $('#customerCoCreationDirections');
   if (result) result.innerHTML = '';
   if (planList) planList.innerHTML = '';
   if (roundList) roundList.innerHTML = '';
+  if (coCreationList) coCreationList.innerHTML = '';
   customerSuggestionText = '';
-  updateCustomerProgress(1);
+  setCustomerStep('intake');
 }
 
 function setCustomerFormCollapsed(collapsed){
@@ -662,8 +853,7 @@ function renderCustomerGeneratedState(saved = {}, options = {}){
   $('#customerResultSection').hidden = false;
   $('#customerEffectSection').hidden = false;
   setCustomerFormCollapsed(true);
-  updateCustomerProgress((Array.isArray(saved.records) && saved.records.length) ? 3 : 2);
-  if (options.focus) window.setTimeout(() => $('#customerResultSection')?.scrollIntoView({behavior:'smooth', block:'start'}), 80);
+  setCustomerStep(options.step || ((Array.isArray(saved.records) && saved.records.length) ? 'next' : 'plan'), {state: saved, focus: options.focus});
   return true;
 }
 
@@ -1076,14 +1266,111 @@ function customerText(value){
     .trim();
 }
 
+const CUSTOMER_FLOW_STEPS = ['intake', 'confirm', 'plan', 'record', 'next'];
+const CUSTOMER_FLOW_STEP_NUMBERS = {intake: 1, confirm: 2, plan: 3, record: 4, next: 5};
+
+function customerHasGeneratedState(saved = loadCustomerTrialState()){
+  return Boolean(saved?.assessment && saved?.diagnosis && Array.isArray(saved.plans) && saved.plans.length);
+}
+
+function customerHasRecords(saved = loadCustomerTrialState()){
+  return Array.isArray(saved?.records) && saved.records.length > 0;
+}
+
+function customerCanOpenStep(step, saved = loadCustomerTrialState()){
+  if (step === 'intake') return true;
+  if (step === 'confirm') return !$('#customerCoCreationSection')?.hidden;
+  if (step === 'plan') return customerHasGeneratedState(saved);
+  if (step === 'record') return customerHasGeneratedState(saved);
+  if (step === 'next') return customerHasRecords(saved);
+  return false;
+}
+
+function customerDefaultStep(saved = loadCustomerTrialState()){
+  if (!$('#customerCoCreationSection')?.hidden) return 'confirm';
+  if (customerHasRecords(saved)) return 'next';
+  if (customerHasGeneratedState(saved)) return 'plan';
+  return 'intake';
+}
+
 function updateCustomerProgress(step){
   const strip = $('#customerProgressStrip');
   if (!strip) return;
+  const stepKey = typeof step === 'string' ? step : (CUSTOMER_FLOW_STEPS[Number(step || 1) - 1] || 'intake');
+  const activeNumber = CUSTOMER_FLOW_STEP_NUMBERS[stepKey] || 1;
+  const saved = loadCustomerTrialState();
   strip.querySelectorAll('.cps-item').forEach((item) => {
     const n = Number(item.dataset.step);
-    item.classList.toggle('cps-done', n < step);
-    item.classList.toggle('cps-active', n === step);
+    const key = item.dataset.customerStepTarget || CUSTOMER_FLOW_STEPS[n - 1] || 'intake';
+    const available = customerCanOpenStep(key, saved) || n <= activeNumber;
+    item.classList.toggle('cps-done', n < activeNumber);
+    item.classList.toggle('cps-active', n === activeNumber);
+    item.classList.toggle('cps-locked', !available);
+    item.toggleAttribute('disabled', !available);
+    item.setAttribute('aria-current', n === activeNumber ? 'step' : 'false');
   });
+}
+
+function setCustomerStep(step = 'intake', options = {}){
+  const saved = options.state || loadCustomerTrialState();
+  let nextStep = CUSTOMER_FLOW_STEPS.includes(step) ? step : customerDefaultStep(saved);
+  if (!customerCanOpenStep(nextStep, saved)) nextStep = customerDefaultStep(saved);
+  const hasGenerated = customerHasGeneratedState(saved);
+  const hasRecord = customerHasRecords(saved);
+  const formCard = $('#customerFormCard');
+  const coCreation = $('#customerCoCreationSection');
+  const resultSection = $('#customerResultSection');
+  const effectSection = $('#customerEffectSection');
+  if (formCard) formCard.hidden = nextStep !== 'intake';
+  if (coCreation) coCreation.hidden = nextStep !== 'confirm';
+  if (resultSection) resultSection.hidden = !(nextStep === 'plan' && hasGenerated);
+  if (effectSection) effectSection.hidden = !((nextStep === 'record' && hasGenerated) || (nextStep === 'next' && hasRecord));
+  document.body.classList.remove(...CUSTOMER_FLOW_STEPS.map((item)=>`customer-step-${item}`));
+  document.body.classList.add(`customer-step-${nextStep}`);
+  document.body.dataset.customerStep = nextStep;
+  updateCustomerStepCopy(nextStep);
+  updateCustomerProgress(nextStep);
+  if (options.focus) {
+    const target = nextStep === 'intake'
+      ? formCard
+      : nextStep === 'confirm'
+        ? coCreation
+        : nextStep === 'plan'
+          ? resultSection
+          : effectSection;
+    window.setTimeout(()=>target?.scrollIntoView({behavior:'smooth', block:'start'}), 60);
+  }
+  return nextStep;
+}
+
+function updateCustomerStepCopy(step = 'intake'){
+  const head = $('#customerEffectSection .customer-section-head');
+  if (!head) return;
+  const kicker = head.querySelector('p');
+  const title = head.querySelector('h2');
+  const desc = head.querySelector('span');
+  if (step === 'next') {
+    if (kicker) kicker.textContent = 'STEP 5 · 下一轮建议';
+    if (title) title.textContent = '看下一轮怎么调整';
+    if (desc) desc.textContent = '系统会根据刚记录的数据，给你下一轮内容方向和 7 天计划入口。';
+    return;
+  }
+  if (kicker) kicker.textContent = 'STEP 4 · 效果记录';
+  if (title) title.textContent = '发完后，记录一下效果';
+  if (desc) desc.textContent = '只填几个关键数字。下次系统会根据真实效果，帮你优化下一条内容。';
+}
+
+function showCustomerStepMessage(step){
+  const msg = step === 'confirm'
+    ? '请先填写业务信息，进入方向确认。'
+    : step === 'plan'
+      ? '请先生成内容建议。'
+      : step === 'record'
+        ? '请先生成 7 天内容计划，再记录发布效果。'
+        : '请先保存一条发布效果，系统会生成下一轮建议。';
+  toast(msg);
+  setCustomerMessage('#customerFormError', msg, 'error');
+  setCustomerStep(customerDefaultStep(), {focus: true});
 }
 
 function customerPickShort(text, fallback){
@@ -1129,6 +1416,192 @@ function customerRequired(payload, profile = currentProfile()){
   if (!minimalIntake && !payload.current_channels) return '请选择你主要想做的平台。';
   if (!minimalIntake && !payload.biggest_problem) return '请选择当前最大的内容问题。';
   return '';
+}
+
+function isYouthBasketballPayload(payload = {}){
+  const text = [payload.company_name, payload.industry, payload.main_goal, payload.target_customer, payload.offer, payload.extra_context]
+    .filter(Boolean)
+    .join(' ');
+  return /少儿篮球|篮球培训|篮球启蒙|小学生篮球|幼儿篮球|青少年篮球|篮球课|篮球训练|运球|投篮/.test(text);
+}
+
+function isMartialArtsPayload(payload = {}){
+  const text = [payload.company_name, payload.industry, payload.main_goal, payload.target_customer, payload.offer, payload.extra_context]
+    .filter(Boolean)
+    .join(' ');
+  return /武术|搏击|散打|拳击|泰拳|跆拳道|格斗|防身术|少儿武术|少儿搏击|武馆|搏击俱乐部|武术搏击/.test(text);
+}
+
+function customerCoCreationDirections(payload = {}){
+  if (isYouthBasketballPayload(payload)) {
+    return [
+      {
+        value: '家长痛点型',
+        title: '家长痛点型',
+        desc: '先回答孩子零基础、怕跟不上、怕没效果这些真实顾虑。',
+        examples: ['孩子零基础能不能上', '体验课第一节练什么'],
+      },
+      {
+        value: '教练专业信任型',
+        title: '教练专业信任型',
+        desc: '展示课堂怎么练、教练怎么带、孩子如何逐步进步。',
+        examples: ['一节课怎么安排', '教练如何保护安全'],
+      },
+      {
+        value: '体验课转化型',
+        title: '体验课转化型',
+        desc: '重点让家长知道适合年龄、时间安排和怎么预约体验课。',
+        examples: ['体验课适合几岁', '周末班怎么约'],
+      },
+    ];
+  }
+  if (isMartialArtsPayload(payload)) {
+    return [
+      {
+        value: '家长安全顾虑型',
+        title: '家长安全顾虑型',
+        desc: '先回答怕受伤、怕太激烈、零基础能不能跟上的真实顾虑。',
+        examples: ['第一次课安全吗', '零基础能不能上'],
+      },
+      {
+        value: '教练专业信任型',
+        title: '教练专业信任型',
+        desc: '展示教练怎么保护、怎么分层带孩子、课堂规则怎么建立。',
+        examples: ['教练如何保护安全', '一节课怎么安排'],
+      },
+      {
+        value: '体验课转化型',
+        title: '体验课转化型',
+        desc: '重点让家长知道适合年龄、课堂强度和怎么预约体验课。',
+        examples: ['体验课适合几岁', '周末班怎么约'],
+      },
+    ];
+  }
+  const target = customerPickShort(payload.target_customer || '', '目标客户');
+  const offer = customerPickShort(payload.offer || payload.main_goal || payload.industry || '', '服务');
+  return [
+    {
+      value: '客户痛点型',
+      title: '客户痛点型',
+      desc: `先回答${target}正在犹豫、担心或反复比较的问题。`,
+      examples: [`为什么需要了解${offer}`, '最常见的决策顾虑'],
+    },
+    {
+      value: '信任证据型',
+      title: '信任证据型',
+      desc: '用案例、流程、资质、服务细节，让客户相信你能解决问题。',
+      examples: ['真实案例怎么判断', '服务过程有哪些细节'],
+    },
+    {
+      value: '咨询转化型',
+      title: '咨询转化型',
+      desc: '围绕预约、到店、咨询、下单，把内容承接到下一步行动。',
+      examples: ['适合谁来咨询', '下一步怎么预约'],
+    },
+  ];
+}
+
+function hideCustomerCoCreation(){
+  const section = $('#customerCoCreationSection');
+  if (section) section.hidden = true;
+  const list = $('#customerCoCreationDirections');
+  if (list) list.innerHTML = '';
+  setCustomerMessage('#customerCoCreationMessage', '');
+}
+
+function renderCustomerCoCreation(payload = {}){
+  customerPendingCoCreationPayload = sanitizeCustomerPayload({...payload});
+  const section = $('#customerCoCreationSection');
+  const list = $('#customerCoCreationDirections');
+  const form = $('#customerCoCreationForm');
+  if (!section || !list || !form) return;
+  const directions = customerCoCreationDirections(payload);
+  list.innerHTML = directions.map((item, index)=>`<button class="customer-direction-card ${index === 0 ? 'is-selected' : ''}" type="button" data-cocreation-direction="${esc(item.value)}" aria-pressed="${index === 0 ? 'true' : 'false'}">
+    <span>${esc(index === 0 ? '推荐优先' : '可选方向')}</span>
+    <strong>${esc(item.title)}</strong>
+    <p>${esc(item.desc)}</p>
+    <em>${esc(item.examples.join(' / '))}</em>
+  </button>`).join('');
+  form.reset();
+  form.querySelector('[name="selected_direction"]').value = directions[0]?.value || '';
+  form.querySelectorAll('[data-customer-avoid-content] .customer-choice-chip').forEach((button)=>{
+    button.classList.remove('is-selected');
+    button.setAttribute('aria-pressed', 'false');
+  });
+  section.hidden = false;
+  setCustomerStep('confirm', {state: loadCustomerTrialState(), focus: true});
+}
+
+function selectCustomerCoCreationDirection(value = ''){
+  const form = $('#customerCoCreationForm');
+  const input = form?.querySelector('[name="selected_direction"]');
+  if (!input) return;
+  input.value = value;
+  $$('#customerCoCreationDirections [data-cocreation-direction]').forEach((card)=>{
+    const selected = card.dataset.cocreationDirection === value;
+    card.classList.toggle('is-selected', selected);
+    card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+}
+
+function collectCustomerCoCreation(){
+  const form = $('#customerCoCreationForm');
+  if (!form) return null;
+  const selected_direction = String(form.querySelector('[name="selected_direction"]')?.value || '').trim();
+  const avoided = [...form.querySelectorAll('[data-customer-avoid-content] .customer-choice-chip.is-selected')]
+    .map((button)=>button.dataset.value)
+    .filter(Boolean);
+  const customer_emphasis = String(form.querySelector('[name="customer_emphasis"]')?.value || '').trim();
+  if (!selected_direction) return null;
+  return sanitizeCustomerPayload({
+    selected_direction,
+    support_direction: '',
+    avoided_content: avoided.includes('暂时没有限制') ? [] : avoided,
+    customer_emphasis,
+    confirmed_at: localTimestamp(),
+  });
+}
+
+async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton = $('#customerGenerateBtn')){
+  const errorBox = $('#customerCoCreationSection')?.hidden ? '#customerFormError' : '#customerCoCreationMessage';
+  setCustomerMessage(errorBox, '');
+  await withBusy(triggerButton, '正在生成建议...', async () => {
+    try {
+      const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(scopedPayload)});
+      const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
+      clientState = buildVersionedProjectState(result, scopedPayload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
+      saveLocal();
+      const diagnosis = clientState.diagnosis || {};
+      const plans = clientState.plans || [];
+      const dedicated = dedicatedCustomerKey();
+      const stateAssessment = customerScopedPayload(clientState.assessment || scopedPayload);
+      const generatedState = {
+        project: clientState.project,
+        project_stage: clientState.project_stage,
+        current_cycle_id: clientState.current_cycle_id,
+        assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
+        draft_assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
+        diagnosis,
+        plans,
+        records: [],
+        content_rounds: [],
+        active_round: 1,
+        current_round: 1,
+        suggestion: customerSuggestionText,
+        project_id: clientState.project?.id,
+        diagnosis_history: clientState.diagnosis_history,
+        client_id: stateAssessment.client_id,
+        customer_key: stateAssessment.customer_key,
+        ...(dedicated ? {dedicated_customer: dedicated} : {}),
+      };
+      saveCustomerTrialState({ ...generatedState, draft_assessment: null });
+      scheduleCustomerTrialCloudSync(generatedState);
+      hideCustomerCoCreation();
+      renderCustomerGeneratedState(generatedState, {focus: true, step: 'plan'});
+    } catch (error) {
+      setCustomerMessage(errorBox, customerFriendlyError(error), 'error');
+    }
+  });
 }
 
 function internalIntakeSnapshot(payload = {}){
@@ -1381,6 +1854,13 @@ function customerFallbackPlans(payload){
       {platform, topic:'第一次买篮球，别只看颜色和价格', angle:'选择避坑：讲清几号球、材质、气压、重量和适合人群', content_type:'图文', cta:'不确定买几号球，可以咨询身高年龄和主要打球场地'},
     ];
   }
+  if (/武术|搏击|散打|拳击|泰拳|跆拳道|格斗|防身术|少儿武术|少儿搏击|武馆|搏击俱乐部|武术搏击/.test(text)) {
+    return [
+      {platform, topic:'孩子学武术/搏击，家长最该先看哪3点', angle:'讲清安全保护、教练分层和孩子是否适合体验', content_type:'图文/短视频', cta:'引导家长咨询孩子年龄、基础和体验课时间'},
+      {platform, topic:'零基础孩子第一次上搏击课，会不会跟不上', angle:'用热身、防护、基础动作和老师反馈降低顾虑', content_type:'图文', cta:'引导家长保存体验课观察清单'},
+      {platform, topic:'武术搏击课不是打架，真正训练的是什么', angle:'把课堂价值转成专注力、规则感、体能和自信', content_type:'短视频/图文', cta:'引导家长咨询是否适合孩子性格和基础'},
+    ];
+  }
   return [
     {platform, topic: `${audience}选择${offer}前，最容易忽略什么？`, angle:'讲清目标客户真实顾虑、服务流程和选择前要注意的细节', content_type:'图文', cta:'引导客户查看主页或咨询具体情况'},
     {platform, topic: `${audience}第一次了解${offer}，先问清这3件事`, angle:'用真实问答降低购买、到店、试听或预约前的决策成本', content_type:'图文', cta:'引导客户保存清单'},
@@ -1451,6 +1931,71 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
     </article>`;
 }
 
+function customerPublishAuditFor(plan = {}, payload = {}){
+  if (plan.publish_audit && typeof plan.publish_audit === 'object') return plan.publish_audit;
+  const platform = customerText(plan.platform || payload.current_channels || '当前平台');
+  const text = [plan.topic, plan.angle, plan.cta, plan.quality_note].map(customerText).join(' ');
+  const serviceText = customerText(`${payload.industry || ''} ${payload.main_goal || ''} ${payload.offer || ''}`);
+  const checks = [];
+  const add = (level, label, message, suggestion) => checks.push({level, label, message, suggestion});
+  if (/微信|VX|v信|手机号|电话|二维码|扫码|加我|站外|联系方式|[1][3-9]\d{9}/i.test(text)) {
+    add('high', '联系方式/站外导流风险', '可能出现电话、二维码或站外承接表达。', '改成“主页咨询”或“咨询具体情况”，发布前去掉联系方式。');
+  }
+  if (/最强|最好|第一|唯一|全网|顶级|100%|百分百|一定|保证|包过|包会|立刻|马上见效|永久/.test(text)) {
+    add('medium', '绝对化用词风险', '可能出现绝对化或承诺式表达。', '改成“通常、适合、可以先观察、建议对照”。');
+  }
+  if (/评论区|留言|关键词|领取|暗号|扣\d|回复/.test(text)) {
+    add('medium', '互动诱导风险', '可能出现平台容易误判的互动诱导。', '改成“保存这份清单”“主页咨询”“对照这几项判断”。');
+  }
+  if (/少儿篮球|武术|搏击|散打|教育|培训|体验课/.test(serviceText) && /保证|一定|速成|快速变强|明显提升|长高|升学|包会/.test(text)) {
+    add('medium', '培训效果承诺风险', '课程类内容不宜承诺确定结果或速成效果。', '改成课堂过程、适合人群、体验观察和阶段目标。');
+  }
+  if (platform.includes('小红书')) {
+    add('info', '小红书发布前自查', '封面和正文要避免电话、二维码、过大 logo、水印和夸张承诺。', '发布前人工看一遍封面、首图、正文第一段和结尾动作。');
+  }
+  if (!checks.length) add('info', '发布前自查', '暂未命中明显高风险词。', '仍建议检查标题是否具体、素材是否真实、结尾是否自然。');
+  const hasHigh = checks.some((item)=>item.level === 'high');
+  const hasMedium = checks.some((item)=>item.level === 'medium');
+  const risk_level = hasHigh ? 'high' : hasMedium ? 'medium' : 'low';
+  const risk_label = risk_level === 'high' ? '高风险' : risk_level === 'medium' ? '中风险' : '低风险';
+  return {
+    platform,
+    risk_level,
+    risk_label,
+    summary: risk_level === 'low' ? '低风险：未命中明显高风险表达，发布前仍需人工复核素材。' : `${risk_label}：建议先按提示改文案或封面，再发布。`,
+    checks,
+    disclaimer: '这是经验规则检查，不代表平台官方审核结果。',
+  };
+}
+
+function customerReasoningForPlan(plan = {}, payload = {}, index = 0){
+  const r = plan.customer_reasoning && typeof plan.customer_reasoning === 'object' ? plan.customer_reasoning : {};
+  const merchant = plan.merchant_profile || r.merchant_profile || {};
+  const platform = customerText(plan.platform || payload.current_channels || '当前平台');
+  const service = customerText(merchant.service_name || payload.offer || customerOfferFromGoal(payload.main_goal, payload.industry));
+  const audience = customerText(payload.target_customer || merchant.audience || '目标客户');
+  const pain = customerText(payload.customer_pain || payload.biggest_problem || merchant.bottleneck || '当前卡点');
+  const observe = Array.isArray(plan.observe_metrics) ? plan.observe_metrics.join('、') : customerText(plan.target_metric || '曝光、收藏、咨询');
+  const experiment = customerText(plan.experiment_type || ['痛点型','效果型','信任型','场景型','转化型','异议处理型','复盘型'][index % 7]);
+  return [
+    ['客户痛点依据', r.pain_basis || `围绕「${audience}」的「${pain}」展开，不套统一模板。`],
+    ['平台表达依据', r.platform_basis || plan.why_platform_fit || customerPlatformAngle(platform, plan)],
+    ['转化动作依据', r.conversion_basis || `这条内容要把浏览带到「${plan.cta || merchant.conversion_action || '咨询具体情况'}」。`],
+    ['本条验证目标', r.validation_goal || `验证「${plan.topic || service}」这个${experiment}是否能带来${observe}信号。`],
+    ['发布前注意', r.publish_note || `发布前补充真实素材，并检查${platform}的敏感词、封面和联系方式规则。`],
+  ].filter(([, value]) => customerText(value));
+}
+
+function customerPublishAuditHtml(audit = {}){
+  const checks = Array.isArray(audit.checks) ? audit.checks : [];
+  const badgeClass = audit.risk_level === 'high' ? 'is-risk-high' : audit.risk_level === 'medium' ? 'is-risk-medium' : 'is-risk-low';
+  return `<div class="customer-publish-audit ${esc(badgeClass)}">
+    <p><strong>发布前检查：</strong><span class="plan-platform-pill">${esc(audit.risk_label || '低风险')}</span> ${esc(audit.summary || '发布前人工复核。')}</p>
+    ${checks.length ? `<ul>${checks.slice(0, 4).map((item)=>`<li><b>${esc(item.label || '检查项')}</b>：${esc(item.message || '')}${item.suggestion ? ` <span>${esc(item.suggestion)}</span>` : ''}</li>`).join('')}</ul>` : ''}
+    <em>${esc(audit.disclaimer || '经验规则检查，不代表平台官方审核结果。')}</em>
+  </div>`;
+}
+
 function buildCustomerPlanList(payload, plans){
   const safePlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, 7);
   const saved = loadCustomerTrialState();
@@ -1470,6 +2015,8 @@ function buildCustomerPlanList(payload, plans){
     const observe = Array.isArray(plan.observe_metrics) ? plan.observe_metrics.join(' / ') : customerText(plan.target_metric || '曝光/播放 / 收藏 / 咨询');
     const nextAdjustment = customerText(plan.next_adjustment || '数据不好时，下一条先换标题/开头，再补真实证据和咨询入口。');
     const recorded = recordedPlanIds.has(String(planId).trim());
+    const reasoning = customerReasoningForPlan(plan, payload, index);
+    const audit = customerPublishAuditFor(plan, payload);
     return `<article class="customer-plan-item customer-plan-lite${recorded ? ' is-recorded' : ''}" data-customer-plan-id="${esc(planId)}">
       <div class="plan-lite-main">
         <span class="plan-day-pill">${esc(day)}</span>
@@ -1480,11 +2027,12 @@ function buildCustomerPlanList(payload, plans){
         <summary>为什么这样发 ›</summary>
         <div class="plan-lite-reason-body">
           <p><strong>角度：</strong>${esc(angle)}</p>
-          <p><strong>平台：</strong>${esc(whyPlatform)}</p>
+          ${reasoning.map(([label, value])=>`<p><strong>${esc(label)}：</strong>${esc(value)}</p>`).join('')}
           <p><strong>形式：</strong>${esc(contentType)} · ${esc(experiment)}</p>
           <p><strong>看什么：</strong>${esc(observe)}</p>
           <p><strong>如果数据一般：</strong>${esc(nextAdjustment)}</p>
           <p><strong>结尾：</strong>${esc(cta)}</p>
+          ${customerPublishAuditHtml(audit)}
         </div>
       </details>
       <button class="customer-plan-select" type="button" data-customer-record-plan="${esc(planId)}">${recorded ? '已记录，继续补充' : '这条发完了，去记录效果'}</button>
@@ -1633,9 +2181,10 @@ function selectCustomerEffectPlan(planId){
     return;
   }
   saveCustomerTrialState({ selected_plan_id: planIdValue(plan) });
-  updateCustomerSelectedPlanDisplay({ ...current, selected_plan_id: planIdValue(plan) });
-  $('#customerEffectSection')?.scrollIntoView({behavior:'smooth', block:'start'});
-  $('#customerEffectForm [name=views]')?.focus();
+  const selectedState = { ...current, selected_plan_id: planIdValue(plan) };
+  updateCustomerSelectedPlanDisplay(selectedState);
+  setCustomerStep('record', {state: selectedState, focus: true});
+  window.setTimeout(()=>$('#customerEffectForm [name=views]')?.focus(), 140);
   const displayNumber = customerPlanDisplayNumber(current, plan);
   setCustomerMessage('#customerEffectMessage', `已选择${displayNumber ? `第${displayNumber}天` : '这条内容'}。填曝光、互动、咨询这几个数就可以。`);
 }
@@ -1651,9 +2200,11 @@ function renderCustomerEffects(savedState = null){
   }
   box.innerHTML = records.slice(0, 5).map((item)=>{
     const nums = customerRecordNumbers(item);
+    const tags = String(item.observation_tags || '').trim();
     return `<div class="customer-record">
     <strong>${esc(item.plan_topic || item.published_at || item.created_at || '已记录')}</strong>
     <span>曝光 ${esc(nums.views)} · 互动 ${esc(nums.engagement)} · 咨询 ${esc(nums.consultations)}</span>
+    ${tags ? `<em>${esc(tags)}</em>` : ''}
     <p>${esc(item.notes || '未填写观察')}</p>
   </div>`;}).join('');
 }
@@ -1780,7 +2331,41 @@ function customerNextRoundTopicPool({assessment = {}, selectedPlan = {}, type = 
   const audience = customerText(assessment.target_customer || '目标客户').replace(/[，,、].*$/, '').slice(0, 18) || '目标客户';
   const offer = customerText(assessment.offer || customerOfferFromGoal(assessment.main_goal, assessment.industry));
   const selectedTopic = customerText(selectedPlan.topic || '本次发布内容');
-  if (/篮球|体能|体验课|周末班|寒暑假班/.test(source)) {
+  if (/武术|搏击|散打|拳击|泰拳|跆拳道|格斗|防身术|少儿武术|少儿搏击|武馆|搏击俱乐部|武术搏击/.test(source)) {
+    if (type === '加码') {
+      return [
+        '家长问体验课前，最想确认安全保护怎么做',
+        '零基础孩子上武术搏击课，第一节会练什么',
+        '为什么规则感和专注力，比动作帅更先被家长看见',
+        '周末班怎么安排，孩子不怕累还能坚持',
+        '孩子报名武术搏击课，家长最该看哪3点',
+        '体验课后要不要继续报班，看这几个课堂信号',
+        '家长担心受伤和强度，搏击课怎么处理',
+        '孩子胆小或好动，武术搏击先从哪一步开始',
+      ];
+    }
+    if (type === '换角度') {
+      return [
+        '家长收藏搏击课内容后，为什么还没有预约体验课',
+        '孩子零基础能不能上武术搏击课，先看这3个课堂细节',
+        '武术搏击体验课，家长最怕的安全问题怎么解决',
+        '周末给孩子报搏击课，家长通常会卡在哪一步',
+        '想提升专注和体能的孩子，第一阶段练什么',
+        '孩子选武术搏击，别只看动作帅不帅',
+        '体验课前，家长可以先问清楚这几个问题',
+      ];
+    }
+    return [
+      '孩子适不适合学武术搏击，家长先看这3个信号',
+      '武术搏击启蒙第一节课，应该让孩子获得什么',
+      '家长给孩子选体能课，为什么会考虑武术搏击',
+      '附近孩子周末学武术搏击，先了解上课节奏',
+      '孩子怕对抗不敢练，武术搏击启蒙怎么开始',
+      '体验课预约前，家长最该确认哪几件事',
+      '小学生武术搏击训练，不是先追求动作多帅',
+    ];
+  }
+  if (/少儿篮球|小学生篮球|幼儿篮球|青少年篮球|篮球培训|篮球训练|篮球启蒙|篮球课|运球|投篮/.test(source)) {
     if (type === '加码') {
       return [
         '家长问体验课前，最想确认孩子能不能跟上',
@@ -1906,24 +2491,51 @@ function buildCustomerNextRoundPlan(saved = {}, record = {}, advice = {}){
   ], forbiddenTopics);
   const fallbackTopics = uniqueCustomerTopics(Array.from({length: 10}, (_, index)=>`${audience}下周第${index + 1}个${offer}决策问题`), forbiddenTopics.concat(generatedTopics));
   const seedTopics = [...generatedTopics, ...fallbackTopics].slice(0, 7);
+  const ctaSource = customerText(`${assessment.industry || ''} ${assessment.main_goal || ''} ${assessment.offer || ''}`);
+  const ctaText = /少儿篮球|小学生篮球|幼儿篮球|青少年篮球|篮球培训|篮球训练|篮球启蒙|篮球课|运球|投篮/.test(ctaSource)
+    ? '引导家长咨询孩子年龄和体验课时间'
+    : /武术|搏击|散打|拳击|泰拳|跆拳道|格斗|防身术|少儿武术|少儿搏击|武馆|搏击俱乐部|武术搏击/.test(ctaSource)
+      ? '引导家长咨询孩子年龄、基础和体验课时间'
+      : '引导客户咨询是否适合';
   const rows = Array.from({length: 7}, (_, index)=>{
     const topic = seedTopics[index] || (audience + '关心的' + offer + '问题');
     const platform = platformSeeds[index % Math.max(platformSeeds.length, 1)] || selectedPlan?.platform || '小红书/视频号';
+    const experimentType = ['痛点型','效果型','信任型','场景型','转化型','异议处理型','复盘型'][index % 7];
+    const rowBase = {
+      topic,
+      angle: actions[index],
+      platform,
+      cta: ctaText,
+      experiment_type: experimentType,
+      observe_metrics: platform === '抖音' ? ['播放完成率','主页访问','咨询','预约'] : platform === '小红书' ? ['曝光','收藏','评论提问','咨询'] : ['播放','转发','咨询','预约'],
+      target_metric: nums.consultations > 0 || nums.appointments > 0 ? '咨询/预约' : (nums.views >= 800 ? '收藏/咨询' : '曝光/播放'),
+    };
     return {
       day: 'Day ' + (index + 1),
       planned_date: nextSevenDate(index + 1),
       topic,
       angle: actions[index],
       platform,
-      experiment_type: ['痛点型','效果型','信任型','场景型','转化型','异议处理型','复盘型'][index % 7],
+      experiment_type: experimentType,
       action: actions[index],
       reason: index === 0 ? ('承接本次回填判断：' + type) : '延续同一轮复盘结论，避免每天推倒重来。',
-      target_metric: nums.consultations > 0 || nums.appointments > 0 ? '咨询/预约' : (nums.views >= 800 ? '收藏/私信咨询' : '曝光/播放'),
+      target_metric: rowBase.target_metric,
       based_on: selectedPlan?.topic || record.plan_topic || '',
-      cta: /篮球|体能|体验课/.test(customerText(`${assessment.industry || ''} ${assessment.main_goal || ''} ${assessment.offer || ''}`)) ? '引导家长咨询孩子年龄和体验课时间' : '引导客户咨询是否适合',
+      cta: ctaText,
       why_platform_fit: customerPlatformAngle(platform, {topic, angle: actions[index]}),
-      observe_metrics: platform === '抖音' ? ['播放完成率','主页访问','咨询','预约'] : platform === '小红书' ? ['曝光','收藏','评论提问','咨询'] : ['播放','转发','咨询','预约'],
+      observe_metrics: rowBase.observe_metrics,
       next_adjustment: nums.consultations > 0 || nums.appointments > 0 ? '继续补案例、价格/周期和适合人群。' : '先换标题/开头，再补真实证据和咨询入口。',
+      merchant_profile: {
+        service_name: offer,
+        audience: assessment.target_customer || audience,
+        bottleneck: assessment.biggest_problem || type,
+        conversion_action: ctaText,
+      },
+      customer_reasoning: Object.fromEntries(customerReasoningForPlan(rowBase, assessment, index).map(([label, value]) => {
+        const key = label === '客户痛点依据' ? 'pain_basis' : label === '平台表达依据' ? 'platform_basis' : label === '转化动作依据' ? 'conversion_basis' : label === '本条验证目标' ? 'validation_goal' : 'publish_note';
+        return [key, value];
+      })),
+      publish_audit: customerPublishAuditFor(rowBase, assessment),
     };
   });
   return {
@@ -2035,13 +2647,14 @@ function activateCustomerNextRound(){
     updated_at: localTimestamp(),
   };
   saveCustomerTrialState(nextState);
+  scheduleCustomerTrialCloudSync(nextState);
   if (clientState?.plans) {
     clientState.plans = nextPlans;
     clientState.feedback = [];
     clientState.current_cycle_id = `customer-round-${roundNumber + 1}`;
     saveLocal();
   }
-  renderCustomerGeneratedState(nextState, {focus: true});
+  renderCustomerGeneratedState(nextState, {focus: true, step: 'plan'});
   renderCustomerEffects(nextState);
   renderCustomerRecordSummary(nextState);
   renderCustomerNextAdvice(nextState);
@@ -2289,7 +2902,8 @@ function customerOfferFromGoal(goal, industry){
   if (/篮球销售|卖篮球|篮球售卖|篮球零售|篮球专卖|篮球店|篮球用品|篮球器材|篮球装备|篮球商品|训练篮球|比赛篮球/.test(text)) return '篮球商品';
   if (/饰品|首饰|耳饰|耳环|项链|手链|戒指|发夹|配饰|珠宝|银饰/.test(text)) return '饰品款式';
   if (/女装|服装|穿搭|包包|鞋履|香薰|礼物|买手店|零售|上新/.test(text)) return '商品款式';
-  if (/篮球|少儿篮球|小学生篮球|幼儿篮球|青少年篮球|篮球培训|篮球训练|篮球启蒙|篮球课|运球|投篮|体适能|体能训练|运动培训|体育培训|寒暑假班|周末班/.test(text)) return '少儿篮球体验课';
+  if (/武术|搏击|散打|拳击|泰拳|跆拳道|格斗|防身术|少儿武术|少儿搏击|武馆|搏击俱乐部|武术搏击/.test(text)) return '武术搏击体验课';
+  if (/少儿篮球|小学生篮球|幼儿篮球|青少年篮球|篮球培训|篮球训练|篮球启蒙|篮球课|运球|投篮/.test(text)) return '少儿篮球体验课';
   if (/美容|医美|产康/.test(text)) return '到店服务';
   if (/装修/.test(text)) return '装修方案';
   if (/留学|教育|培训/.test(text)) return '咨询方案';
@@ -2315,6 +2929,8 @@ function initCustomerTrial(){
   initCustomerChoices('[data-customer-platforms]', 'current_channels');
   initCustomerChoices('[data-customer-content-mode]', 'content_mode');
   initCustomerChoices('[data-customer-problems]', 'biggest_problem');
+  initChoiceGroup('[data-customer-avoid-content]', '#customerCoCreationForm', 'avoided_content');
+  initChoiceGroup('[data-customer-observation-tags]', '#customerEffectForm', 'observation_tags');
   initCustomerGuide();
   renderCustomerEffects();
   const savedCustomerState = loadCustomerTrialState();
@@ -2327,6 +2943,7 @@ function initCustomerTrial(){
       '浏览器恢复'
     );
     renderCustomerGeneratedState(savedCustomerState);
+    scheduleCustomerTrialCloudSync(savedCustomerState);
   } else if (hasDifferentCustomerDraft(savedCustomerState)) {
     fillCustomerFormFromAssessment(savedCustomerState.draft_assessment);
     clearCustomerGeneratedView();
@@ -2337,6 +2954,7 @@ function initCustomerTrial(){
   prefillDedicatedCustomer();
   renderCustomerRecordSummary(savedCustomerState);
   renderCustomerNextAdvice(savedCustomerState);
+  setCustomerStep(customerDefaultStep(savedCustomerState), {state: savedCustomerState});
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
   $('#customerRegenerateBtn')?.addEventListener('click', editCustomerAssessment);
   $('#customerAssessmentForm')?.addEventListener('input', hideStaleCustomerResultIfNeeded);
@@ -2349,9 +2967,32 @@ function initCustomerTrial(){
         fillCustomerFormFromAssessment(current.assessment || current.draft_assessment);
       }
       setCustomerFormCollapsed(false);
-      updateCustomerProgress(1);
-      $('#customerFormCard')?.scrollIntoView({behavior:'smooth', block:'start'});
+      setCustomerStep('intake', {state: current, focus: true});
     });
+  });
+  document.querySelectorAll('[data-customer-step-link]').forEach((link)=>{
+    link.addEventListener('click', (event) => {
+      const targetStep = link.dataset.customerStepLink;
+      if (!targetStep) return;
+      event.preventDefault();
+      const current = loadCustomerTrialState();
+      if (!customerCanOpenStep(targetStep, current)) {
+        showCustomerStepMessage(targetStep);
+        return;
+      }
+      setCustomerStep(targetStep, {state: current, focus: true});
+    });
+  });
+  $('#customerProgressStrip')?.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('[data-customer-step-target]');
+    if (!button) return;
+    const targetStep = button.dataset.customerStepTarget || 'intake';
+    const current = loadCustomerTrialState();
+    if (!customerCanOpenStep(targetStep, current)) {
+      showCustomerStepMessage(targetStep);
+      return;
+    }
+    setCustomerStep(targetStep, {state: current, focus: true});
   });
   $('#customerAssessmentForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2377,34 +3018,29 @@ function initCustomerTrial(){
     const scopedPayload = customerScopedPayload(payload);
     saveCustomerDraft(scopedPayload);
     clearCustomerGeneratedView();
-    await withBusy($('#customerGenerateBtn'), '正在生成建议...', async () => {
-      try {
-        const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(scopedPayload)});
-        const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
-        clientState = buildVersionedProjectState(result, scopedPayload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
-        saveLocal();
-        const diagnosis = clientState.diagnosis || {};
-        const plans = clientState.plans || [];
-        const dedicated = dedicatedCustomerKey();
-        const stateAssessment = customerScopedPayload(clientState.assessment || scopedPayload);
-        const generatedState = {
-          assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
-          draft_assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
-          diagnosis,
-          plans,
-          suggestion: customerSuggestionText,
-          project_id: clientState.project?.id,
-          diagnosis_history: clientState.diagnosis_history,
-          client_id: stateAssessment.client_id,
-          customer_key: stateAssessment.customer_key,
-          ...(dedicated ? {dedicated_customer: dedicated} : {}),
-        };
-        saveCustomerTrialState({ ...generatedState, draft_assessment: null });
-        renderCustomerGeneratedState(generatedState, {focus: true});
-      } catch (error) {
-        setCustomerMessage(errorBox, customerFriendlyError(error));
-      }
-    });
+    renderCustomerCoCreation(scopedPayload);
+  });
+  $('#customerCoCreationDirections')?.addEventListener('click', (event) => {
+    const card = event.target?.closest?.('[data-cocreation-direction]');
+    if (!card) return;
+    selectCustomerCoCreationDirection(card.dataset.cocreationDirection || '');
+  });
+  $('#customerCoCreationBack')?.addEventListener('click', () => {
+    hideCustomerCoCreation();
+    setCustomerFormCollapsed(false);
+    setCustomerStep('intake', {focus: true});
+  });
+  $('#customerCoCreationForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const basePayload = customerPendingCoCreationPayload || customerScopedPayload(currentCustomerFormPayload());
+    const coCreation = collectCustomerCoCreation();
+    if (!coCreation) {
+      setCustomerMessage('#customerCoCreationMessage', '请先选择这周最想测试的内容方向。', 'error');
+      return;
+    }
+    const scopedPayload = sanitizeCustomerPayload({...basePayload, co_creation: coCreation});
+    saveCustomerDraft(scopedPayload);
+    await submitCustomerAssessmentPayload(scopedPayload, $('#customerCoCreationSubmit'));
   });
   $('#customerPlanList')?.addEventListener('click', (event) => {
     const button = event.target?.closest?.('[data-customer-record-plan]');
@@ -2485,7 +3121,12 @@ function initCustomerTrial(){
       clientState.review = createLocalReview();
       saveLocal();
     }
+    scheduleCustomerTrialCloudSync(nextState);
     e.target.reset();
+    $$('[data-customer-observation-tags] .customer-choice-chip').forEach((button)=>{
+      button.classList.remove('is-selected');
+      button.setAttribute('aria-pressed', 'false');
+    });
     const advice = record.daily_advice?.advice || buildCustomerNextAdvice(nextState, record);
     const nextRound = record.daily_advice?.next_round || buildCustomerNextRoundPlan(nextState, record, advice);
     setCustomerMessage('#customerEffectMessage', `已记录这条内容。系统已生成复盘判断和下一轮 7 天计划：${nextRound.review_judgment?.type || '继续观察'}。`);
@@ -2498,7 +3139,7 @@ function initCustomerTrial(){
     if (planList) planList.innerHTML = buildCustomerPlanList(nextState.assessment || current.assessment || {}, nextState.plans || customerPlans(nextState));
     if (planBlock) planBlock.hidden = !customerPlans(nextState).length;
     updateCustomerSelectedPlanDisplay(nextState);
-    updateCustomerProgress(3);
+    setCustomerStep('next', {state: nextState, focus: true});
   });
 }
 
@@ -2698,6 +3339,36 @@ function renderProjectSwitcher(){
   return `<label class="project-switcher"><span>当前项目</span><select onchange="switchProject(this.value)">${options}</select></label>`;
 }
 
+function renderWarCoreAnchors({ todayAction, decisionText, winningText, d }){
+  const assessment = clientState.assessment || {};
+  const diagnosis = clientState.diagnosis || {};
+  const clientName = visibleClientName();
+  const customer = clientName
+    ? `${clientName}｜${assessment.target_customer || assessment.main_goal || assessment.industry || '业务目标'}`
+    : (assessment.target_customer || assessment.main_goal || assessment.industry || '业务目标');
+  const judgment = diagnosis.priority_problem || diagnosis.next_step || '内容增长判断';
+  const feedback = d.total_consultations > 0
+    ? `${d.total_consultations} 个有效咨询`
+    : (clientState.feedback.length ? `${clientState.feedback.length} 条回填记录` : '等待真实反馈');
+  const anchors = [
+    { key:'01', label:'客户输入', value:customer, desc:'业务、目标客户和当前卡点', anchor:'evidence-k', tone:'blue' },
+    { key:'02', label:'系统判断', value:judgment, desc:'先判断问题，再给内容方向', anchor:'evidence-v', tone:'green' },
+    { key:'03', label:'今日动作', value:todayAction, desc:'首屏直接告诉下一步做什么', anchor:'planSection', tone:'orange' },
+    { key:'04', label:'真实反馈', value:feedback, desc:winningText, anchor:'evidence-r', tone:'purple' },
+  ];
+  return anchors.map((item) => {
+    const click = item.anchor.startsWith('evidence-')
+      ? `openClientEvidence('${esc(item.anchor)}')`
+      : `scrollToSection('#${esc(item.anchor)}')`;
+    return `<button class="war-core-anchor ${esc(item.tone)}" type="button" onclick="${click}">
+      <span class="war-core-index">${esc(item.key)}</span>
+      <span class="war-core-label">${esc(item.label)}</span>
+      <strong>${esc(item.value)}</strong>
+      <em>${esc(item.desc)}</em>
+    </button>`;
+  }).join('');
+}
+
 function renderLifecycleWorkbench(){
   syncProjectStage();
   const el = $('#lifecycleWorkbench');
@@ -2742,12 +3413,16 @@ function renderLifecycleWorkbench(){
   const stageTag = unfilled ? '<span class="war-tag orange">待回填</span>' : (hasRealFeedback ? '<span class="war-tag green">状态正常</span>' : '<span class="war-tag orange">待启动</span>');
   const reviewTag = `<span class="war-tag purple">${esc(cycleText)}</span>`;
   const hypothesis = `<span class="war-tag">假设：${esc(clientState.diagnosis?.priority_problem || clientState.assessment?.biggest_problem || '内容能否带来咨询')}</span>`;
+  const coreAnchors = renderWarCoreAnchors({ todayAction, decisionText, winningText, d });
+  const identityBar = renderInternalClientIdentityHtml({compact: true});
   el.innerHTML = `<div class="war-room-shell">
     <div class="war-nav"><div class="war-brand"><span class="war-mark"></span><strong>${esc(projectName)}</strong></div>${projectSwitcher}<div class="war-tabs"><button class="active" type="button" onclick="scrollToSection('#lifecycleWorkbench')">作战台</button><button type="button" onclick="scrollToSection('#planSection')">计划/回填</button><button type="button" onclick="regenerateCurrentDiagnosis()">重新诊断</button><button type="button" onclick="startNewProject()">新增项目</button></div></div>
+    ${identityBar}
     <section class="war-status-hero">
       <div><h2>${esc(cycleText)} · ${esc(meta.label)}</h2><div class="war-meta">${stageTag}${reviewTag}${hypothesis}</div></div>
       <div class="war-actions">${primaryAction}<button class="war-btn" type="button" onclick="document.querySelector('#planSection')?.scrollIntoView({behavior:'smooth', block:'start'})">查看计划</button><button class="war-btn" type="button" onclick="document.querySelector('#feedbackWorkflow')?.scrollIntoView({behavior:'smooth', block:'start'})">周复盘</button></div>
     </section>
+    <section class="war-core-anchors" aria-label="四个核心要素">${coreAnchors}</section>
     <section class="war-main-row">
       <article class="war-card war-todo"><div class="war-card-head"><span>今日动作 · P1</span><span class="war-tag orange">${unfilled ? '待处理' : '下一步'}</span></div><h3>${esc(todayAction)}</h3><p>${esc(todayReason)}</p><div class="war-inline-actions">${todayEvidence}</div></article>
       <article class="war-card war-decision"><div class="war-card-head"><span>下一步判断</span></div><div class="war-decision-main">${decisionText}</div><div class="war-confidence"><i style="width:${confidence}%"></i></div><div class="war-meta"><span class="war-tag green">咨询 ${d.total_consultations}</span><span class="war-tag">${winningText}</span></div><div class="war-inline-actions">${decisionEvidence}</div></article>
@@ -2899,18 +3574,40 @@ function hydrateInternalFormValuesFromState(){
   });
   const name = visibleClientName();
   const companyInput = form.querySelector('[name="company_name"]');
-  if (companyInput && name && !String(companyInput.value || '').trim()) {
+  if (companyInput && name && (explicitInternalClientName() || !String(companyInput.value || '').trim())) {
     companyInput.value = name;
     companyInput.defaultValue = name;
     companyInput.setAttribute('value', name);
   }
 }
 
+function renderInternalClientIdentityHtml({compact = false} = {}){
+  if (!isInternalProfile()) return '';
+  const name = visibleClientName();
+  if (!name) return '';
+  const assessment = clientState.assessment || {};
+  const source = visibleClientSource();
+  const project = cleanDisplayName(clientState.project?.name);
+  const planCount = Array.isArray(clientState.plans) ? clientState.plans.length : 0;
+  const feedbackSummary = cleanDisplayName(assessment.best_recent_content)
+    || cleanDisplayName(assessment.content_assets);
+  const meta = [
+    customerClientId(),
+    source ? `source=${source}` : '',
+    project ? `project=${project}` : '',
+    planCount ? `${planCount}条计划` : '',
+  ].filter(Boolean).join('｜');
+  return `<div class="internal-client-identity ${compact ? 'compact' : ''}" data-client-id="${esc(customerClientId())}" data-client-source="${esc(source)}">
+    <span>当前客户</span><strong>${esc(name)}</strong><em>${esc(meta)}</em>
+    ${feedbackSummary ? `<small>反馈摘要：${esc(feedbackSummary)}</small>` : ''}
+  </div>`;
+}
+
 function renderInternalClientIdentity(){
   if (!isInternalProfile()) return;
-  const name = visibleClientName();
-  if (!name) return;
-  const targets = ['#planSection', '#internalResultSection'];
+  const html = renderInternalClientIdentityHtml();
+  if (!html) return;
+  const targets = ['#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackWorkflow'];
   targets.forEach((selector) => {
     const section = document.querySelector(selector);
     if (!section) return;
@@ -2921,7 +3618,7 @@ function renderInternalClientIdentity(){
       const head = section.querySelector('.customer-section-head');
       section.insertBefore(badge, head || section.firstChild);
     }
-    badge.innerHTML = `<span>当前客户</span><strong>${esc(name)}</strong><em>${esc(customerClientId())}</em>`;
+    badge.outerHTML = html;
   });
 }
 
@@ -2957,6 +3654,10 @@ function renderDashboard(d){
 }
 
 function renderWorkflowVisibility(){
+  if (isGenerationWorkbenchRoute()) {
+    renderGenerationWorkbenchRoute();
+    return;
+  }
   const hasPlans = clientState.plans.length > 0;
   const hint = $('#feedbackHint');
   const workflow = $('#feedbackWorkflow');
@@ -4005,8 +4706,10 @@ function renderGenerationWorkbenchRoute(){
   const active = isGenerationWorkbenchRoute();
   const wb = $('#generationWorkbench');
   if (wb) wb.hidden = !active;
+  renderInternalWorkspaceShell(active);
   const wbLink = document.querySelector('.customer-hero-actions a[href="/internal/generation-workbench"]');
   const intakeLink = document.querySelector('.customer-hero-actions a[href="/internal/#diagnosisWorkflow"]');
+  const planLink = document.querySelector('.customer-hero-actions a[href="/internal/#planSection"]');
   if (wbLink) {
     wbLink.classList.toggle('customer-hero-primary', active);
     wbLink.classList.toggle('customer-hero-secondary', !active);
@@ -4016,10 +4719,39 @@ function renderGenerationWorkbenchRoute(){
     intakeLink.classList.toggle('customer-hero-primary', !active);
     intakeLink.classList.toggle('customer-hero-secondary', active);
   }
+  if (planLink) planLink.hidden = active;
   if (!isInternalProfile()) return;
-  ['#allCustomersPanel', '#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow'].forEach((selector) => {
+  ['#allCustomersPanel', '#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow', '.internal-debug-panel', '.internal-progress-strip'].forEach((selector) => {
     const el = $(selector);
     if (active && el) el.hidden = true;
+  });
+}
+
+function renderInternalWorkspaceShell(productionActive = isGenerationWorkbenchRoute()){
+  if (!isInternalProfile()) return;
+  document.body.classList.toggle('internal-production-mode', productionActive);
+  document.body.classList.toggle('internal-operations-mode', !productionActive);
+  document.body.dataset.internalWorkspace = productionActive ? 'production' : 'operations';
+  const copy = productionActive
+    ? {
+      kicker: '内部版 · 素材生产工作台',
+      title: '素材生成与验收工作台',
+      desc: '这里只处理素材、生成任务、内部 QA 和客户交付，不和客户内容策略流混在同一页面。',
+    }
+    : {
+      kicker: '内测版 · 智能诊断内核',
+      title: '多平台内容增长助手',
+      desc: '主流程与客户版保持一致：先填写/确认业务信息，生成 7 天内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。',
+    };
+  const kicker = $('#internalHeroKicker');
+  const title = $('#internalHeroTitle');
+  const desc = $('#internalHeroDesc');
+  if (kicker) kicker.textContent = copy.kicker;
+  if (title) title.textContent = copy.title;
+  if (desc) desc.textContent = copy.desc;
+  ['.internal-progress-strip', '.internal-debug-panel'].forEach((selector) => {
+    const el = $(selector);
+    if (el) el.hidden = productionActive;
   });
 }
 
