@@ -1355,3 +1355,47 @@ body.customer-mode .customer-footer-meta a:hover{
     justify-content:start!important;
   }
 }
+
+/* v1.6.74 hero typography refinement: calmer Chinese headline rhythm */
+body.customer-mode .customer-product-hero{
+  padding-top:40px!important;
+}
+body.customer-mode .customer-product-hero .customer-hero-copy{
+  gap:16px!important;
+}
+body.customer-mode .customer-product-hero h1{
+  max-width:560px!important;
+  font-size:clamp(38px,4.2vw,52px)!important;
+  line-height:1.18!important;
+  letter-spacing:0!important;
+  font-weight:860!important;
+}
+body.customer-mode .customer-product-hero p{
+  max-width:540px!important;
+  font-size:16px!important;
+  line-height:1.9!important;
+  color:#5f6b7a!important;
+}
+body.customer-mode .customer-product-hero .customer-kicker{
+  margin-bottom:2px!important;
+}
+body.customer-mode .customer-proof-row{
+  margin-top:2px!important;
+}
+body.customer-mode .customer-hero-outcome{
+  max-width:520px!important;
+  margin-top:2px!important;
+}
+@media(max-width:620px){
+  body.customer-mode .customer-product-hero{
+    padding-top:22px!important;
+  }
+  body.customer-mode .customer-product-hero h1{
+    font-size:clamp(30px,8.8vw,38px)!important;
+    line-height:1.2!important;
+  }
+  body.customer-mode .customer-product-hero p{
+    font-size:15px!important;
+    line-height:1.78!important;
+  }
+}
