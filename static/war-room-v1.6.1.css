@@ -1290,3 +1290,68 @@ body.customer-mode .customer-footer-meta a:hover{
     justify-content:start!important;
   }
 }
+
+/* v1.6.73 refined legal footer: light grey, readable, not heavy */
+body.customer-mode .customer-site-footer{
+  max-width:1180px!important;
+  margin:44px auto 0!important;
+  padding:20px 0 4px!important;
+  border:0!important;
+  border-top:1px solid rgba(17,24,39,.08)!important;
+  border-radius:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  color:#8b93a1!important;
+}
+body.customer-mode .customer-footer-primary{
+  align-items:center!important;
+  gap:14px!important;
+}
+body.customer-mode .customer-footer-copy strong{
+  color:#667085!important;
+  font-size:13px!important;
+  font-weight:760!important;
+}
+body.customer-mode .customer-footer-copy span,
+body.customer-mode .customer-footer-links a{
+  color:#8b93a1!important;
+  font-size:12px!important;
+  font-weight:560!important;
+}
+body.customer-mode .customer-footer-meta{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  gap:4px 18px!important;
+  padding-top:12px!important;
+  border-top:0!important;
+  color:#8b93a1!important;
+}
+body.customer-mode .customer-footer-meta span,
+body.customer-mode .customer-footer-meta a,
+body.customer-mode .customer-footer-meta .customer-filing-link{
+  color:#8b93a1!important;
+  font-size:12px!important;
+  line-height:1.8!important;
+  font-weight:520!important;
+  text-decoration:none!important;
+}
+body.customer-mode .customer-footer-links a:hover,
+body.customer-mode .customer-footer-meta a:hover{
+  color:#475467!important;
+  text-decoration:underline!important;
+  text-underline-offset:3px!important;
+}
+@media(max-width:620px){
+  body.customer-mode .customer-site-footer{
+    margin-top:32px!important;
+    padding:16px 0 0!important;
+    border-radius:0!important;
+  }
+  body.customer-mode .customer-footer-primary,
+  body.customer-mode .customer-footer-meta{
+    display:grid!important;
+    justify-content:start!important;
+  }
+}
