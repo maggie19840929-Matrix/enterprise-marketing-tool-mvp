@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.61';
-const VERSION_LABEL = 'v1.6.61 · 页脚备案文案规范版';
+const APP_VERSION = '1.6.62';
+const VERSION_LABEL = 'v1.6.62 · 获客罗盘品牌标识版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -114,7 +114,7 @@ const isInternalProfile = (profile = currentProfile()) => isInternalDataScope() 
 const profileHasTab = (tab, profile = currentProfile()) => Array.isArray(profile.tabs) && profile.tabs.includes(tab);
 const profileDeliveryView = (profile = currentProfile()) => profile.delivery === 'qa_passed_only' ? 'client' : 'internal';
 const profileSanitizePayload = (value, profile = currentProfile()) => profile.sanitize ? sanitizeCustomerPayload(value) : value;
-const SHARED_HERO_TITLE = '引客罗盘';
+const SHARED_HERO_TITLE = '获客罗盘';
 window.VIEW_PROFILES = VIEW_PROFILES;
 window.getProfile = getProfile;
 const CONTENT_DECISION_SAMPLE = {
@@ -4806,7 +4806,7 @@ function renderInternalWorkspaceShell(productionActive = isGenerationWorkbenchRo
     }
     : {
       kicker: '内测版 · 智能诊断内核',
-      title: '引客罗盘',
+      title: '获客罗盘',
       desc: '主流程与客户版保持一致：先填写/确认业务信息，生成本轮内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。',
     };
   const kicker = $('#internalHeroKicker');

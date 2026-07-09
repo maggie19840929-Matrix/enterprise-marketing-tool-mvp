@@ -634,11 +634,20 @@ body.customer-mode.customer-step-next #customerEffectForm{display:none!important
 body.customer-mode.customer-step-next #customerRecordSummary,
 body.customer-mode.customer-step-next #customerNextAdvice{display:grid!important}
 
-/* v1.6.60 customer trust and compliance shell */
+/* v1.6.62 customer trust and compliance shell */
 .customer-site-nav{max-width:1120px!important;margin:0 auto 18px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:16px!important;padding:12px 14px!important;border:1px solid var(--war-line)!important;border-radius:20px!important;background:rgba(255,255,255,.035)!important;box-shadow:0 18px 50px rgba(0,0,0,.18)!important;}
-.customer-site-brand{display:flex!important;align-items:baseline!important;gap:10px!important;text-decoration:none!important;color:var(--war-text)!important;min-width:0!important;}
-.customer-site-brand span{font-size:18px!important;font-weight:950!important;white-space:nowrap!important;}
-.customer-site-brand small{color:var(--war-muted)!important;font-size:12px!important;font-weight:800!important;white-space:nowrap!important;}
+.customer-site-brand{display:flex!important;align-items:center!important;gap:10px!important;text-decoration:none!important;color:var(--war-text)!important;min-width:0!important;}
+.customer-brand-mark{position:relative!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:34px!important;height:34px!important;flex:0 0 34px!important;border-radius:13px!important;border:1px solid rgba(143,242,203,.38)!important;background:radial-gradient(circle at 50% 50%,rgba(143,242,203,.24) 0 22%,rgba(16,185,129,.1) 23% 47%,rgba(255,255,255,.055) 48% 100%),linear-gradient(135deg,rgba(143,242,203,.18),rgba(143,150,255,.14))!important;box-shadow:0 12px 28px rgba(16,185,129,.14),inset 0 0 0 1px rgba(255,255,255,.08)!important;overflow:hidden!important;}
+.customer-brand-mark::before{content:""!important;position:absolute!important;inset:8px!important;border-radius:50%!important;border:1px solid rgba(223,255,238,.72)!important;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)!important;}
+.customer-brand-mark::after{content:""!important;position:absolute!important;left:50%!important;top:50%!important;width:8px!important;height:18px!important;transform:translate(-50%,-58%) rotate(35deg)!important;background:linear-gradient(180deg,#ffffff,#8ff2cb)!important;clip-path:polygon(50% 0,100% 86%,52% 68%,0 86%)!important;filter:drop-shadow(0 3px 5px rgba(0,0,0,.28))!important;}
+.customer-brand-mark i{position:absolute!important;left:50%!important;top:50%!important;width:4px!important;height:4px!important;transform:translate(-50%,-50%)!important;border-radius:50%!important;background:#0d1512!important;z-index:1!important;box-shadow:0 0 0 1px rgba(223,255,238,.75)!important;}
+.customer-brand-mark-small{width:24px!important;height:24px!important;flex-basis:24px!important;border-radius:9px!important;}
+.customer-brand-mark-small::before{inset:6px!important;}
+.customer-brand-mark-small::after{width:6px!important;height:13px!important;}
+.customer-brand-mark-small i{width:3px!important;height:3px!important;}
+.customer-brand-text{display:grid!important;gap:1px!important;min-width:0!important;}
+.customer-brand-text b{color:var(--war-text)!important;font-size:18px!important;font-weight:950!important;line-height:1.05!important;white-space:nowrap!important;}
+.customer-brand-text small{color:var(--war-muted)!important;font-size:12px!important;font-weight:800!important;white-space:nowrap!important;}
 .customer-site-links{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:6px!important;flex-wrap:wrap!important;}
 .customer-site-links a{display:inline-flex!important;align-items:center!important;min-height:34px!important;border-radius:999px!important;padding:7px 10px!important;color:var(--war-sub)!important;text-decoration:none!important;font-size:13px!important;font-weight:850!important;}
 .customer-site-links a:hover{background:rgba(16,185,129,.12)!important;color:#dfffee!important;}
@@ -669,9 +678,11 @@ body.customer-mode.customer-step-next #customerNextAdvice{display:grid!important
 .customer-policy-stack li+li{margin-top:5px!important;}
 .customer-site-footer{max-width:1120px!important;margin:30px auto 0!important;display:grid!important;gap:12px!important;padding:18px 0 2px!important;border-top:1px solid rgba(255,255,255,.11)!important;color:var(--war-muted)!important;}
 .customer-footer-primary{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:18px!important;flex-wrap:wrap!important;}
-.customer-footer-brand{display:flex!important;align-items:center!important;gap:10px!important;min-width:0!important;}
-.customer-footer-brand strong{color:var(--war-text)!important;font-size:15px!important;font-weight:950!important;white-space:nowrap!important;}
-.customer-footer-brand span{color:rgba(220,233,226,.62)!important;font-size:12px!important;line-height:1.5!important;white-space:nowrap!important;}
+.customer-kicker-brand{display:inline-flex!important;align-items:center!important;gap:8px!important;}
+.customer-footer-brand{display:flex!important;align-items:center!important;gap:9px!important;min-width:0!important;}
+.customer-footer-copy{display:flex!important;align-items:baseline!important;gap:10px!important;min-width:0!important;flex-wrap:wrap!important;}
+.customer-footer-copy strong{color:var(--war-text)!important;font-size:15px!important;font-weight:950!important;white-space:nowrap!important;}
+.customer-footer-copy span{color:rgba(220,233,226,.62)!important;font-size:12px!important;line-height:1.5!important;white-space:nowrap!important;}
 .customer-footer-links{display:flex!important;flex-wrap:wrap!important;gap:8px 16px!important;justify-content:flex-end!important;align-items:center!important;}
 .customer-site-footer a{color:rgba(220,233,226,.66)!important;text-decoration:none!important;font-size:12px!important;font-weight:760!important;line-height:1.6!important;}
 .customer-site-footer a:hover{color:#dfffee!important;text-decoration:underline!important;text-underline-offset:3px!important;}
