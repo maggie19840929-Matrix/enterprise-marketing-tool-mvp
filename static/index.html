@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.63" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.63" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.64" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.64" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -106,30 +106,44 @@
       </div>
       <section id="customerFormCard" class="customer-card customer-form-card">
         <div class="customer-section-head">
-          <p>STEP 1 · 业务信息</p>
-          <h2>先说清楚你的业务和目标</h2>
-          <span id="customerPrefillHint">先填 3 个必填项，系统会生成适合你业务的内容建议。</span>
+          <p>CLIENT GROWTH BRIEF</p>
+          <h2>提交你的获客 Brief</h2>
+          <span id="customerPrefillHint">先写清楚业务、目标和客户。系统会把它整理成内容方向、平台建议和本轮计划。</span>
+          <div class="customer-brief-badges" aria-label="Brief 特点">
+            <span>3 项核心信息</span>
+            <span>平台语境识别</span>
+            <span>发布后继续优化</span>
+          </div>
         </div>
         <div class="customer-intake-layout">
-          <form id="customerAssessmentForm" class="customer-form" novalidate>
-            <label>你的行业/业务是什么？*
+          <form id="customerAssessmentForm" class="customer-form customer-brief-form" novalidate>
+            <label class="customer-brief-field customer-brief-field-main">
+              <span class="customer-field-title"><i>01</i>你的行业/业务是什么？*</span>
               <input name="industry" required placeholder="如：本地培训、到店服务、企业服务；尽量写具体业务" />
+              <small>别只写“大行业”，写出服务场景，建议会更准。</small>
+              <div class="customer-field-examples" aria-label="业务示例"><span>本地门店</span><span>教育培训</span><span>企业服务</span></div>
             </label>
-            <label>你现在最想达成什么目标？*
+            <label class="customer-brief-field customer-brief-field-main">
+              <span class="customer-field-title"><i>02</i>你现在最想达成什么目标？*</span>
               <input name="main_goal" required placeholder="如：获得更多有效咨询、预约体验、到店转化或复购" />
+              <small>用结果表达，例如咨询、预约、到店、报名、复购。</small>
+              <div class="customer-field-examples" aria-label="目标示例"><span>小红书咨询</span><span>到店预约</span><span>报名转化</span></div>
             </label>
-            <label>你的目标客户是谁？*
+            <label class="customer-brief-field customer-brief-field-main customer-wide">
+              <span class="customer-field-title"><i>03</i>你的目标客户是谁？*</span>
               <input name="target_customer" required placeholder="如：附近客户、企业负责人、家长、门店老板；越具体越好" />
+              <small>写清楚位置、身份、需求阶段和顾虑，会更像真实营销 Brief。</small>
+              <div class="customer-field-examples" aria-label="客户示例"><span>附近 3 公里</span><span>6-12 岁家长</span><span>正在比较方案的人</span></div>
             </label>
-            <fieldset class="customer-choice-group customer-key-choice">
-              <legend>你主要在哪些平台发布？可多选，建议先定主战场</legend>
+            <fieldset class="customer-choice-group customer-key-choice customer-platform-choice">
+              <legend>选择主要平台语境 <small>可多选，建议先定主战场</small></legend>
               <input type="hidden" name="current_channels" />
               <div class="customer-choice-row" data-customer-platforms data-multi-select="true">
-                <button class="customer-choice-chip" type="button" data-value="抖音"><span></span>抖音</button>
-                <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
-                <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
-                <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
-                <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
+                <button class="customer-choice-chip platform-choice-chip" type="button" data-value="抖音"><i class="platform-mini platform-douyin">抖</i><span></span><b>抖音</b></button>
+                <button class="customer-choice-chip platform-choice-chip" type="button" data-value="小红书"><i class="platform-mini platform-redbook">书</i><span></span><b>小红书</b></button>
+                <button class="customer-choice-chip platform-choice-chip" type="button" data-value="视频号"><i class="platform-mini platform-video">号</i><span></span><b>视频号</b></button>
+                <button class="customer-choice-chip platform-choice-chip" type="button" data-value="朋友圈/私域"><i class="platform-mini platform-private">微</i><span></span><b>朋友圈/私域</b></button>
+                <button class="customer-choice-chip platform-choice-chip" type="button" data-value="还不确定"><i class="platform-mini platform-unknown">?</i><span></span><b>还不确定</b></button>
               </div>
             </fieldset>
             <fieldset class="customer-choice-group customer-key-choice">
@@ -189,6 +203,19 @@
           </form>
 
           <aside class="customer-side">
+          <article id="customerBriefPreview" class="customer-preview-panel customer-brief-preview-panel" aria-label="获客 Brief 预览">
+            <p class="customer-preview-kicker">LIVE BRIEF</p>
+            <h3>你的获客 Brief</h3>
+            <dl class="customer-brief-summary">
+              <div><dt>业务</dt><dd data-brief-preview="industry">等待填写业务</dd></div>
+              <div><dt>目标</dt><dd data-brief-preview="main_goal">等待填写目标</dd></div>
+              <div><dt>客户</dt><dd data-brief-preview="target_customer">等待填写客户</dd></div>
+            </dl>
+            <div class="customer-brief-platform-preview" data-brief-platforms>
+              <span><i class="platform-mini platform-unknown">?</i>待选择平台</span>
+            </div>
+            <p class="customer-preview-note">像给营销团队提交一份 Brief 一样填写，系统会把它转成内容策略。</p>
+          </article>
           <details id="customerGuide" class="customer-guide-panel">
             <summary>不知道怎么填？看示例</summary>
             <div class="customer-guide-copy">
@@ -245,8 +272,7 @@
             </div>
             <button id="customerGuideDone" class="customer-guide-done" type="button">我知道怎么填了</button>
           </details>
-
-          <article class="customer-preview-panel" aria-label="你会得到什么">
+          <article class="customer-preview-panel customer-deliverables-panel" aria-label="你会得到什么">
             <p class="customer-preview-kicker">填完后你会拿到</p>
             <ul>
               <li><strong>内容方向</strong><span>先围绕什么主题发</span></li>
@@ -814,6 +840,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.63"></script>
+  <script src="/app.js?v=1.6.64"></script>
 </body>
 </html>

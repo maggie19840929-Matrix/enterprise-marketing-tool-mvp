@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.63';
-const VERSION_LABEL = 'v1.6.63 · 客户流程导航修复版';
+const APP_VERSION = '1.6.64';
+const VERSION_LABEL = 'v1.6.64 · 客户增长 Brief 填写体验版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -2786,11 +2786,54 @@ function currentCustomerFormPayload(){
 function hideStaleCustomerResultIfNeeded(){
   const current = loadCustomerTrialState();
   const draft = currentCustomerFormPayload();
+  renderCustomerBriefPreview(draft);
   if (!Object.values(draft).some((value)=>String(value || '').trim())) return;
   saveCustomerDraft(draft);
   if (customerAssessmentSignature(draft) !== customerAssessmentSignature(current.assessment || {})) {
     clearCustomerGeneratedView();
   }
+}
+
+function platformIconClass(platform = ''){
+  const text = String(platform || '');
+  if (text.includes('抖音')) return 'platform-douyin';
+  if (text.includes('小红书')) return 'platform-redbook';
+  if (text.includes('视频号')) return 'platform-video';
+  if (text.includes('朋友圈') || text.includes('私域')) return 'platform-private';
+  return 'platform-unknown';
+}
+
+function platformIconLabel(platform = ''){
+  const text = String(platform || '');
+  if (text.includes('抖音')) return '抖';
+  if (text.includes('小红书')) return '书';
+  if (text.includes('视频号')) return '号';
+  if (text.includes('朋友圈') || text.includes('私域')) return '微';
+  return '?';
+}
+
+function renderCustomerBriefPreview(payload = currentCustomerFormPayload()){
+  const box = $('#customerBriefPreview');
+  if (!box) return;
+  const brief = {
+    industry: payload.industry || '等待填写业务',
+    main_goal: payload.main_goal || '等待填写目标',
+    target_customer: payload.target_customer || '等待填写客户',
+  };
+  Object.entries(brief).forEach(([key, value]) => {
+    const target = box.querySelector(`[data-brief-preview="${key}"]`);
+    if (target) target.textContent = customerText(value);
+  });
+  const platformBox = box.querySelector('[data-brief-platforms]');
+  if (!platformBox) return;
+  const platforms = customerPlatformItems(payload.current_channels || '').filter(Boolean);
+  if (!platforms.length || (platforms.length === 1 && platforms[0] === '还不确定')) {
+    platformBox.innerHTML = '<span><i class="platform-mini platform-unknown">?</i>待选择平台</span>';
+    return;
+  }
+  platformBox.innerHTML = platforms.slice(0, 4).map((platform) =>
+    `<span><i class="platform-mini ${platformIconClass(platform)}">${esc(platformIconLabel(platform))}</i>${esc(platform)}</span>`
+  ).join('');
 }
 
 function initCustomerGuide(){
@@ -2837,6 +2880,7 @@ function fillGenericCustomerSample(){
   syncCustomerChoiceButtons(form, '[data-customer-platforms]', 'current_channels');
   syncCustomerChoiceButtons(form, '[data-customer-content-mode]', 'content_mode');
   syncCustomerChoiceButtons(form, '[data-customer-problems]', 'biggest_problem');
+  renderCustomerBriefPreview(values);
   $('#customerGuide')?.removeAttribute('open');
   $('#customerGenerateBtn')?.scrollIntoView({behavior:'smooth', block:'center'});
   setCustomerMessage('#customerFormError', '');
@@ -3002,6 +3046,7 @@ function initCustomerTrial(){
   initChoiceGroup('[data-customer-avoid-content]', '#customerCoCreationForm', 'avoided_content');
   initChoiceGroup('[data-customer-observation-tags]', '#customerEffectForm', 'observation_tags');
   initCustomerGuide();
+  renderCustomerBriefPreview();
   renderCustomerEffects();
   const savedCustomerState = loadCustomerTrialState();
   renderCustomerResumeBanner(savedCustomerState);
@@ -3023,6 +3068,7 @@ function initCustomerTrial(){
     fillCustomerFormFromAssessment(savedCustomerState.draft_assessment || savedCustomerState.assessment);
   }
   prefillDedicatedCustomer();
+  renderCustomerBriefPreview(currentCustomerFormPayload());
   renderCustomerRecordSummary(savedCustomerState);
   renderCustomerNextAdvice(savedCustomerState);
   setCustomerStep(customerDefaultStep(savedCustomerState), {state: savedCustomerState});
