@@ -634,14 +634,14 @@ body.customer-mode.customer-step-next #customerEffectForm{display:none!important
 body.customer-mode.customer-step-next #customerRecordSummary,
 body.customer-mode.customer-step-next #customerNextAdvice{display:grid!important}
 
-/* v1.6.59 customer trust and compliance shell */
+/* v1.6.60 customer trust and compliance shell */
 .customer-site-nav{max-width:1120px!important;margin:0 auto 18px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:16px!important;padding:12px 14px!important;border:1px solid var(--war-line)!important;border-radius:20px!important;background:rgba(255,255,255,.035)!important;box-shadow:0 18px 50px rgba(0,0,0,.18)!important;}
 .customer-site-brand{display:flex!important;align-items:baseline!important;gap:10px!important;text-decoration:none!important;color:var(--war-text)!important;min-width:0!important;}
 .customer-site-brand span{font-size:18px!important;font-weight:950!important;white-space:nowrap!important;}
 .customer-site-brand small{color:var(--war-muted)!important;font-size:12px!important;font-weight:800!important;white-space:nowrap!important;}
 .customer-site-links{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:6px!important;flex-wrap:wrap!important;}
-.customer-site-links a,.customer-site-footer a{display:inline-flex!important;align-items:center!important;min-height:34px!important;border-radius:999px!important;padding:7px 10px!important;color:var(--war-sub)!important;text-decoration:none!important;font-size:13px!important;font-weight:850!important;}
-.customer-site-links a:hover,.customer-site-footer a:hover{background:rgba(16,185,129,.12)!important;color:#dfffee!important;}
+.customer-site-links a{display:inline-flex!important;align-items:center!important;min-height:34px!important;border-radius:999px!important;padding:7px 10px!important;color:var(--war-sub)!important;text-decoration:none!important;font-size:13px!important;font-weight:850!important;}
+.customer-site-links a:hover{background:rgba(16,185,129,.12)!important;color:#dfffee!important;}
 .customer-resume-banner{max-width:1120px!important;margin:0 auto 18px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:16px!important;padding:14px 16px!important;border:1px solid rgba(143,242,203,.32)!important;border-radius:18px!important;background:linear-gradient(135deg,rgba(16,185,129,.12),rgba(255,255,255,.035))!important;color:var(--war-text)!important;}
 .customer-resume-banner[hidden]{display:none!important;}
 .customer-resume-banner span{display:block!important;margin-bottom:4px!important;color:#8ff2cb!important;font-size:12px!important;font-weight:900!important;letter-spacing:.06em!important;}
@@ -667,19 +667,23 @@ body.customer-mode.customer-step-next #customerNextAdvice{display:grid!important
 .customer-policy-stack p{margin:0!important;color:var(--war-muted)!important;font-size:14px!important;line-height:1.72!important;}
 .customer-policy-stack ul{margin:0!important;padding-left:18px!important;color:var(--war-muted)!important;font-size:14px!important;line-height:1.72!important;}
 .customer-policy-stack li+li{margin-top:5px!important;}
-.customer-site-footer{max-width:1120px!important;margin:24px auto 0!important;display:grid!important;grid-template-columns:minmax(0,1.1fr) auto minmax(220px,.7fr)!important;gap:16px!important;align-items:start!important;padding:18px 0 0!important;border-top:1px solid var(--war-line)!important;color:var(--war-muted)!important;}
-.customer-footer-brand{display:grid!important;gap:5px!important;}
-.customer-footer-brand strong{color:var(--war-text)!important;font-size:16px!important;}
-.customer-footer-brand span,.customer-compliance span{font-size:12px!important;line-height:1.5!important;}
-.customer-site-footer nav{display:flex!important;flex-wrap:wrap!important;gap:4px!important;justify-content:center!important;}
-.customer-compliance{display:grid!important;gap:4px!important;text-align:right!important;}
+.customer-site-footer{max-width:1120px!important;margin:30px auto 0!important;display:grid!important;gap:12px!important;padding:18px 0 2px!important;border-top:1px solid rgba(255,255,255,.11)!important;color:var(--war-muted)!important;}
+.customer-footer-primary{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:18px!important;flex-wrap:wrap!important;}
+.customer-footer-brand{display:flex!important;align-items:center!important;gap:10px!important;min-width:0!important;}
+.customer-footer-brand strong{color:var(--war-text)!important;font-size:15px!important;font-weight:950!important;white-space:nowrap!important;}
+.customer-footer-brand span{color:rgba(220,233,226,.62)!important;font-size:12px!important;line-height:1.5!important;white-space:nowrap!important;}
+.customer-footer-links{display:flex!important;flex-wrap:wrap!important;gap:8px 16px!important;justify-content:flex-end!important;align-items:center!important;}
+.customer-site-footer a{color:rgba(220,233,226,.66)!important;text-decoration:none!important;font-size:12px!important;font-weight:760!important;line-height:1.6!important;}
+.customer-site-footer a:hover{color:#dfffee!important;text-decoration:underline!important;text-underline-offset:3px!important;}
+.customer-footer-meta{display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:6px 14px!important;padding-top:10px!important;border-top:1px solid rgba(255,255,255,.06)!important;color:rgba(220,233,226,.48)!important;font-size:12px!important;line-height:1.6!important;}
+.customer-footer-meta span{font-size:12px!important;line-height:1.6!important;}
 body.customer-info-mode .customer-site-footer{margin-top:18px!important;}
 @media(max-width:820px){
   .customer-site-nav{align-items:flex-start!important;display:grid!important;}
   .customer-site-links{justify-content:flex-start!important;}
   .customer-resume-banner{display:grid!important;}
   .customer-resume-actions{justify-content:flex-start!important;}
-  .customer-info-grid,.customer-site-footer{grid-template-columns:1fr!important;}
-  .customer-site-footer nav{justify-content:flex-start!important;}
-  .customer-compliance{text-align:left!important;}
+  .customer-info-grid{grid-template-columns:1fr!important;}
+  .customer-footer-primary{display:grid!important;}
+  .customer-footer-links{justify-content:flex-start!important;}
 }
