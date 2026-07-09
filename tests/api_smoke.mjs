@@ -99,7 +99,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.77', `expected app_version 1.6.77, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.78', `expected app_version 1.6.78, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -376,7 +376,7 @@ assert(cloudState.project_store.projects.some((item) => item.id === 'project-smo
 const customerCloudSyncPost = await handler(request('POST', 'state', {
   client_id: 'customer-cloud-sync',
   source: 'customer_public_cloud_sync',
-  sync_version: '1.6.77',
+  sync_version: '1.6.78',
   project_store: {
     activeProjectId: 'project-customer-cloud-sync',
     projects: [{
@@ -396,7 +396,7 @@ const customerCloudSyncPost = await handler(request('POST', 'state', {
         content_rounds: [{ round_number: 1, plans: basketballData.plans.slice(0, 3), archived_at: '2026-07-01 10:00:00' }],
         active_round: 2,
         current_round: 2,
-        cloud_sync_version: '1.6.77',
+        cloud_sync_version: '1.6.78',
         source: 'customer_public_cloud_sync',
       },
     }],
@@ -420,7 +420,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.77'"), 'app should expose v1.6.77 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.78'"), 'app should expose v1.6.78 internally/API-side');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -480,18 +480,19 @@ assert(indexHtml.includes('id="refillCockpit"') && indexHtml.includes('data-zone
 assert(appJs.includes('function renderRefillCockpit') && appJs.includes('function feedbackMetricSet') && appJs.includes('feedback-compare-card'), 'internal refill UI should render cockpit metrics and comparison cards');
 assert(warRoomCss.includes('.internal-feedback-dashboard') && warRoomCss.includes('.refill-cockpit') && warRoomCss.includes('.refill-metric.is-missing'), 'internal refill CSS should style dashboard zones, cockpit, and missing metrics');
 assert(appJs.includes('id="aiIntakeUnderstanding"') || readFileSync(new URL('../static/index.html', import.meta.url), 'utf8').includes('id="aiIntakeUnderstanding"'), 'internal AI intake should have a dedicated understanding card container');
-assert(appJs.includes('function buildCustomerNextAdvice') && appJs.includes('function buildCustomerNextRoundPlan') && appJs.includes('customerNextAdvice'), 'customer trial should generate review judgment and next-round plan after effect record save');
+assert(appJs.includes('function buildCustomerNextAdvice') && appJs.includes('function buildCustomerNextRoundPlan') && appJs.includes('customerNextAdvice'), 'customer trial should generate review judgment and gated next-round candidates after effect record save');
+assert(appJs.includes('CUSTOMER_NEXT_ROUND_MIN_RECORDS = 3') && appJs.includes('function customerNextRoundReadiness') && appJs.includes('customerRoundRecordCount'), 'customer next-round activation should be gated by enough distinct content feedback records');
 assert(indexHtml.includes('name="content_plan_id" type="hidden" required') && indexHtml.includes('id="customerSelectedPlan"'), 'customer daily refill must carry an explicit selected content_plan_id');
 assert(appJs.includes('data-customer-record-plan') && appJs.includes('selectCustomerEffectPlan') && appJs.includes('请先在上方内容计划里选择实际发布的那一条'), 'customer refill should require the customer to select the exact published plan');
 assert(!appJs.includes('const firstPlan = clientState.plans[0]') && !appJs.includes('content_plan_id: firstPlan.id'), 'customer refill must not default feedback to the first plan');
-assert(appJs.includes("api('/api/customer-growth-advice'") && appJs.includes('daily_advice') && appJs.includes('next_round') && appJs.includes('下一轮优化建议'), 'customer next-round advice should call the daily advice endpoint and render lightweight next actions');
+assert(appJs.includes("api('/api/customer-growth-advice'") && appJs.includes('daily_advice') && appJs.includes('next_round') && appJs.includes('本条内容优化建议') && appJs.includes('阶段性下一轮建议'), 'customer next-round advice should call the daily advice endpoint but distinguish one-record advice from staged next-round advice');
 assert(apiSourceIncludes('callArkChatCompletion') && apiSourceIncludes('ARK_API_KEY') && apiSourceIncludes('VOLCENGINE_ARK_API_KEY') && apiSourceIncludes('ARK_MODEL') && apiSourceIncludes('DOUBAO_MODEL') && apiSourceIncludes('VOLCENGINE_ARK_MODEL') && apiSourceIncludes('CUSTOMER_PUBLIC_MODEL'), 'public customer generation should support Volcengine Ark/Doubao through backend env vars');
 assert(apiSourceIncludes('modelProviderFor') && apiSourceIncludes('model_provider') && apiSourceIncludes('model_mode') && apiSourceIncludes('CUSTOMER_STRATEGY_MODEL') && apiSourceIncludes('OPENAI_API_KEY') && apiSourceIncludes('CUSTOMER_COPY_MODEL') && apiSourceIncludes('ANTHROPIC_API_KEY'), 'internal mode should keep lightweight model routing for Ark/OpenAI/Anthropic/local');
 assert(apiSourceIncludes("path === '/customer-growth-advice'") && apiSourceIncludes('每日回填必须绑定具体内容计划'), 'API should expose customer-growth-advice and reject unbound daily refill');
 assert(appJs.includes('function buildVersionedProjectState') && appJs.includes('diagnosis_history') && appJs.includes('intake_history'), 'customer/internal submissions should create versioned project states');
 assert(appJs.includes('customer_public') && appJs.includes('saveLocal();') && appJs.includes('scheduleCloudSync'), 'customer public submissions should enter the same project store and cloud sync path');
 assert(appJs.includes('function regenerateCurrentDiagnosis') && appJs.includes('旧诊断已归档'), 'internal workbench should support rediagnosis with archived old diagnoses');
-assert(appJs.includes('已记录这条内容。系统已生成复盘判断和下一轮内容计划'), 'effect save should tell customer the next-round plan was generated immediately');
+assert(appJs.includes('已记录这条内容。系统先给出本条优化建议') && appJs.includes('结束本轮，使用第') && appJs.includes('至少记录 ${readiness.minRequired} 条不同内容后') && !appJs.includes('已记录这条内容。系统已生成复盘判断和下一轮内容计划'), 'effect save should not present a full next-round plan after only one feedback record');
 assert(appJs.includes('盆底肌修复'), 'customer offer extraction should recognize postpartum pelvic-floor repair instead of generic service wording');
 
 assert(appJs.includes('function autoReviewFromFeedback()'), 'app should auto-generate weekly review from existing feedback');
@@ -506,7 +507,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.77') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.77'), 'customer page should cache-bust current v1.6.77 assets');
+assert(indexHtml.includes('/app.js?v=1.6.78') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.78'), 'customer page should cache-bust current v1.6.78 assets');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');

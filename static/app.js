@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.77';
-const VERSION_LABEL = 'v1.6.77 · 顶部导航文案修正版';
+const APP_VERSION = '1.6.78';
+const VERSION_LABEL = 'v1.6.78 · 下一轮生成门禁修正版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1420,9 +1420,9 @@ function updateCustomerStepCopy(step = 'intake'){
   const title = head.querySelector('h2');
   const desc = head.querySelector('span');
   if (step === 'next') {
-    if (kicker) kicker.textContent = 'STEP 5 · 下一轮建议';
-    if (title) title.textContent = '看下一轮怎么调整';
-    if (desc) desc.textContent = '系统会根据刚记录的数据，给你下一轮内容方向和优化入口。';
+    if (kicker) kicker.textContent = 'STEP 5 · 效果判断';
+    if (title) title.textContent = '看这条内容怎么调整';
+    if (desc) desc.textContent = '系统会先根据刚记录的数据给出本条优化建议；反馈足够后，再开放下一轮计划。';
     return;
   }
   if (kicker) kicker.textContent = 'STEP 4 · 效果记录';
@@ -1437,7 +1437,7 @@ function showCustomerStepMessage(step){
       ? '请先生成内容建议。'
       : step === 'record'
         ? '请先生成本轮内容计划，再记录发布效果。'
-        : '请先保存一条发布效果，系统会生成下一轮建议。';
+        : '请先保存一条发布效果，系统会先生成本条优化建议。';
   toast(msg);
   setCustomerMessage('#customerFormError', msg, 'error');
   setCustomerStep(customerDefaultStep(), {focus: true});
@@ -2136,6 +2136,34 @@ function customerActiveRound(saved = {}){
   return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 1;
 }
 
+const CUSTOMER_NEXT_ROUND_MIN_RECORDS = 3;
+const CUSTOMER_NEXT_ROUND_TARGET_RECORDS = 7;
+
+function customerRoundRecordCount(saved = {}){
+  const records = Array.isArray(saved.records) ? saved.records : [];
+  const uniquePlanIds = new Set();
+  records.forEach((record)=>{
+    const id = String(record.content_plan_id || '').trim();
+    if (id) uniquePlanIds.add(id);
+  });
+  return uniquePlanIds.size || records.length;
+}
+
+function customerNextRoundReadiness(saved = {}){
+  const count = customerRoundRecordCount(saved);
+  const planCount = customerPlans(saved).length || CUSTOMER_NEXT_ROUND_TARGET_RECORDS;
+  const target = Math.max(1, Math.min(CUSTOMER_NEXT_ROUND_TARGET_RECORDS, planCount));
+  const minRequired = Math.max(1, Math.min(CUSTOMER_NEXT_ROUND_MIN_RECORDS, target));
+  return {
+    count,
+    target,
+    minRequired,
+    canActivate: count >= minRequired,
+    isComplete: count >= target,
+    remainingToStage: Math.max(0, minRequired - count),
+  };
+}
+
 function customerRecordKey(record = {}){
   return String(record.record_id || record.created_at || `${record.content_plan_id || ''}:${record.plan_topic || ''}`).trim();
 }
@@ -2650,14 +2678,23 @@ function renderCustomerNextAdvice(saved = {}){
   const latestKey = customerRecordKey(latest);
   const alreadyActivated = saved.activated_next_round_from === latestKey;
   const nextRoundNumber = customerActiveRound(saved) + 1;
-  const activateHtml = rows.length
-    ? `<button class="customer-secondary customer-next-round-btn" type="button" data-customer-activate-round="${esc(latestKey)}" ${alreadyActivated ? 'disabled' : ''}>${alreadyActivated ? `已进入第 ${customerActiveRound(saved)} 轮` : `开始使用第 ${nextRoundNumber} 轮内容计划`}</button>`
+  const readiness = customerNextRoundReadiness(saved);
+  const activateHtml = rows.length && readiness.canActivate
+    ? `<button class="customer-secondary customer-next-round-btn" type="button" data-customer-activate-round="${esc(latestKey)}" ${alreadyActivated ? 'disabled' : ''}>${alreadyActivated ? `已进入第 ${customerActiveRound(saved)} 轮` : `结束本轮，使用第 ${nextRoundNumber} 轮内容计划`}</button>`
     : '';
-  box.innerHTML = `<p class="customer-loop-kicker">下一轮优化建议</p>
-    <h3>${esc(nextRound.customer_summary || advice.judgment || '先根据这条内容的数据，调整下一条内容角度。')}</h3>
+  const phaseTitle = readiness.canActivate ? '阶段性下一轮建议' : '本条内容优化建议';
+  const phaseSummary = readiness.canActivate
+    ? (nextRound.customer_summary || advice.judgment || '已结合多条内容数据，可以判断下一轮方向。')
+    : (advice.judgment || '先根据这条内容的数据，调整下一条内容角度。');
+  const gateHint = readiness.canActivate
+    ? `已记录 ${readiness.count}/${readiness.target} 条内容效果，可以选择结束本轮并使用第 ${nextRoundNumber} 轮计划；也可以继续补齐本轮剩余数据。`
+    : `已记录 ${readiness.count}/${readiness.target} 条内容效果。现在先看本条怎么改；再记录 ${readiness.remainingToStage} 条不同内容后，才会开放“结束本轮并使用下一轮计划”。`;
+  box.innerHTML = `<p class="customer-loop-kicker">${esc(phaseTitle)}</p>
+    <h3>${esc(phaseSummary)}</h3>
     <ul class="customer-next-actions">
       ${actionList.map((item)=>`<li><span aria-hidden="true">✓</span>${esc(item)}</li>`).join('')}
     </ul>
+    <p class="customer-next-gate">${esc(gateHint)}</p>
     ${activateHtml}
     <details class="customer-next-evidence">
       <summary>查看判断依据</summary>
@@ -2689,6 +2726,11 @@ function activateCustomerNextRound(){
   const latest = Array.isArray(current.records) ? current.records[0] : null;
   if (!latest) {
     setCustomerMessage('#customerEffectMessage', '请先记录一条发布效果，再进入下一轮计划。', 'error');
+    return;
+  }
+  const readiness = customerNextRoundReadiness(current);
+  if (!readiness.canActivate) {
+    setCustomerMessage('#customerEffectMessage', `当前只记录了 ${readiness.count}/${readiness.target} 条内容效果。至少记录 ${readiness.minRequired} 条不同内容后，再结束本轮并生成下一轮计划。`, 'error');
     return;
   }
   const {nextRound, rows} = nextRoundRowsFromRecord(current, latest);
@@ -3232,7 +3274,12 @@ function initCustomerTrial(){
     });
     const advice = record.daily_advice?.advice || buildCustomerNextAdvice(nextState, record);
     const nextRound = record.daily_advice?.next_round || buildCustomerNextRoundPlan(nextState, record, advice);
-    setCustomerMessage('#customerEffectMessage', `已记录这条内容。系统已生成复盘判断和下一轮内容计划：${nextRound.review_judgment?.type || '继续观察'}。`);
+    const readiness = customerNextRoundReadiness(nextState);
+    const resultType = nextRound.review_judgment?.type || '继续观察';
+    const saveMessage = readiness.canActivate
+      ? `已记录这条内容。已形成阶段性复盘判断：${resultType}。现在可以选择结束本轮并使用下一轮计划，也可以继续补齐本轮数据。`
+      : `已记录这条内容。系统先给出本条优化建议：${resultType}。再记录 ${readiness.remainingToStage} 条不同内容后，才会开放下一轮计划。`;
+    setCustomerMessage('#customerEffectMessage', saveMessage);
     renderCustomerEffects(nextState);
     renderCustomerRecordSummary(nextState);
     renderCustomerNextAdvice(nextState);
