@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.57';
-const VERSION_LABEL = 'v1.6.57 · 备案信息补充版';
+const APP_VERSION = '1.6.58';
+const VERSION_LABEL = 'v1.6.58 · 协议与隐私政策完善版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
