@@ -1443,3 +1443,32 @@ body.customer-mode .customer-hero-outcome{
     margin-top:8px!important;
   }
 }
+
+/* v1.6.76 right rail alignment: let the brief card sit on the nav right edge */
+body.customer-mode .customer-first-screen{
+  max-width:1120px!important;
+  grid-template-columns:minmax(0,1fr) minmax(420px,520px)!important;
+  gap:56px!important;
+}
+body.customer-mode .customer-first-form-shell{
+  justify-self:end!important;
+  width:100%!important;
+  max-width:520px!important;
+}
+body.customer-mode .customer-product-hero .customer-hero-copy{
+  max-width:544px!important;
+}
+@media(max-width:980px){
+  body.customer-mode .customer-first-screen{
+    max-width:760px!important;
+    grid-template-columns:1fr!important;
+    gap:22px!important;
+  }
+  body.customer-mode .customer-first-form-shell{
+    justify-self:stretch!important;
+    max-width:none!important;
+  }
+  body.customer-mode .customer-product-hero .customer-hero-copy{
+    max-width:720px!important;
+  }
+}
