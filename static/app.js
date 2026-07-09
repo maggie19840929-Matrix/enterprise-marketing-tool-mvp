@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.78';
-const VERSION_LABEL = 'v1.6.78 · 下一轮生成门禁修正版';
+const APP_VERSION = '1.6.79';
+const VERSION_LABEL = 'v1.6.79 · 记录入口状态保持修正版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1347,6 +1347,26 @@ function customerHasRecords(saved = loadCustomerTrialState()){
   return Array.isArray(saved?.records) && saved.records.length > 0;
 }
 
+function customerStateWithLiveGenerated(saved = {}){
+  if (customerHasGeneratedState(saved) || !customerHasGeneratedState(clientState)) return saved || {};
+  return {
+    ...(saved || {}),
+    project: saved.project || clientState.project,
+    project_stage: saved.project_stage || clientState.project_stage,
+    current_cycle_id: saved.current_cycle_id || clientState.current_cycle_id || 'cycle-1',
+    assessment: saved.assessment || clientState.assessment,
+    diagnosis: saved.diagnosis || clientState.diagnosis,
+    plans: Array.isArray(saved.plans) && saved.plans.length ? saved.plans : clientState.plans,
+    records: Array.isArray(saved.records) ? saved.records : [],
+    content_rounds: Array.isArray(saved.content_rounds) ? saved.content_rounds : [],
+    active_round: saved.active_round || saved.current_round || 1,
+    current_round: saved.current_round || saved.active_round || 1,
+    project_id: saved.project_id || clientState.project?.id,
+    diagnosis_history: Array.isArray(saved.diagnosis_history) ? saved.diagnosis_history : clientState.diagnosis_history,
+    suggestion: saved.suggestion || customerSuggestionText,
+  };
+}
+
 function customerCanOpenStep(step, saved = loadCustomerTrialState()){
   if (step === 'intake') return true;
   if (step === 'confirm') return !$('#customerCoCreationSection')?.hidden;
@@ -1393,7 +1413,7 @@ function setCustomerStep(step = 'intake', options = {}){
   const effectSection = $('#customerEffectSection');
   if (formCard) formCard.hidden = nextStep !== 'intake';
   if (coCreation) coCreation.hidden = nextStep !== 'confirm';
-  if (resultSection) resultSection.hidden = !(nextStep === 'plan' && hasGenerated);
+  if (resultSection) resultSection.hidden = !((nextStep === 'plan' || nextStep === 'record') && hasGenerated);
   if (effectSection) effectSection.hidden = !((nextStep === 'record' && hasGenerated) || (nextStep === 'next' && hasRecord));
   document.body.classList.remove(...CUSTOMER_FLOW_STEPS.map((item)=>`customer-step-${item}`));
   document.body.classList.add(`customer-step-${nextStep}`);
@@ -2272,14 +2292,14 @@ function updateCustomerSelectedPlanDisplay(saved = {}){
 }
 
 function selectCustomerEffectPlan(planId){
-  const current = loadCustomerTrialState();
+  const current = customerStateWithLiveGenerated(loadCustomerTrialState());
   const plan = customerPlanById(current, planId);
   if (!plan) {
     setCustomerMessage('#customerEffectMessage', '没有找到这条内容计划，请先重新生成内容建议。', 'error');
     return;
   }
-  saveCustomerTrialState({ selected_plan_id: planIdValue(plan) });
-  const selectedState = { ...current, selected_plan_id: planIdValue(plan) };
+  const selectedState = { ...current, selected_plan_id: planIdValue(plan), updated_at: localTimestamp() };
+  saveCustomerTrialState(selectedState);
   updateCustomerSelectedPlanDisplay(selectedState);
   setCustomerStep('record', {state: selectedState, focus: true});
   window.setTimeout(()=>$('#customerEffectForm [name=views]')?.focus(), 140);
