@@ -719,7 +719,7 @@ body.customer-info-mode .customer-site-footer{margin-top:18px!important;}
   .customer-footer-links{justify-content:flex-start!important;}
 }
 
-/* v1.6.68 customer light product skin: public page uses a polished product surface, internal remains dark */
+/* v1.6.69 customer light product skin: public page uses a polished product surface, internal remains dark */
 body.customer-mode{
   --war-bg:#f6f8fb;
   --war-panel:#ffffff;
@@ -947,3 +947,24 @@ body.customer-mode .customer-site-footer a:hover{color:#111827!important;}
   body.customer-mode .customer-card,
   body.customer-mode .customer-hero-product{border-radius:22px!important;}
 }
+
+/* v1.6.69 customer homepage de-noise: keep the polished skin, reduce first-screen density */
+body.customer-mode .customer-hero{
+  grid-template-columns:minmax(0,760px)!important;
+  justify-content:center!important;
+  text-align:left!important;
+  padding:20px 0 14px!important;
+}
+body.customer-mode .customer-hero-product{display:none!important;}
+body.customer-mode .customer-hero p{max-width:620px!important;}
+body.customer-mode .customer-hero-secondary{display:none!important;}
+body.customer-mode .customer-intake-layout{grid-template-columns:1fr!important;}
+body.customer-mode .customer-side{display:none!important;}
+body.customer-mode .customer-brief-badges{display:none!important;}
+body.customer-mode .customer-field-examples{display:none!important;}
+body.customer-mode .customer-section-head{margin-bottom:16px!important;}
+body.customer-mode .customer-section-head span{max-width:680px!important;}
+body.customer-mode .customer-form{grid-template-columns:1fr!important;}
+body.customer-mode .customer-brief-field-main{padding:14px!important;}
+body.customer-mode .cps-label{display:inline-block!important;max-width:none!important;overflow:visible!important;text-overflow:clip!important;}
+body.customer-mode .cps-item:first-child .cps-label{min-width:72px!important;}

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.68';
-const VERSION_LABEL = 'v1.6.68 · 浅色产品视觉升级版';
+const APP_VERSION = '1.6.69';
+const VERSION_LABEL = 'v1.6.69 · 首页降噪与导航修正版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1290,7 +1290,7 @@ function setAppShell(){
 function sharedJourneySteps(profile = currentProfile()){
   if (profile.role === 'client_viewer') {
     return [
-      {step: 1, key: 'strategy', label: '填写信息'},
+      {step: 1, key: 'strategy', label: '填入基本信息'},
       {step: 2, key: 'strategy', label: '确认方向'},
       {step: 3, key: 'plan', label: '内容计划'},
       {step: 4, key: 'data', label: '记录效果'},

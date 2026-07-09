@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.68" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.68" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.69" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.69" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -40,13 +40,12 @@
       <div class="customer-hero-copy">
         <p class="customer-kicker customer-kicker-brand"><span class="customer-brand-mark customer-brand-mark-small" aria-hidden="true"><i></i></span>获客罗盘</p>
         <h1>让内容持续带来客户咨询</h1>
-        <p>系统会基于你已填写的业务信息，生成抖音/小红书/视频号等多平台内容建议、本轮发布计划和效果记录建议；发完后记录数据，下一轮继续优化。</p>
+        <p>填入基本信息，生成本轮内容建议；发布后记录效果，下一轮继续优化。</p>
         <div class="customer-hero-actions">
           <a class="customer-hero-primary" href="#customerFormCard" data-customer-step-link="intake">开始生成内容建议</a>
-          <a class="customer-hero-secondary" href="#customerResultSection" data-customer-step-link="plan">查看已生成建议</a>
         </div>
       </div>
-      <aside class="customer-hero-product" aria-label="产品能力预览">
+      <aside class="customer-hero-product" aria-label="产品能力预览" hidden>
         <div class="customer-product-top">
           <span>内容增长循环</span>
           <strong>从选题到下一轮优化</strong>
@@ -84,7 +83,7 @@
       <div class="customer-progress-strip" id="customerProgressStrip" aria-label="操作进度">
         <button class="cps-item cps-active" type="button" data-step="1" data-customer-step-target="intake">
           <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">填写信息</span>
+          <span class="cps-label">填入基本信息</span>
         </button>
         <div class="cps-line" aria-hidden="true"></div>
         <button class="cps-item" type="button" data-step="2" data-customer-step-target="confirm">
@@ -110,9 +109,9 @@
       <section id="customerFormCard" class="customer-card customer-form-card">
         <div class="customer-section-head">
           <p>CLIENT GROWTH BRIEF</p>
-          <h2>提交你的获客 Brief</h2>
-          <span id="customerPrefillHint">先写清楚业务、目标和客户。系统会把它整理成内容方向、平台建议和本轮计划。</span>
-          <div class="customer-brief-badges" aria-label="Brief 特点">
+          <h2>填入基本信息</h2>
+          <span id="customerPrefillHint">先填 3 项核心信息，系统会整理成内容方向和本轮计划。</span>
+          <div class="customer-brief-badges" aria-label="Brief 特点" hidden>
             <span><i class="customer-mini-icon customer-icon-brief" aria-hidden="true"></i>3 项核心信息</span>
             <span><i class="customer-mini-icon customer-icon-platform" aria-hidden="true"></i>平台语境识别</span>
             <span><i class="customer-mini-icon customer-icon-loop" aria-hidden="true"></i>发布后继续优化</span>
@@ -843,6 +842,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.68"></script>
+  <script src="/app.js?v=1.6.69"></script>
 </body>
 </html>
