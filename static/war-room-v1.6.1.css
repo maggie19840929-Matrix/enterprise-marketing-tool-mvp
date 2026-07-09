@@ -1961,8 +1961,9 @@ body.customer-mode .customer-footer-meta{
   display:flex!important;
   flex-wrap:wrap!important;
   align-items:center!important;
-  justify-content:flex-start!important;
+  justify-content:center!important;
   gap:4px 0!important;
+  text-align:center!important;
 }
 body.customer-mode .customer-footer-meta>*{
   display:inline-flex!important;
@@ -1980,6 +1981,6 @@ body.customer-mode .customer-footer-meta>*:not(:first-child)::before{
 @media(max-width:620px){
   body.customer-mode .customer-footer-meta{
     display:flex!important;
-    justify-content:flex-start!important;
+    justify-content:center!important;
   }
 }
