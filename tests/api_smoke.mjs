@@ -99,7 +99,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.64', `expected app_version 1.6.64, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.65', `expected app_version 1.6.65, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -376,7 +376,7 @@ assert(cloudState.project_store.projects.some((item) => item.id === 'project-smo
 const customerCloudSyncPost = await handler(request('POST', 'state', {
   client_id: 'customer-cloud-sync',
   source: 'customer_public_cloud_sync',
-  sync_version: '1.6.64',
+  sync_version: '1.6.65',
   project_store: {
     activeProjectId: 'project-customer-cloud-sync',
     projects: [{
@@ -396,7 +396,7 @@ const customerCloudSyncPost = await handler(request('POST', 'state', {
         content_rounds: [{ round_number: 1, plans: basketballData.plans.slice(0, 3), archived_at: '2026-07-01 10:00:00' }],
         active_round: 2,
         current_round: 2,
-        cloud_sync_version: '1.6.64',
+        cloud_sync_version: '1.6.65',
         source: 'customer_public_cloud_sync',
       },
     }],
@@ -420,7 +420,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.64'"), 'app should expose v1.6.64 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.65'"), 'app should expose v1.6.65 internally/API-side');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -506,7 +506,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.64') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.64'), 'customer page should cache-bust current v1.6.64 assets');
+assert(indexHtml.includes('/app.js?v=1.6.65') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.65'), 'customer page should cache-bust current v1.6.65 assets');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -536,13 +536,13 @@ assert(appJs.includes('rawForm.offer || customerOfferFromGoal') && appJs.include
 assert(appJs.includes('function fillGenericCustomerSample') && appJs.includes('customerGenericSampleBtn') && appJs.includes("current_channels: '抖音,小红书'") && appJs.includes('function prefillDedicatedCustomer') && appJs.includes('BASKETBALL_CUSTOMER_PROFILE'), 'customer page should include generic public sample fill and isolated dedicated prefill helpers');
 assert(indexHtml.includes('class="customer-choice-chip" type="button" data-value="有浏览没咨询"'), 'customer biggest problem should use checkbox-like chips');
 assert(indexHtml.includes('id="customerBriefPreview"') && appJs.includes('function renderCustomerBriefPreview') && warRoomCss.includes('.customer-brief-preview-panel'), 'customer intake should include a live growth brief preview panel');
-assert(indexHtml.includes('platform-choice-chip') && indexHtml.includes('platform-douyin') && indexHtml.includes('platform-redbook') && indexHtml.includes('platform-video') && indexHtml.includes('data-customer-platforms data-multi-select="true"') && indexHtml.indexOf('data-value="抖音"') < indexHtml.indexOf('data-value="小红书"') && indexHtml.includes('可多选'), 'customer platform choice should support Douyin/XHS/Video multi-select matrix with lightweight platform marks');
+assert(indexHtml.includes('platform-choice-chip') && indexHtml.includes('platform-brand-dot') && indexHtml.includes('platform-douyin') && indexHtml.includes('platform-redbook') && indexHtml.includes('platform-video') && indexHtml.includes('data-customer-platforms data-multi-select="true"') && indexHtml.indexOf('data-value="抖音"') < indexHtml.indexOf('data-value="小红书"') && indexHtml.includes('可多选') && !indexHtml.includes('>抖</i>') && !indexHtml.includes('>书</i>') && !indexHtml.includes('>号</i>'), 'customer platform choice should use brand-color text tags instead of non-standard pseudo logos');
 assert(indexHtml.includes('data-customer-content-mode') && indexHtml.includes('推荐模式：平台适配') && indexHtml.includes('省事模式：一稿多发') && indexHtml.includes('建议适配，不强迫适配'), 'customer page should let customers choose one-draft multi-posting or platform adaptation');
 assert(appJs.includes('function customerPlatformMatrixHtml') && appJs.includes('function customerContentModeHtml') && appJs.includes('一稿多发省时间') && appJs.includes('系统只建议适配，不强迫每个平台都写不同稿') && appJs.includes('短视频曝光 / 案例讲解 / 咨询承接') && appJs.includes('搜索沉淀 / 决策清单 / 案例信任') && appJs.includes('微信信任 / 专业说明 / 私域承接'), 'customer results should explain platform-specific content roles and mode tradeoffs');
 assert(indexHtml.includes('默认先看前三条，完整计划用卡片展开，避免密集表格。'), 'plan section should include a short plan hint');
 assert(warRoomCss.includes('.feedback-focus[hidden]') && warRoomCss.includes('display:none!important'), 'mobile css must not override hidden feedback/review workflow');
 assert(warRoomCss.includes('body.customer-mode') && warRoomCss.includes('.customer-choice-chip span') && warRoomCss.includes('.customer-problem-grid button.is-selected'), 'customer page should separate checkbox-like choices from primary buttons');
-assert(warRoomCss.includes('.customer-brief-field-main') && warRoomCss.includes('.customer-field-examples') && warRoomCss.includes('.platform-mini') && warRoomCss.includes('.customer-more-fields') && warRoomCss.includes('.customer-more-grid') && warRoomCss.includes('越具体越准'), 'brief intake fields, platform marks and optional precision fields should be styled as a polished low-noise section');
+assert(warRoomCss.includes('.customer-brief-field-main') && warRoomCss.includes('.customer-field-examples') && warRoomCss.includes('.platform-brand-dot') && !warRoomCss.includes('.platform-mini') && warRoomCss.includes('.customer-more-fields') && warRoomCss.includes('.customer-more-grid') && warRoomCss.includes('越具体越准'), 'brief intake fields, platform tags and optional precision fields should be styled as a polished low-noise section');
 assert(warRoomCss.includes('.customer-guide-panel') && warRoomCss.includes('.guide-row p::before'), 'customer filling guide should look like an annotated form card');
 assert(indexHtml.includes('<h2>内容数据回填</h2>') && indexHtml.includes('回填记录') && indexHtml.includes('内容表现依据'), 'review evidence should sit next to feedback records');
 assert(indexHtml.indexOf('内容表现依据') > indexHtml.indexOf('回填记录'), 'review evidence should appear after feedback records');

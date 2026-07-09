@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.64';
-const VERSION_LABEL = 'v1.6.64 · 客户增长 Brief 填写体验版';
+const APP_VERSION = '1.6.65';
+const VERSION_LABEL = 'v1.6.65 · 平台标识规范修正版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -2794,22 +2794,13 @@ function hideStaleCustomerResultIfNeeded(){
   }
 }
 
-function platformIconClass(platform = ''){
+function platformBrandClass(platform = ''){
   const text = String(platform || '');
   if (text.includes('抖音')) return 'platform-douyin';
   if (text.includes('小红书')) return 'platform-redbook';
   if (text.includes('视频号')) return 'platform-video';
   if (text.includes('朋友圈') || text.includes('私域')) return 'platform-private';
   return 'platform-unknown';
-}
-
-function platformIconLabel(platform = ''){
-  const text = String(platform || '');
-  if (text.includes('抖音')) return '抖';
-  if (text.includes('小红书')) return '书';
-  if (text.includes('视频号')) return '号';
-  if (text.includes('朋友圈') || text.includes('私域')) return '微';
-  return '?';
 }
 
 function renderCustomerBriefPreview(payload = currentCustomerFormPayload()){
@@ -2828,11 +2819,11 @@ function renderCustomerBriefPreview(payload = currentCustomerFormPayload()){
   if (!platformBox) return;
   const platforms = customerPlatformItems(payload.current_channels || '').filter(Boolean);
   if (!platforms.length || (platforms.length === 1 && platforms[0] === '还不确定')) {
-    platformBox.innerHTML = '<span><i class="platform-mini platform-unknown">?</i>待选择平台</span>';
+    platformBox.innerHTML = '<span><i class="platform-brand-dot platform-unknown" aria-hidden="true"></i>待选择平台</span>';
     return;
   }
   platformBox.innerHTML = platforms.slice(0, 4).map((platform) =>
-    `<span><i class="platform-mini ${platformIconClass(platform)}">${esc(platformIconLabel(platform))}</i>${esc(platform)}</span>`
+    `<span><i class="platform-brand-dot ${platformBrandClass(platform)}" aria-hidden="true"></i>${esc(platform)}</span>`
   ).join('');
 }
 
