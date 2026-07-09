@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.58';
-const VERSION_LABEL = 'v1.6.58 · 协议与隐私政策完善版';
+const APP_VERSION = '1.6.59';
+const VERSION_LABEL = 'v1.6.59 · 信息页独立化版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -75,14 +75,6 @@ const isInternalMode = () => {
   return path === '/internal' || path.startsWith('/internal/');
 };
 const isGenerationWorkbenchRoute = () => currentPath() === '/internal/generation-workbench';
-const CUSTOMER_INFO_ROUTES = {
-  '/about': {key: 'about', title: '关于我们'},
-  '/privacy': {key: 'privacy', title: '隐私政策'},
-  '/terms': {key: 'terms', title: '用户协议'},
-  '/contact': {key: 'contact', title: '联系我们'},
-};
-const customerInfoRoute = () => CUSTOMER_INFO_ROUTES[currentPath()] || null;
-const isCustomerInfoRoute = () => !isInternalMode() && Boolean(customerInfoRoute());
 const VIEW_PROFILES = {
   internal_admin: {
     role: 'internal_admin',
@@ -831,34 +823,6 @@ function clearCustomerGeneratedView(){
   setCustomerStep('intake');
 }
 
-function resetCustomerInfoRoute(){
-  document.body.classList.remove('customer-info-mode');
-  document.title = '引客罗盘 · 内容增长循环工具';
-  const hero = $('#customerApp .customer-hero');
-  const main = $('#customerApp .customer-main');
-  const pages = $('#customerInfoPages');
-  if (hero) hero.hidden = false;
-  if (main) main.hidden = false;
-  if (pages) pages.hidden = true;
-}
-
-function renderCustomerInfoRoute(){
-  const route = customerInfoRoute();
-  if (!route) return false;
-  document.body.classList.add('customer-info-mode');
-  document.title = `${route.title} · 引客罗盘`;
-  const hero = $('#customerApp .customer-hero');
-  const main = $('#customerApp .customer-main');
-  const pages = $('#customerInfoPages');
-  if (hero) hero.hidden = true;
-  if (main) main.hidden = true;
-  if (pages) pages.hidden = false;
-  document.querySelectorAll('[data-info-page]').forEach((article) => {
-    article.hidden = article.dataset.infoPage !== route.key;
-  });
-  return true;
-}
-
 function customerStateProjectName(saved = {}){
   const assessment = saved.assessment || saved.draft_assessment || {};
   return cleanDisplayName(assessment.company_name || assessment.industry || saved.project_name || '上次项目');
@@ -868,7 +832,7 @@ function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
   const banner = $('#customerResumeBanner');
   if (!banner) return;
   const hasSaved = Boolean(saved?.assessment || saved?.draft_assessment || saved?.diagnosis || (Array.isArray(saved?.plans) && saved.plans.length));
-  const shouldShow = hasSaved && !dedicatedCustomerKey() && !isCustomerInfoRoute();
+  const shouldShow = hasSaved && !dedicatedCustomerKey();
   banner.hidden = !shouldShow;
   if (!shouldShow) return;
   const name = customerStateProjectName(saved);
@@ -3023,7 +2987,6 @@ async function copyCustomerSuggestion(){
 }
 
 function initCustomerTrial(){
-  resetCustomerInfoRoute();
   initCustomerChoices('[data-customer-platforms]', 'current_channels');
   initCustomerChoices('[data-customer-content-mode]', 'content_mode');
   initCustomerChoices('[data-customer-problems]', 'biggest_problem');
@@ -5149,8 +5112,6 @@ $('#allCustomersPanel')?.addEventListener('click', (event) => {
 });
 if (isInternalProfile()) {
   initInternalApp();
-} else if (renderCustomerInfoRoute()) {
-  // Static customer-facing information pages use the same shell but do not boot the trial form.
 } else {
   initCustomerTrial();
 }

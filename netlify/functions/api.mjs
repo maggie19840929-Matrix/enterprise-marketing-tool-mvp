@@ -6,8 +6,8 @@ const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 
-const APP_VERSION = '1.6.58';
-const VERSION_LABEL = 'v1.6.58 · 协议与隐私政策完善版';
+const APP_VERSION = '1.6.59';
+const VERSION_LABEL = 'v1.6.59 · 信息页独立化版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';

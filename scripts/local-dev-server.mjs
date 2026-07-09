@@ -57,8 +57,10 @@ const server = http.createServer(async (req, res) => {
       send(res, 302, '', { location: '/internal/' });
       return;
     }
-    const customerInfoPaths = new Set(['/about', '/about/', '/privacy', '/privacy/', '/terms', '/terms/', '/contact', '/contact/']);
-    if (pathname === '/' || pathname === '/internal/' || pathname.startsWith('/internal/') || customerInfoPaths.has(pathname)) pathname = '/index.html';
+    const customerInfoPages = new Set(['about', 'privacy', 'terms', 'contact']);
+    const infoPageName = pathname.replace(/^\/+|\/+$/g, '');
+    if (pathname === '/' || pathname === '/internal/' || pathname.startsWith('/internal/')) pathname = '/index.html';
+    else if (customerInfoPages.has(infoPageName)) pathname = `/${infoPageName}/index.html`;
     const filePath = resolve(root, `.${pathname}`);
     if (!filePath.startsWith(root)) {
       send(res, 403, 'Forbidden');
