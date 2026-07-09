@@ -1955,3 +1955,31 @@ body.customer-mode:not(.customer-step-intake) .customer-first-form-shell{
   border-radius:0!important;
   box-shadow:none!important;
 }
+
+/* customer footer meta: one editorial line with graceful mobile wrapping */
+body.customer-mode .customer-footer-meta{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  gap:4px 0!important;
+}
+body.customer-mode .customer-footer-meta>*{
+  display:inline-flex!important;
+  align-items:center!important;
+  max-width:100%!important;
+  white-space:nowrap!important;
+}
+body.customer-mode .customer-footer-meta>*:not(:first-child)::before{
+  content:"·"!important;
+  margin:0 14px!important;
+  color:#8b93a1!important;
+  opacity:.5!important;
+  text-decoration:none!important;
+}
+@media(max-width:620px){
+  body.customer-mode .customer-footer-meta{
+    display:flex!important;
+    justify-content:flex-start!important;
+  }
+}
