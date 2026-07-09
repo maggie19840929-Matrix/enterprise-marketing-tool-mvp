@@ -1238,3 +1238,55 @@ body.customer-mode .customer-footer-meta a{
     justify-content:start!important;
   }
 }
+
+/* v1.6.72 visible legal footer: make company/copyright/filing impossible to miss */
+body.customer-mode .customer-site-footer{
+  max-width:1180px!important;
+  margin:38px auto 0!important;
+  padding:18px 20px!important;
+  border:1px solid rgba(17,24,39,.1)!important;
+  border-radius:24px!important;
+  background:#fff!important;
+  box-shadow:0 18px 50px rgba(15,23,42,.06)!important;
+  color:#111827!important;
+  position:relative!important;
+  z-index:2!important;
+}
+body.customer-mode .customer-footer-primary{
+  align-items:center!important;
+}
+body.customer-mode .customer-footer-meta{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:8px 18px!important;
+  padding-top:12px!important;
+  border-top:1px solid rgba(17,24,39,.1)!important;
+  color:#111827!important;
+}
+body.customer-mode .customer-footer-meta span,
+body.customer-mode .customer-footer-meta a,
+body.customer-mode .customer-footer-meta .customer-filing-link{
+  color:#111827!important;
+  font-size:13px!important;
+  line-height:1.7!important;
+  font-weight:780!important;
+  text-decoration:none!important;
+}
+body.customer-mode .customer-footer-meta a:hover{
+  color:#0f766e!important;
+  text-decoration:underline!important;
+  text-underline-offset:3px!important;
+}
+@media(max-width:620px){
+  body.customer-mode .customer-site-footer{
+    margin-top:28px!important;
+    padding:16px!important;
+    border-radius:20px!important;
+  }
+  body.customer-mode .customer-footer-meta{
+    display:grid!important;
+    justify-content:start!important;
+  }
+}
