@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.62';
-const VERSION_LABEL = 'v1.6.62 · 获客罗盘品牌标识版';
+const APP_VERSION = '1.6.63';
+const VERSION_LABEL = 'v1.6.63 · 客户流程导航修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1288,6 +1288,15 @@ function setAppShell(){
 }
 
 function sharedJourneySteps(profile = currentProfile()){
+  if (profile.role === 'client_viewer') {
+    return [
+      {step: 1, key: 'strategy', label: '填写信息'},
+      {step: 2, key: 'strategy', label: '确认方向'},
+      {step: 3, key: 'plan', label: '内容计划'},
+      {step: 4, key: 'data', label: '记录效果'},
+      {step: 5, key: 'data', label: '下一轮优化'},
+    ];
+  }
   const isMinimal = profile.intake === 'minimal';
   return [
     {step: 1, key: 'strategy', label: isMinimal ? '填写 3 项信息' : '填写信息'},
