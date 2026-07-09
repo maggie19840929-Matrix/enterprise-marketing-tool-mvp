@@ -1908,3 +1908,50 @@ body.customer-mode:not(.customer-step-intake) .customer-first-form-shell{width:1
   body.customer-mode .customer-first-form-shell{max-width:840px!important;margin:0 auto 48px!important;padding:20px!important;}
   body.customer-mode:not(.customer-step-intake) .customer-first-form-shell{max-width:1120px!important;margin-bottom:24px!important;padding:0!important;}
 }
+
+/* customer material refinement: hairline surfaces and two-radius system */
+body.customer-mode .customer-card,
+body.customer-mode .customer-first-form-shell{
+  border:.5px solid rgba(17,24,39,.10)!important;
+  border-radius:16px!important;
+  box-shadow:0 1px 2px rgba(0,0,0,.04)!important;
+}
+body.customer-mode .customer-preview-panel,
+body.customer-mode .customer-resume-banner,
+body.customer-mode .customer-info-page,
+body.customer-mode .customer-info-grid section,
+body.customer-mode .customer-info-contact,
+body.customer-mode .customer-policy-stack section,
+body.customer-mode .customer-product-flow,
+body.customer-mode .customer-brief-field-main,
+body.customer-mode .customer-more-fields,
+body.customer-mode .customer-advice-block,
+body.customer-mode .customer-plan-block,
+body.customer-mode .customer-plan-lite,
+body.customer-mode .customer-effect-step,
+body.customer-mode .customer-why,
+body.customer-mode .customer-loop-note,
+body.customer-mode .customer-guide-panel,
+body.customer-mode .full-plan-card{
+  border-radius:16px!important;
+}
+body.customer-mode .customer-preview-panel,
+body.customer-mode .customer-info-page{
+  box-shadow:0 1px 2px rgba(0,0,0,.04)!important;
+}
+body.customer-mode.customer-step-intake #customerProgressStrip{
+  display:none!important;
+}
+body.customer-mode:not(.customer-step-intake) #customerProgressStrip{
+  border:.5px solid rgba(17,24,39,.10)!important;
+  border-radius:999px!important;
+  box-shadow:0 1px 2px rgba(0,0,0,.04)!important;
+}
+body.customer-mode:not(.customer-step-intake) #customerProgressStrip .cps-item{
+  border-radius:999px!important;
+}
+body.customer-mode:not(.customer-step-intake) .customer-first-form-shell{
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+}
