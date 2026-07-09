@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.70" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.70" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.71" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.71" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -36,13 +36,27 @@
       </div>
     </section>
 
-    <header class="customer-hero">
+    <section class="customer-first-screen" id="customerFirstScreen">
+    <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <p class="customer-kicker customer-kicker-brand"><span class="customer-brand-mark customer-brand-mark-small" aria-hidden="true"><i></i></span>获客罗盘</p>
-        <h1>让内容持续带来客户咨询</h1>
-        <p>填入基本信息，生成本轮内容建议；发布后记录效果，下一轮继续优化。</p>
+        <h1>把内容发布，变成持续获客的经营动作</h1>
+        <p>适合门店、商家和服务型企业：先梳理业务与目标客户，再生成本轮内容建议；发布后记录效果，下一轮继续优化。</p>
         <div class="customer-hero-actions">
           <a class="customer-hero-primary" href="#customerFormCard" data-customer-step-link="intake">开始生成内容建议</a>
+        </div>
+        <div class="customer-proof-row" aria-label="产品能力">
+          <span>业务诊断</span>
+          <span>内容计划</span>
+          <span>发布记录</span>
+          <span>下一轮优化</span>
+        </div>
+        <div class="customer-hero-outcome" aria-label="生成结果预览">
+          <div>
+            <small>你会得到</small>
+            <strong>内容方向 + 本轮计划 + 记录效果入口</strong>
+          </div>
+          <p>不用先写完整方案，先把真实业务讲清楚，系统会整理成可执行的内容建议。</p>
         </div>
       </div>
       <aside class="customer-hero-product" aria-label="产品能力预览" hidden>
@@ -79,7 +93,12 @@
       </aside>
     </header>
 
-    <main class="customer-main">
+    <div class="customer-first-form-shell" aria-label="填写业务信息">
+      <div class="customer-form-shell-head">
+        <span>从这里开始</span>
+        <strong>填写 3 项核心信息</strong>
+        <p>行业/业务、目标、目标客户越具体，生成的内容建议越接近真实获客场景。</p>
+      </div>
       <div class="customer-progress-strip" id="customerProgressStrip" aria-label="操作进度">
         <button class="cps-item cps-active" type="button" data-step="1" data-customer-step-target="intake">
           <span class="cps-dot" aria-hidden="true"></span>
@@ -287,7 +306,10 @@
           </aside>
         </div>
       </section>
+      </div>
+    </section>
 
+    <main class="customer-main customer-result-main">
       <section id="customerCoCreationSection" class="customer-card customer-cocreation-card" hidden>
         <div class="customer-section-head">
           <p>STEP 2 · 方向确认</p>
@@ -842,6 +864,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.70"></script>
+  <script src="/app.js?v=1.6.71"></script>
 </body>
 </html>
