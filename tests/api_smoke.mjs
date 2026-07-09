@@ -99,7 +99,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.69', `expected app_version 1.6.69, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.70', `expected app_version 1.6.70, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -376,7 +376,7 @@ assert(cloudState.project_store.projects.some((item) => item.id === 'project-smo
 const customerCloudSyncPost = await handler(request('POST', 'state', {
   client_id: 'customer-cloud-sync',
   source: 'customer_public_cloud_sync',
-  sync_version: '1.6.69',
+  sync_version: '1.6.70',
   project_store: {
     activeProjectId: 'project-customer-cloud-sync',
     projects: [{
@@ -396,7 +396,7 @@ const customerCloudSyncPost = await handler(request('POST', 'state', {
         content_rounds: [{ round_number: 1, plans: basketballData.plans.slice(0, 3), archived_at: '2026-07-01 10:00:00' }],
         active_round: 2,
         current_round: 2,
-        cloud_sync_version: '1.6.69',
+        cloud_sync_version: '1.6.70',
         source: 'customer_public_cloud_sync',
       },
     }],
@@ -420,7 +420,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.69'"), 'app should expose v1.6.69 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.70'"), 'app should expose v1.6.70 internally/API-side');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -506,7 +506,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.69') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.69'), 'customer page should cache-bust current v1.6.69 assets');
+assert(indexHtml.includes('/app.js?v=1.6.70') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.70'), 'customer page should cache-bust current v1.6.70 assets');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -530,6 +530,7 @@ assert(indexHtml.includes('开始生成内容建议') && indexHtml.includes('hre
 assert(indexHtml.includes('customer-hero-product') && indexHtml.includes('hidden') && !indexHtml.includes('查看已生成建议'), 'customer first screen should hide the product capability panel and remove the secondary hero action by default');
 assert(indexHtml.includes('customer-mini-icon customer-icon-platform') && indexHtml.includes('customer-mini-icon customer-icon-topic') && indexHtml.includes('customer-mini-icon customer-icon-loop') && indexHtml.includes('customer-mini-icon customer-icon-brief'), 'customer page should keep the refined product icon system for progressive surfaces');
 assert(warRoomCss.includes('v1.6.69 customer homepage de-noise') && warRoomCss.includes('body.customer-mode .customer-hero-product{display:none') && warRoomCss.includes('body.customer-mode .customer-field-examples{display:none') && warRoomCss.includes('body.customer-mode .cps-item:first-child .cps-label'), 'customer mode should keep the light skin but reduce first-screen density and preserve the first nav label');
+assert(warRoomCss.includes('v1.6.70 customer progress visibility fix') && warRoomCss.includes('body.customer-mode .customer-progress-strip button.cps-item.cps-active') && warRoomCss.includes('opacity:1!important'), 'customer mode should override transparent button styles so the active progress label stays visible');
 assert(indexHtml.includes('你的目标客户是谁？*') && indexHtml.includes('required placeholder="如：附近客户'), 'target customer should be required because advice quality depends on audience');
 assert(indexHtml.includes('3 项核心信息') && indexHtml.includes('平台语境识别') && indexHtml.includes('补充更多（可选）') && indexHtml.includes('公司/门店名') && indexHtml.includes('当前产品/服务') && indexHtml.includes('服务区域/交付方式') && indexHtml.includes('可预约时间/服务节奏') && indexHtml.includes('补充说明') && indexHtml.includes('资质/服务保障（可选）') && indexHtml.includes('没有也可以先不填') && indexHtml.includes('客户最常问的问题或顾虑') && indexHtml.includes('你现在手里有什么素材？') && indexHtml.includes('最近表现最好的一条内容/对标内容'), 'customer page should expose only 3 required fields first and keep trust/detail fields optional');
 assert(indexHtml.includes('<input type="hidden" name="current_channels" />') && indexHtml.includes('<input type="hidden" name="biggest_problem" />') && appJs.includes("current_channels: rawForm.current_channels || '还不确定'") && appJs.includes("biggest_problem: rawForm.biggest_problem || '不知道发什么'"), 'customer minimal intake should make platform/problem optional with safe generation defaults');

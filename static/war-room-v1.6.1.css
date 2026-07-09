@@ -968,3 +968,14 @@ body.customer-mode .customer-form{grid-template-columns:1fr!important;}
 body.customer-mode .customer-brief-field-main{padding:14px!important;}
 body.customer-mode .cps-label{display:inline-block!important;max-width:none!important;overflow:visible!important;text-overflow:clip!important;}
 body.customer-mode .cps-item:first-child .cps-label{min-width:72px!important;}
+
+/* v1.6.70 customer progress visibility fix */
+body.customer-mode .customer-progress-strip button.cps-item.cps-active{
+  background:#111827!important;
+  border-color:#111827!important;
+  color:#fff!important;
+}
+body.customer-mode .customer-progress-strip button.cps-item.cps-active .cps-label{
+  color:#fff!important;
+  opacity:1!important;
+}

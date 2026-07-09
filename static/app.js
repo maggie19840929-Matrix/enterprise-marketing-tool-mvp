@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.69';
-const VERSION_LABEL = 'v1.6.69 · 首页降噪与导航修正版';
+const APP_VERSION = '1.6.70';
+const VERSION_LABEL = 'v1.6.70 · 进度导航可见性修正版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
