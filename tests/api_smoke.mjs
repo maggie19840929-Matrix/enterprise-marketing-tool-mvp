@@ -99,7 +99,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.56', `expected app_version 1.6.56, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.57', `expected app_version 1.6.57, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -376,7 +376,7 @@ assert(cloudState.project_store.projects.some((item) => item.id === 'project-smo
 const customerCloudSyncPost = await handler(request('POST', 'state', {
   client_id: 'customer-cloud-sync',
   source: 'customer_public_cloud_sync',
-  sync_version: '1.6.56',
+  sync_version: '1.6.57',
   project_store: {
     activeProjectId: 'project-customer-cloud-sync',
     projects: [{
@@ -396,7 +396,7 @@ const customerCloudSyncPost = await handler(request('POST', 'state', {
         content_rounds: [{ round_number: 1, plans: basketballData.plans.slice(0, 3), archived_at: '2026-07-01 10:00:00' }],
         active_round: 2,
         current_round: 2,
-        cloud_sync_version: '1.6.56',
+        cloud_sync_version: '1.6.57',
         source: 'customer_public_cloud_sync',
       },
     }],
@@ -416,7 +416,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.56'"), 'app should expose v1.6.56 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.57'"), 'app should expose v1.6.57 internally/API-side');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -501,11 +501,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>引客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.56') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.56'), 'customer page should cache-bust current v1.6.56 assets');
+assert(indexHtml.includes('/app.js?v=1.6.57') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.57'), 'customer page should cache-bust current v1.6.57 assets');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
 assert(indexHtml.includes('id="customerInfoPages"') && indexHtml.includes('data-info-page="about"') && indexHtml.includes('data-info-page="privacy"') && indexHtml.includes('data-info-page="terms"') && indexHtml.includes('data-info-page="contact"') && appJs.includes('CUSTOMER_INFO_ROUTES') && appJs.includes('function renderCustomerInfoRoute'), 'customer information pages should be routed through the same static app shell');
-assert(indexHtml.includes('ICP备案号：备案完成后展示') && indexHtml.includes('公安备案号：备案完成后展示') && !/ICP备\d/.test(indexHtml), 'customer footer should reserve compliance fields without fabricating a filing number');
+assert(indexHtml.includes('网信备案：苏ICP备2026037570号-1') && indexHtml.includes('https://beian.miit.gov.cn/') && !indexHtml.includes('公安备案'), 'customer footer should show the real ICP filing and hide unfinished public-security filing');
 assert(redirects.includes('/about /index.html 200') && redirects.includes('/privacy /index.html 200') && redirects.includes('/terms /index.html 200') && redirects.includes('/contact /index.html 200'), 'customer info pages should rewrite to the SPA shell');
 assert(indexHtml.includes('引客罗盘') && indexHtml.includes('让内容持续带来客户咨询') && indexHtml.includes('抖音/小红书/视频号等多平台内容建议') && !indexHtml.includes('给篮球培训客户的全平台内容矩阵'), 'default customer page should use a public multi-platform product title, not a single-customer static page title');
 assert(!indexHtml.includes('填 5 个问题，得到你的内容发布计划') && !indexHtml.includes('customer-hero-bullets') && !indexHtml.includes('customer-steps'), 'customer hero should remove noisy checklist-style guidance and duplicate step card');
