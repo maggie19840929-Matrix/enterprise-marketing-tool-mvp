@@ -1,5 +1,13 @@
 /internal /index.html 200
 /internal/ /index.html 200
 /internal/* /index.html 200
+/about /index.html 200
+/about/ /index.html 200
+/privacy /index.html 200
+/privacy/ /index.html 200
+/terms /index.html 200
+/terms/ /index.html 200
+/contact /index.html 200
+/contact/ /index.html 200
 /internal（内测） /internal/ 301
 /internal（内测版） /internal/ 301

@@ -57,7 +57,8 @@ const server = http.createServer(async (req, res) => {
       send(res, 302, '', { location: '/internal/' });
       return;
     }
-    if (pathname === '/' || pathname === '/internal/' || pathname.startsWith('/internal/')) pathname = '/index.html';
+    const customerInfoPaths = new Set(['/about', '/about/', '/privacy', '/privacy/', '/terms', '/terms/', '/contact', '/contact/']);
+    if (pathname === '/' || pathname === '/internal/' || pathname.startsWith('/internal/') || customerInfoPaths.has(pathname)) pathname = '/index.html';
     const filePath = resolve(root, `.${pathname}`);
     if (!filePath.startsWith(root)) {
       send(res, 403, 'Forbidden');

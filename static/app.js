@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.55';
-const VERSION_LABEL = 'v1.6.55 · 客户版品牌与产品感收敛版';
+const APP_VERSION = '1.6.56';
+const VERSION_LABEL = 'v1.6.56 · 产品可信度与合规底座版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -18,6 +18,7 @@ const normalizeClientId = (value = '') => {
   const normalized = raw.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
   return CLIENT_ID_RE.test(normalized) ? normalized : '';
 };
+const newAnonymousClientId = () => 'anonymous-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 const readSessionClientId = () => {
   try {
     const ls = window.localStorage;
@@ -27,7 +28,7 @@ const readSessionClientId = () => {
       if (legacy) { stored = legacy; try { ls?.setItem(CUSTOMER_SESSION_KEY, legacy); } catch {} }
     }
     if (stored) return normalizeClientId(stored);
-    const next = 'anonymous-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    const next = newAnonymousClientId();
     ls?.setItem(CUSTOMER_SESSION_KEY, next);
     return next;
   } catch {
@@ -74,6 +75,14 @@ const isInternalMode = () => {
   return path === '/internal' || path.startsWith('/internal/');
 };
 const isGenerationWorkbenchRoute = () => currentPath() === '/internal/generation-workbench';
+const CUSTOMER_INFO_ROUTES = {
+  '/about': {key: 'about', title: '关于我们'},
+  '/privacy': {key: 'privacy', title: '隐私政策'},
+  '/terms': {key: 'terms', title: '用户协议'},
+  '/contact': {key: 'contact', title: '联系我们'},
+};
+const customerInfoRoute = () => CUSTOMER_INFO_ROUTES[currentPath()] || null;
+const isCustomerInfoRoute = () => !isInternalMode() && Boolean(customerInfoRoute());
 const VIEW_PROFILES = {
   internal_admin: {
     role: 'internal_admin',
@@ -820,6 +829,94 @@ function clearCustomerGeneratedView(){
   if (coCreationList) coCreationList.innerHTML = '';
   customerSuggestionText = '';
   setCustomerStep('intake');
+}
+
+function resetCustomerInfoRoute(){
+  document.body.classList.remove('customer-info-mode');
+  document.title = '引客罗盘 · 内容增长循环工具';
+  const hero = $('#customerApp .customer-hero');
+  const main = $('#customerApp .customer-main');
+  const pages = $('#customerInfoPages');
+  if (hero) hero.hidden = false;
+  if (main) main.hidden = false;
+  if (pages) pages.hidden = true;
+}
+
+function renderCustomerInfoRoute(){
+  const route = customerInfoRoute();
+  if (!route) return false;
+  document.body.classList.add('customer-info-mode');
+  document.title = `${route.title} · 引客罗盘`;
+  const hero = $('#customerApp .customer-hero');
+  const main = $('#customerApp .customer-main');
+  const pages = $('#customerInfoPages');
+  if (hero) hero.hidden = true;
+  if (main) main.hidden = true;
+  if (pages) pages.hidden = false;
+  document.querySelectorAll('[data-info-page]').forEach((article) => {
+    article.hidden = article.dataset.infoPage !== route.key;
+  });
+  return true;
+}
+
+function customerStateProjectName(saved = {}){
+  const assessment = saved.assessment || saved.draft_assessment || {};
+  return cleanDisplayName(assessment.company_name || assessment.industry || saved.project_name || '上次项目');
+}
+
+function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
+  const banner = $('#customerResumeBanner');
+  if (!banner) return;
+  const hasSaved = Boolean(saved?.assessment || saved?.draft_assessment || saved?.diagnosis || (Array.isArray(saved?.plans) && saved.plans.length));
+  const shouldShow = hasSaved && !dedicatedCustomerKey() && !isCustomerInfoRoute();
+  banner.hidden = !shouldShow;
+  if (!shouldShow) return;
+  const name = customerStateProjectName(saved);
+  const title = $('#customerResumeTitle');
+  const desc = $('#customerResumeDesc');
+  if (title) title.textContent = `继续：${name}`;
+  if (desc) {
+    const hasGenerated = customerHasGeneratedState(saved);
+    desc.textContent = hasGenerated
+      ? '这个项目已经生成过内容建议。客户第一次打开不会看到你的本地记录；如果要演示新客户，请新建空白项目。'
+      : '这个项目保存过草稿信息。客户第一次打开不会看到你的本地记录；如果要演示新客户，请新建空白项目。';
+  }
+}
+
+function resetCustomerTrialForm(){
+  const form = $('#customerAssessmentForm');
+  form?.reset();
+  form?.querySelectorAll('.customer-choice-chip').forEach((button) => {
+    const selected = button.dataset.value === '推荐模式：平台差异化适配';
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  const contentMode = form?.querySelector('[name="content_mode"]');
+  if (contentMode) contentMode.value = '推荐模式：平台差异化适配';
+  ['current_channels', 'biggest_problem'].forEach((name) => {
+    const field = form?.querySelector(`[name="${name}"]`);
+    if (field) field.value = '';
+  });
+  setCustomerMessage('#customerFormError', '');
+}
+
+function startBlankCustomerProject(){
+  const currentId = customerClientId();
+  safeStorage.removeItem(customerTrialStorageKey(currentId));
+  if (!explicitCustomerClientId()) {
+    safeStorage.setItem(CUSTOMER_SESSION_KEY, newAnonymousClientId());
+  }
+  customerSuggestionText = '';
+  clientState = blankClientState();
+  resetCustomerTrialForm();
+  clearCustomerGeneratedView();
+  renderCustomerEffects([]);
+  renderCustomerRecordSummary({});
+  renderCustomerNextAdvice({});
+  renderCustomerResumeBanner({});
+  setCustomerFormCollapsed(false);
+  setCustomerStep('intake', {state: {}, focus: true});
+  toast('已切换到空白项目，可以给新客户重新填写。');
 }
 
 function setCustomerFormCollapsed(collapsed){
@@ -2926,6 +3023,7 @@ async function copyCustomerSuggestion(){
 }
 
 function initCustomerTrial(){
+  resetCustomerInfoRoute();
   initCustomerChoices('[data-customer-platforms]', 'current_channels');
   initCustomerChoices('[data-customer-content-mode]', 'content_mode');
   initCustomerChoices('[data-customer-problems]', 'biggest_problem');
@@ -2934,6 +3032,7 @@ function initCustomerTrial(){
   initCustomerGuide();
   renderCustomerEffects();
   const savedCustomerState = loadCustomerTrialState();
+  renderCustomerResumeBanner(savedCustomerState);
   if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
     clientState = buildVersionedProjectState(
       {assessment: savedCustomerState.assessment, diagnosis: savedCustomerState.diagnosis, plans: savedCustomerState.plans || []},
@@ -2955,6 +3054,10 @@ function initCustomerTrial(){
   renderCustomerRecordSummary(savedCustomerState);
   renderCustomerNextAdvice(savedCustomerState);
   setCustomerStep(customerDefaultStep(savedCustomerState), {state: savedCustomerState});
+  $('#customerResumeContinue')?.addEventListener('click', () => {
+    setCustomerStep(customerDefaultStep(loadCustomerTrialState()), {focus: true});
+  });
+  $('#customerStartBlank')?.addEventListener('click', startBlankCustomerProject);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
   $('#customerRegenerateBtn')?.addEventListener('click', editCustomerAssessment);
   $('#customerAssessmentForm')?.addEventListener('input', hideStaleCustomerResultIfNeeded);
@@ -5046,6 +5149,8 @@ $('#allCustomersPanel')?.addEventListener('click', (event) => {
 });
 if (isInternalProfile()) {
   initInternalApp();
+} else if (renderCustomerInfoRoute()) {
+  // Static customer-facing information pages use the same shell but do not boot the trial form.
 } else {
   initCustomerTrial();
 }
