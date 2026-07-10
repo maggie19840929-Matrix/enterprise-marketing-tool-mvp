@@ -75,6 +75,18 @@ curl -s http://127.0.0.1:8888/api/health
 
 Netlify Function 在生产环境优先使用 Netlify Blobs 保存项目态；无 Blobs 环境时自动降级为内存 fallback，便于本地验证。
 
+### 内部访问鉴权
+
+内部后台和跨客户/聚合接口必须在 Netlify 环境变量中配置：
+
+```bash
+INTERNAL_ACCESS_TOKEN=团队内部使用的高强度随机口令
+```
+
+`/internal/` 首次进入会要求输入该口令，验证通过后浏览器仅在本站 localStorage 保存口令，并在内部请求头中发送 `x-internal-token`。服务端也兼容 `Authorization: Bearer <token>`。未配置环境变量、未携带口令或口令错误时，内部接口统一返回 401；URL 的 `mode=internal`、`client_id=internal` 或 payload 自称均不能授予内部权限。
+
+客户根路径 `/` 不发送内部令牌，匿名自助流程仍按浏览器保存的高熵 `client_id` 读写自己的项目。`/api/health` 保持公开。
+
 ### 客户连续内容周期
 
 客户版主路径：
@@ -165,7 +177,7 @@ CUSTOMER_PUBLIC_MODEL=
 
 `ARK_BASE_URL` 可以填写 `https://ark.cn-beijing.volces.com/api/v3`，后端会自动拼接 `/chat/completions`；如果已填写完整 `/chat/completions` 地址也兼容。
 
-如果未配置 `ARK_API_KEY` 或 `ARK_MODEL`，接口不会报错，但会明确返回 `provider: "local"`、`actual_model: "rule_template"`、`fallback: true` 和具体 `fallback_reason`，用于验收区分真实模型调用和规则兜底。
+如果未配置 `ARK_API_KEY` 或 `ARK_MODEL`，接口不会报错，内部令牌请求会明确返回 `provider: "local"`、`actual_model: "rule_template"`、`fallback` 和具体 `fallback_reason`，用于验收区分真实模型调用和规则兜底。匿名客户响应会移除这些模型与供应商元数据，前端仍可正常渲染规则兜底结果。
 
 ## 产品边界
 

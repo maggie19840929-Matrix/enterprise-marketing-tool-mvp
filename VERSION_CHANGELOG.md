@@ -16,6 +16,23 @@
 
 ## 更新记录
 
+### v1.6.80 · 内部鉴权与数据隔离安全版
+
+日期：2026-07-10
+
+本次安全整改：
+1. 内部客户聚合、诊断/计划/复盘聚合和素材生产工作台接口统一要求 `INTERNAL_ACCESS_TOKEN`，URL 参数或 payload 自称不再授予内部权限。
+2. 内部入口增加口令验证，验证成功前不加载或渲染客户数据；验证后内部请求统一携带 `x-internal-token`。
+3. 客户匿名自助流程保持免登录，并继续按浏览器保存的 `client_id` 读写自身项目；内部状态桶禁止匿名访问。
+4. 新匿名客户 ID 改用 `crypto.randomUUID()` 或 `crypto.getRandomValues()`，旧客户 ID 保持兼容。
+5. 客户 API 响应递归移除模型、供应商、用量和 fallback 元数据；持有效内部令牌的请求保留排障证据。
+
+验收：
+- 匿名访问 `/api/customers`、`/api/customers/merge-preview`、`/api/dashboard`、`/api/diagnoses`、`/api/plans`、`/api/reviews` 和工作台接口均返回 401；
+- 正确 `x-internal-token` 或 Bearer 令牌可正常访问内部接口；
+- `/api/health` 继续匿名可用；
+- 客户匿名填写、生成、保存项目态和重新读取流程不受影响。
+
 ### v1.6.79 · 记录入口状态保持修正版
 
 日期：2026-07-10

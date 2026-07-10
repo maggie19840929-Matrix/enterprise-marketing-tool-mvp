@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.79" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.80" />
   <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.82" />
 </head>
 <body>
@@ -440,6 +440,19 @@
     </footer>
   </div>
 
+  <main id="internalAccessGate" class="internal-access-gate" hidden>
+    <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
+      <span class="customer-brand-mark" aria-hidden="true"><i></i></span>
+      <p>INTERNAL ACCESS</p>
+      <h1>内部工作区</h1>
+      <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
+      <label for="internalAccessToken">内部访问口令</label>
+      <input id="internalAccessToken" name="internal_access_token" type="password" autocomplete="current-password" required />
+      <button id="internalAccessSubmit" type="submit">进入内部工作区</button>
+      <div id="internalAccessMessage" class="internal-access-message" role="status" aria-live="polite">请输入内部访问口令。</div>
+    </form>
+  </main>
+
   <div id="internalApp" hidden class="internal-trial-app">
   <header class="customer-hero internal-hero">
     <div class="customer-hero-copy">
@@ -843,6 +856,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.79"></script>
+  <script src="/app.js?v=1.6.80"></script>
 </body>
 </html>

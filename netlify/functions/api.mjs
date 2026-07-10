@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 let state;
 let memoryCloudState = null;
@@ -6,8 +6,8 @@ const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 
-const APP_VERSION = '1.6.79';
-const VERSION_LABEL = 'v1.6.79 · 记录入口状态保持修正版';
+const APP_VERSION = '1.6.80';
+const VERSION_LABEL = 'v1.6.80 · 内部鉴权与数据隔离安全版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -24,7 +24,9 @@ const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUS
 const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 10000), 5000), 12000);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
+const INTERNAL_CLIENT_ID = 'internal';
 const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+const envValue = (...keys) => keys.map((key) => process.env[key]).find((value) => String(value || '').trim())?.trim() || '';
 const normalizeClientId = (value = '') => {
   const raw = String(value || '').trim().toLowerCase();
   if (['basketball-training', 'youth-basketball'].includes(raw)) return 'basketball';
@@ -34,23 +36,25 @@ const normalizeClientId = (value = '') => {
 const clientIdFrom = (payload = {}, url = null, request = null) =>
   normalizeClientId(payload.client_id || payload.customer_key || url?.searchParams?.get('client_id') || url?.searchParams?.get('customer') || request?.headers?.get('x-client-id') || 'anonymous');
 const clientScopedCloudStateKey = (clientId = 'anonymous') => `${CLOUD_STATE_KEY}.${normalizeClientId(clientId) || 'anonymous'}`;
-const isInternalStateRequest = (url = null) => {
-  const mode = String(url?.searchParams?.get('mode') || url?.searchParams?.get('source') || '').toLowerCase();
-  const internal = String(url?.searchParams?.get('internal') || '').toLowerCase();
-  return mode === 'internal' || ['1', 'true', 'yes'].includes(internal);
-};
 const internalAccessToken = () => envValue('INTERNAL_ACCESS_TOKEN');
-const requestInternalToken = (url = null, request = null) => {
+const requestInternalToken = (request = null) => {
   const auth = String(request?.headers?.get('authorization') || '').trim();
-  const bearer = auth.replace(/^Bearer\s+/i, '').trim();
-  return bearer || String(request?.headers?.get('x-internal-access-token') || url?.searchParams?.get('token') || '').trim();
+  const bearer = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
+  return bearer || String(request?.headers?.get('x-internal-token') || '').trim();
 };
-const isInternalCustomersRequest = (url = null, request = null) => {
-  // V1 仍沿用现有 internal mode 门槛；后续登录/角色系统接入后，应在这里替换成真正鉴权。
-  const legacyInternal = isInternalStateRequest(url) || normalizeClientId(url?.searchParams?.get('client_id') || '') === 'internal';
-  const token = internalAccessToken();
-  if (!token) return legacyInternal;
-  return legacyInternal || requestInternalToken(url, request) === token;
+const constantTimeTokenMatch = (provided = '', expected = '') => {
+  if (!provided || !expected) return false;
+  const providedDigest = createHash('sha256').update(String(provided)).digest();
+  const expectedDigest = createHash('sha256').update(String(expected)).digest();
+  return timingSafeEqual(providedDigest, expectedDigest);
+};
+const hasValidInternalAuth = (request = null) => constantTimeTokenMatch(requestInternalToken(request), internalAccessToken());
+const INTERNAL_AUTH_MARKER = Symbol('internal-authorized');
+const markInternalAuthorized = (payload, authorized = false) => {
+  if (authorized && payload && typeof payload === 'object') {
+    Object.defineProperty(payload, INTERNAL_AUTH_MARKER, { value: true, enumerable: false, configurable: false });
+  }
+  return payload;
 };
 
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
@@ -82,13 +86,41 @@ const sanitizeCustomerPayload = (value) => {
   return value;
 };
 
-const json = (payload, status = 200) =>
-  new Response(JSON.stringify(sanitizeCustomerPayload(payload), null, 2), {
+const CUSTOMER_HIDDEN_MODEL_FIELDS = new Set([
+  'model_info',
+  'generation_meta',
+  'content_generation',
+  'requested_model',
+  'actual_model',
+  'provider',
+  'fallback',
+  'fallback_reason',
+  'failure_reason',
+  'latency_ms',
+  'usage',
+  'raw_usage',
+  'token_usage',
+  'provider_job_id',
+  'transparent_note',
+  'debug',
+]);
+const stripCustomerModelMetadata = (value) => {
+  if (Array.isArray(value)) return value.map(stripCustomerModelMetadata);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !CUSTOMER_HIDDEN_MODEL_FIELDS.has(key) && !String(key).endsWith('_usage'))
+      .map(([key, item]) => [key, stripCustomerModelMetadata(item)]));
+  }
+  return value;
+};
+
+const json = (payload, status = 200, { internal = false } = {}) =>
+  new Response(JSON.stringify(sanitizeCustomerPayload(internal ? payload : stripCustomerModelMetadata(payload)), null, 2), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
+const unauthorized = () => json({ error: '未授权' }, 401);
 
-const envValue = (...keys) => keys.map((key) => process.env[key]).find((value) => String(value || '').trim())?.trim() || '';
 const arkApiKey = () => envValue('ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY');
 const openaiApiKey = () => envValue('OPENAI_API_KEY');
 const anthropicApiKey = () => envValue('ANTHROPIC_API_KEY');
@@ -100,9 +132,10 @@ const arkChatCompletionsUrl = () => {
   return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
 };
 const internalModelProvider = (payload = {}) => String(payload.model_provider || payload.model_mode || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
-const isInternalPayload = (payload = {}) => ['internal_test', 'internal_regenerate', 'internal_version'].includes(payload.client_mode || payload.source);
+const isInternalPayload = (payload = {}) => Boolean(payload?.[INTERNAL_AUTH_MARKER])
+  && ['internal_test', 'internal_regenerate', 'internal_version'].includes(payload.client_mode || payload.source);
 const modelProviderFor = (payload = {}, fallbackProvider = 'volcengine_ark') => {
-  const requested = internalModelProvider(payload);
+  const requested = isInternalPayload(payload) ? internalModelProvider(payload) : '';
   if (requested) {
     if (['doubao', 'ark', 'volcengine', 'volcengine_ark'].includes(requested)) return 'volcengine_ark';
     if (['anthropic', 'claude', 'claude_opus'].includes(requested)) return 'anthropic';
@@ -3778,6 +3811,21 @@ const buildFeishuPayload = (item = {}) => ({
   },
 });
 
+const modelPayloadForRequest = (payload = {}, internalAuthorized = false) => {
+  if (internalAuthorized) return markInternalAuthorized(payload, true);
+  const customerPayload = { ...payload };
+  delete customerPayload.model_provider;
+  delete customerPayload.model_mode;
+  delete customerPayload._mode;
+  if (['internal_test', 'internal_regenerate', 'internal_version'].includes(customerPayload.client_mode)) {
+    delete customerPayload.client_mode;
+  }
+  if (['internal_test', 'internal_regenerate', 'internal_version'].includes(customerPayload.source)) {
+    customerPayload.source = 'api_assessment';
+  }
+  return customerPayload;
+};
+
 export default async (request) => {
   ensureState();
   const url = new URL(request.url);
@@ -3786,6 +3834,7 @@ export default async (request) => {
     url.pathname.replace(/^\/api\/?/, '').replace(/^\/\.netlify\/functions\/api\/?/, '')
   );
   const path = `/${route.replace(/^\/+/, '')}`;
+  const internalAuthorized = hasValidInternalAuth(request);
   try {
     const requestClientId = clientIdFrom({}, url, request);
     if (request.method === 'GET') {
@@ -3799,70 +3848,105 @@ export default async (request) => {
         features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling'],
       });
       if (path === '/customers') {
-        if (!isInternalCustomersRequest(url, request)) return json({ error: '仅内部视图可访问客户聚合列表' }, 403);
-        return json(await listCustomersFromCloudState());
+        if (!internalAuthorized) return unauthorized();
+        return json(await listCustomersFromCloudState(), 200, { internal: true });
       }
       if (path === '/customers/merge-preview') {
-        if (!isInternalCustomersRequest(url, request)) return json({ error: '仅内部视图可访问客户合并预演' }, 403);
+        if (!internalAuthorized) return unauthorized();
         return json(await previewCustomerMerge({
           clientIds: url.searchParams.get('client_ids') || '',
           displayName: url.searchParams.get('display_name') || url.searchParams.get('customer_name') || '',
           canonicalClientId: url.searchParams.get('canonical_client_id') || '',
-        }));
+        }), 200, { internal: true });
       }
-      if (path === '/state') return json(await readCloudState(requestClientId, {internal: requestClientId === 'internal' || isInternalStateRequest(url)}));
-      if (path === '/assets') return json({ assets: await listAssets({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '' }) });
-      if (path === '/generation-tasks') return json({ tasks: await listTasks({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '', view: url.searchParams.get('view') || 'internal' }) });
+      if (path === '/state') {
+        if (requestClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+        return json(await readCloudState(requestClientId, { internal: internalAuthorized }), 200, { internal: internalAuthorized });
+      }
+      if (path === '/assets') {
+        if (!internalAuthorized) return unauthorized();
+        return json({ assets: await listAssets({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '' }) }, 200, { internal: true });
+      }
+      if (path === '/generation-tasks') {
+        if (!internalAuthorized) return unauthorized();
+        return json({ tasks: await listTasks({ clientId: requestClientId, projectId: url.searchParams.get('project_id') || '', view: url.searchParams.get('view') || 'internal' }) }, 200, { internal: true });
+      }
       const taskDetailMatch = path.match(/^\/generation-tasks\/([^/]+)$/);
       if (taskDetailMatch) {
+        if (!internalAuthorized) return unauthorized();
         const task = await getTask(requestClientId, decodeURIComponent(taskDetailMatch[1]));
-        return task ? json({ task }) : json({ error: '生成任务不存在' }, 404);
+        return task ? json({ task }, 200, { internal: true }) : json({ error: '生成任务不存在' }, 404, { internal: true });
       }
-      if (path === '/dashboard') return json(dashboard());
+      if (path === '/dashboard') {
+        if (!internalAuthorized) return unauthorized();
+        return json(dashboard(), 200, { internal: true });
+      }
       if (path === '/assessments') return json(state.assessments.filter((item) => !item.client_id || item.client_id === requestClientId));
-      if (path === '/diagnoses') return json(state.diagnoses.filter((item) => !item.client_id || item.client_id === requestClientId));
-      if (path === '/plans') return json(state.plans.filter((item) => !item.client_id || item.client_id === requestClientId));
+      if (path === '/diagnoses') {
+        if (!internalAuthorized) return unauthorized();
+        return json(state.diagnoses.filter((item) => !item.client_id || item.client_id === requestClientId), 200, { internal: true });
+      }
+      if (path === '/plans') {
+        if (!internalAuthorized) return unauthorized();
+        return json(state.plans.filter((item) => !item.client_id || item.client_id === requestClientId), 200, { internal: true });
+      }
       if (path === '/feedback') return json(state.feedback.filter((item) => !item.client_id || item.client_id === requestClientId));
-      if (path === '/reviews') return json(state.reviews);
+      if (path === '/reviews') {
+        if (!internalAuthorized) return unauthorized();
+        return json(state.reviews, 200, { internal: true });
+      }
     }
 
     const payload = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     const payloadClientId = clientIdFrom(payload, url, request);
     const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
     if (request.method === 'POST' && path === '/assessments') {
-      const assessment_id = createAssessment(payload, payloadClientId);
+      const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
+      const assessment_id = createAssessment(trustedPayload, payloadClientId);
       const assessment = state.assessments.find((item) => item.id === assessment_id);
+      if (internalAuthorized) {
+        markInternalAuthorized(assessment, true);
+        if (payload.model_provider || payload.model_mode) {
+          Object.defineProperty(assessment, 'model_provider', { value: payload.model_provider || payload.model_mode, enumerable: false });
+        }
+      }
       const diagnosis = generateDiagnosis(assessment_id);
       const generated = await generateOpusPlanRows(assessment, diagnosis);
       const plans = createContentPlan(diagnosis.id, generated.rows, generated.meta);
       const generation_meta = normalizeModelMeta(generated.meta);
-      return json({ assessment_id, assessment, diagnosis, plans, model_info: generation_meta, generation_meta }, 201);
+      return json({ assessment_id, assessment, diagnosis, plans, model_info: generation_meta, generation_meta }, 201, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/state') {
-      return json(await writeCloudState(payload, payloadClientId), 201);
+      if (payloadClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      return json(await writeCloudState(payload, payloadClientId), 201, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/assets') {
-      return json({ asset: await createAsset(payload) }, 201);
+      if (!internalAuthorized) return unauthorized();
+      return json({ asset: await createAsset(payload) }, 201, { internal: true });
     }
     if (request.method === 'POST' && path === '/generation-tasks') {
-      return json({ task: await createGenerationTask(payload) }, 201);
+      if (!internalAuthorized) return unauthorized();
+      return json({ task: await createGenerationTask(payload) }, 201, { internal: true });
     }
     if (request.method === 'POST' && taskActionMatch) {
+      if (!internalAuthorized) return unauthorized();
       const [, rawTaskId, action] = taskActionMatch;
       const taskId = decodeURIComponent(rawTaskId);
       const clientId = payloadClientId;
-      if (action === 'submit') return json({ task: await submitGenerationTask(clientId, taskId) }, 200);
-      if (action === 'poll') return json({ task: await pollGenerationTask(clientId, taskId) }, 200);
-      if (action === 'qa') return json({ task: await qaGenerationTask(clientId, taskId, payload) }, 200);
-      if (action === 'deliver') return json({ task: await deliverGenerationTask(clientId, taskId) }, 200);
+      if (action === 'submit') return json({ task: await submitGenerationTask(clientId, taskId) }, 200, { internal: true });
+      if (action === 'poll') return json({ task: await pollGenerationTask(clientId, taskId) }, 200, { internal: true });
+      if (action === 'qa') return json({ task: await qaGenerationTask(clientId, taskId, payload) }, 200, { internal: true });
+      if (action === 'deliver') return json({ task: await deliverGenerationTask(clientId, taskId) }, 200, { internal: true });
     }
     if (request.method === 'POST' && path === '/feishu/sync') {
+      if (!internalAuthorized) return unauthorized();
       const task = payload.task_id ? await getTask(payloadClientId, payload.task_id) : payload.task;
       if (!task) throw new Error('飞书同步缺少 task 或 task_id');
-      return json(buildFeishuPayload(task), 200);
+      return json(buildFeishuPayload(task), 200, { internal: true });
     }
     if (request.method === 'POST' && path === '/customer-growth-advice') {
-      return json(await createCustomerGrowthAdvice(payload), 200);
+      const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
+      return json(await createCustomerGrowthAdvice(trustedPayload), 200, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/feedback') {
       const plan_id = Number(payload.content_plan_id);
@@ -3870,11 +3954,12 @@ export default async (request) => {
       return json({ feedback, dashboard: dashboard() }, 201);
     }
     if (request.method === 'POST' && path === '/reviews') {
+      if (!internalAuthorized) return unauthorized();
       const review = createWeeklyReview();
-      return json({ review, dashboard: dashboard() }, 201);
+      return json({ review, dashboard: dashboard() }, 201, { internal: true });
     }
     return json({ error: 'Not found' }, 404);
   } catch (error) {
-    return json({ error: error.message || '请求失败' }, 400);
+    return json({ error: error.message || '请求失败' }, 400, { internal: internalAuthorized });
   }
 };

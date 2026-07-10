@@ -1,15 +1,20 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
   delete process.env[key];
 });
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.80';
+process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
 
-const request = (method, path, body) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
+const request = (method, path, body, options = {}) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
   method,
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', ...(options.headers || {}) },
   body: body ? JSON.stringify(body) : undefined,
+});
+const internalRequest = (method, path, body) => request(method, path, body, {
+  headers: { 'x-internal-token': INTERNAL_ACCESS_TOKEN },
 });
 
 const payload = {
@@ -71,8 +76,8 @@ const assertRetailAccessoryPlans = (label, value) => {
   assert(!value.diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), `${label} should not prioritize 美团 as product retail primary platform`);
 };
 
-const submitAssessment = async (body) => {
-  const res = await handler(request('POST', 'assessments', body));
+const submitAssessment = async (body, { internal = false } = {}) => {
+  const res = await handler((internal ? internalRequest : request)('POST', 'assessments', body));
   if (res.status !== 201) throw new Error(`expected 201, got ${res.status}: ${await res.text()}`);
   return res.json();
 };
@@ -99,7 +104,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.79', `expected app_version 1.6.79, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.80', `expected app_version 1.6.80, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -117,8 +122,20 @@ assert(diagnosis.merchant_profile && diagnosis.merchant_profile.bottleneck && di
 assert(plans.every((plan) => plan.customer_reasoning?.pain_basis && plan.customer_reasoning?.platform_basis && plan.customer_reasoning?.conversion_basis && plan.customer_reasoning?.validation_goal && plan.customer_reasoning?.publish_note), 'plans should include concrete customer_reasoning fields for why-this-plan explanations');
 assert(plans.every((plan) => plan.publish_audit?.risk_level && Array.isArray(plan.publish_audit.checks) && plan.publish_audit.checks.length >= 1), 'plans should include publish_audit checks for platform-rule review');
 assert(plans.some((plan) => plan.platform === '小红书' && plan.publish_audit.checks.some((check) => String(check.label || '').includes('小红书'))), 'XHS plans should include a 小红书 publish pre-check');
-assert(data.model_info && data.generation_meta, 'POST /assessments should return model_info and generation_meta');
-assert(data.generation_meta.provider === 'local' && data.generation_meta.actual_model === 'rule_template' && data.generation_meta.fallback === true && data.generation_meta.fallback_reason === 'missing_ark_api_key', 'missing Ark env should produce explicit local rule_template fallback evidence');
+assert(!('model_info' in data) && !('generation_meta' in data), 'anonymous POST /assessments must strip model metadata from the customer response');
+['requested_model', 'actual_model', 'provider', 'fallback_reason', 'raw_usage'].forEach((field) => {
+  assert(!JSON.stringify(data).includes(`"${field}"`), `anonymous assessment response must not expose ${field}`);
+});
+const internalEvidence = await submitAssessment({
+  ...payload,
+  client_id: 'internal-evidence-smoke',
+  customer_key: 'internal-evidence-smoke',
+  customer_pain: '企业主常问该发什么、如何判断内容是否带来咨询、下一条应该怎样调整',
+  client_mode: 'internal_test',
+  source: 'internal_test',
+}, { internal: true });
+assert(internalEvidence.model_info && internalEvidence.generation_meta, 'authorized internal POST /assessments should retain model evidence');
+assert(internalEvidence.generation_meta.provider === 'local' && internalEvidence.generation_meta.actual_model === 'rule_template' && typeof internalEvidence.generation_meta.fallback === 'boolean', 'authorized internal generation should retain explicit model evidence');
 
 const basketballData = await submitAssessmentForClient('basketball', {
   company_name: '星跃少儿篮球训练营',
@@ -217,8 +234,10 @@ const floristData = await submitAssessmentForClient('florist', {
   assert(item.plans.length === 7, `${clientId} should generate 7 plans`);
   assert(item.plans.every((plan) => plan.client_id === clientId), `${clientId} plans should bind client_id`);
 });
-const dentalPlansGet = await handler(request('GET', 'plans?client_id=dental'));
-assert(dentalPlansGet.status === 200, 'GET /plans?client_id=dental should succeed');
+const dentalPlansPublicGet = await handler(request('GET', 'plans?client_id=dental'));
+assert(dentalPlansPublicGet.status === 401, 'anonymous GET /plans must be rejected');
+const dentalPlansGet = await handler(internalRequest('GET', 'plans?client_id=dental'));
+assert(dentalPlansGet.status === 200, 'authorized GET /plans?client_id=dental should succeed');
 const dentalPlans = await dentalPlansGet.json();
 assert(dentalPlans.length >= 7 && dentalPlans.every((plan) => plan.client_id === 'dental'), 'GET /plans should filter to dental client_id');
 const basketballAssessmentsGet = await handler(request('GET', 'assessments?client_id=basketball'));
@@ -295,11 +314,27 @@ const qaProbeStatePost = await handler(request('POST', 'state', {
 }));
 assert(qaProbeStatePost.status === 201, 'POST /state should create a qa probe state for customer-list filtering');
 const customersPublicGet = await handler(request('GET', 'customers'));
-assert(customersPublicGet.status === 403, `GET /customers without internal gate should be rejected, got ${customersPublicGet.status}`);
+assert(customersPublicGet.status === 401, `GET /customers without internal token should be rejected, got ${customersPublicGet.status}`);
 const mergePreviewPublicGet = await handler(request('GET', 'customers/merge-preview?display_name=' + encodeURIComponent('子武限武术搏击俱乐部')));
-assert(mergePreviewPublicGet.status === 403, `GET /customers/merge-preview without internal gate should be rejected, got ${mergePreviewPublicGet.status}`);
-const customersInternalGet = await handler(request('GET', 'customers?mode=internal'));
-assert(customersInternalGet.status === 200, `GET /customers?mode=internal should succeed, got ${customersInternalGet.status}`);
+assert(mergePreviewPublicGet.status === 401, `GET /customers/merge-preview without internal token should be rejected, got ${mergePreviewPublicGet.status}`);
+const customersModeOnlyGet = await handler(request('GET', 'customers?mode=internal&client_id=internal'));
+assert(customersModeOnlyGet.status === 401, 'URL mode/client_id claims must not grant internal access');
+const customersWrongTokenGet = await handler(request('GET', 'customers', undefined, { headers: { 'x-internal-token': 'wrong-token' } }));
+assert(customersWrongTokenGet.status === 401, 'wrong internal token must be rejected');
+delete process.env.INTERNAL_ACCESS_TOKEN;
+const customersMissingEnvGet = await handler(internalRequest('GET', 'customers'));
+assert(customersMissingEnvGet.status === 401, 'missing INTERNAL_ACCESS_TOKEN env must fail closed');
+process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
+for (const protectedPath of ['dashboard', 'diagnoses?client_id=dental', 'plans?client_id=dental', 'reviews', 'assets?client_id=internal', 'generation-tasks?client_id=internal']) {
+  const protectedResponse = await handler(request('GET', protectedPath));
+  assert(protectedResponse.status === 401, `anonymous GET /${protectedPath} must be rejected`);
+}
+const anonymousTaskDetail = await handler(request('GET', 'generation-tasks/nonexistent?client_id=internal'));
+assert(anonymousTaskDetail.status === 401, 'anonymous generation task detail must be rejected before existence is disclosed');
+const customersInternalGet = await handler(internalRequest('GET', 'customers?mode=internal'));
+assert(customersInternalGet.status === 200, `authorized GET /customers should succeed, got ${customersInternalGet.status}`);
+const customersBearerGet = await handler(request('GET', 'customers', undefined, { headers: { authorization: `Bearer ${INTERNAL_ACCESS_TOKEN}` } }));
+assert(customersBearerGet.status === 200, 'Authorization Bearer token should also authorize internal endpoints');
 const customersInternal = await customersInternalGet.json();
 assert(Array.isArray(customersInternal.customers), 'GET /customers should return a customers array');
 assert(customersInternal.readonly === true, 'GET /customers must explicitly be readonly');
@@ -312,19 +347,24 @@ assert(basketballGroup && basketballGroup.records.length === 2 && basketballGrou
 const floristGroup = customersInternal.customers.find((item) => item.display_name === '清屿花艺工作室');
 assert(floristGroup?.is_test === true, '清屿花艺 should remain folded as test/demo group');
 assert(!customersInternal.customers.some((item) => item.records?.some((record) => String(record.client_id).startsWith('qa-'))), 'GET /customers should filter qa/probe customer keys from the operations list');
-const ziwuxianPreviewGet = await handler(request('GET', 'customers/merge-preview?mode=internal&display_name=' + encodeURIComponent('子武限武术搏击俱乐部')));
+const ziwuxianPreviewGet = await handler(internalRequest('GET', 'customers/merge-preview?mode=internal&display_name=' + encodeURIComponent('子武限武术搏击俱乐部')));
 assert(ziwuxianPreviewGet.status === 200, `GET /customers/merge-preview should succeed, got ${ziwuxianPreviewGet.status}`);
 const ziwuxianPreview = await ziwuxianPreviewGet.json();
 assert(ziwuxianPreview.dry_run === true && ziwuxianPreview.readonly === true && ziwuxianPreview.would_write === false, 'merge preview must be dry-run and readonly');
 assert(ziwuxianPreview.source_client_ids.length === 3 && ziwuxianPreview.backup_plan.required === true, 'merge preview should include source keys and backup plan');
-const customersAfterPreview = await (await handler(request('GET', 'customers?mode=internal'))).json();
+const customersAfterPreview = await (await handler(internalRequest('GET', 'customers?mode=internal'))).json();
 const ziwuxianAfterPreview = customersAfterPreview.customers.find((item) => item.display_name === '子武限武术搏击俱乐部');
 assert(ziwuxianAfterPreview?.records.length === 3, 'merge preview must not mutate or merge customer blob records');
 const floristStateGet = await handler(request('GET', 'state?client_id=florist'));
+assert(floristStateGet.status === 200, 'anonymous customer GET /state for its own capability client_id must remain available');
 const floristState = await floristStateGet.json();
 assert(!floristState.project_store.projects.some((item) => item.id === 'project-dental'), 'GET /state?client_id=florist must not return dental project store');
-const internalStateGet = await handler(request('GET', 'state?client_id=internal&mode=internal'));
-assert(internalStateGet.status === 200, 'GET /state?client_id=internal&mode=internal should succeed');
+const anonymousInternalStateGet = await handler(request('GET', 'state?client_id=internal&mode=internal'));
+assert(anonymousInternalStateGet.status === 401, 'anonymous GET /state for the internal bucket must be rejected');
+const anonymousInternalStatePost = await handler(request('POST', 'state', { client_id: 'internal', project_store: { projects: [] } }));
+assert(anonymousInternalStatePost.status === 401, 'anonymous POST /state for the internal bucket must be rejected');
+const internalStateGet = await handler(internalRequest('GET', 'state?client_id=internal&mode=internal'));
+assert(internalStateGet.status === 200, 'authorized GET /state?client_id=internal should succeed');
 const internalState = await internalStateGet.json();
 assert(Array.isArray(internalState.project_store.projects), 'internal state should return a project store array');
 assert(!internalState.project_store.projects.some((item) => String(item.id || '').includes('project-p03') || String(item.name || '').includes('安标') || String(item.state?.source || '').includes('feishu_bitable_p03')), 'internal state must not auto-inject P03/安标 seed content');
@@ -420,7 +460,12 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.79'"), 'app should expose v1.6.79 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.80'"), 'app should expose v1.6.80 internally/API-side');
+assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
+assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
+assert(appJs.includes('cryptoApi?.randomUUID') && appJs.includes('cryptoApi?.getRandomValues') && !appJs.includes("Math.random().toString(36).slice(2, 8)"), 'new anonymous client ids should use cryptographic randomness');
+assert(apiSource.includes('timingSafeEqual') && apiSource.includes("request?.headers?.get('x-internal-token')") && apiSource.includes('const unauthorized = () => json') && !apiSource.includes("url?.searchParams?.get('token')"), 'server internal auth should use a constant-time header token check without URL-token fallback');
+assert(apiSource.includes('stripCustomerModelMetadata') && apiSource.includes('CUSTOMER_HIDDEN_MODEL_FIELDS'), 'customer API responses should strip model/provider metadata unless internally authorized');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -509,7 +554,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.79') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.82'), 'customer page should cache-bust the v1.6.82 centered footer refinement while preserving v1.6.79 app logic');
+assert(indexHtml.includes('/app.js?v=1.6.80') && indexHtml.includes('/styles.css?v=1.6.80') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.82'), 'customer page should cache-bust the v1.6.80 security release while preserving the centered footer stylesheet');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -732,9 +777,22 @@ assert(thirdRoundTopics.length === new Set(thirdRoundTopics).size, 'third-round 
 assert(!thirdRoundTopics.some((topic) => secondRoundTopicSet.has(topic)), 'third-round basketball topics should not repeat second-round plan topics');
 assert(!thirdRoundTopics.some((topic) => firstRoundBasketballTopics.has(topic)), 'third-round basketball topics should not revive first-round plan topics when previous_rounds are provided');
 assert(/体验课|家长|孩子|体能|周末班|零基础/.test(JSON.stringify(thirdRoundTopics)), 'third-round basketball plan should continue using basketball-specific feedback semantics');
-assert(dailyAdvice.every((item) => item.model_info && item.generation_meta), 'customer-growth-advice should return model evidence');
-assert(dailyAdvice.every((item) => item.model_info.provider === 'local' && item.model_info.actual_model === 'rule_template' && item.model_info.fallback === true), 'without Ark env, customer-growth-advice should transparently fall back to rule_template');
-assert(dailyAdvice.every((item) => item.model_info.fallback_reason === 'missing_ark_api_key' && item.transparent_note.includes('missing_ark_api_key')), 'fallback model calls must expose missing Ark key reason');
+assert(dailyAdvice.every((item) => !('model_info' in item) && !('generation_meta' in item) && !('transparent_note' in item)), 'anonymous customer-growth-advice responses must strip model metadata');
+assert(dailyAdvice.every((item) => !/"requested_model"|"actual_model"|"provider"|"fallback_reason"|"raw_usage"/.test(JSON.stringify(item))), 'anonymous customer-growth-advice responses must not leak nested model fields');
+const internalAdviceEvidenceRes = await handler(internalRequest('POST', 'customer-growth-advice', {
+  assessment: basketballAdviceCase.assessment,
+  diagnosis: basketballAdviceCase.diagnosis,
+  plans: basketballAdviceCase.plans,
+  records: [basketballRecords[0]],
+  record: basketballRecords[0],
+  selected_plan_id: basketballRecords[0].content_plan_id,
+  client_mode: 'internal_test',
+  source: 'internal_test',
+}));
+assert(internalAdviceEvidenceRes.status === 200, 'authorized internal customer-growth-advice should succeed');
+const internalAdviceEvidence = await internalAdviceEvidenceRes.json();
+assert(internalAdviceEvidence.model_info && internalAdviceEvidence.generation_meta, 'authorized internal customer-growth-advice should retain model evidence');
+assert(internalAdviceEvidence.model_info.provider === 'local' && internalAdviceEvidence.model_info.actual_model === 'rule_template' && typeof internalAdviceEvidence.model_info.fallback === 'boolean', 'authorized internal advice should expose rule_template model evidence');
 
 const unboundAdvice = await handler(request('POST', 'customer-growth-advice', {
   assessment: basketballAdviceCase.assessment,
@@ -847,8 +905,8 @@ const internalBasketballGoods = await submitAssessment({
   content_assets: '篮球产品实拍、材质对比图、学生使用场景、客户评价截图',
   client_mode: 'internal_test',
   source: 'internal_test',
-});
-const blockedInternal = await handler(request('POST', 'assessments', {...basketballGoods.assessment, offer: '', customer_pain: '', content_assets: '', best_recent_content: '', client_mode: 'internal_test', source: 'internal_test'}));
+}, { internal: true });
+const blockedInternal = await handler(internalRequest('POST', 'assessments', {...basketballGoods.assessment, offer: '', customer_pain: '', content_assets: '', best_recent_content: '', client_mode: 'internal_test', source: 'internal_test'}));
 assert(blockedInternal.status === 400, 'internal assessment should be blocked by the generation gate when precision fields are missing');
 const blockedText = await blockedInternal.text();
 assert(blockedText.includes('生成门禁') && blockedText.includes('主推产品/服务和价格带'), 'internal generation gate should explain missing precision fields');
@@ -894,8 +952,8 @@ assert(/篮球|体能|体验课|6-12岁|家长|教练|班型|课堂|运球|投�
 assert(!basketballText.includes('课程/体验课') && !basketballText.includes('家长报名前，最容易踩的3个坑') && !basketballText.includes('相关服务'), 'basketball plans should not fall back to generic education/service wording');
 assert(basketball.diagnosis.platform_recommendations.primary.map((x) => x.platform).join('|') === '抖音|小红书|视频号', 'basketball should use Douyin + Xiaohongshu + Shipinhao content matrix');
 assert(basketball.plans.every((p) => p.platform === '小红书'), 'basketball plans should use only the user-selected platform (小红书), not spread to recommended matrix');
-assert(basketball.generation_meta.provider === 'local' && basketball.generation_meta.actual_model === 'rule_template' && basketball.generation_meta.fallback === true && basketball.generation_meta.fallback_reason === 'missing_ark_api_key', 'without Ark env, assessment generation should expose rule_template fallback evidence');
-assert(basketball.plans.every((plan) => plan.actual_model === 'rule_template' && plan.provider === 'local' && plan.fallback === true && plan.fallback_reason === 'missing_ark_api_key'), 'without Ark env, plan rows should carry fallback model evidence');
+assert(!basketball.generation_meta && !basketball.model_info, 'customer basketball response must not expose model metadata');
+assert(basketball.plans.every((plan) => !('actual_model' in plan) && !('provider' in plan) && !('fallback' in plan)), 'customer plan rows must strip model evidence fields');
 assertCustomerFacingPlans('basketball service output', basketball);
 
 const restaurant = await submitAssessment({
@@ -955,7 +1013,7 @@ const missingLinkFeedbackRes = await handler(request('POST', 'feedback', {
   notes: '评论集中问价格和儿童矫正周期',
 }));
 assert(missingLinkFeedbackRes.status === 400, `missing publish_link should be rejected, got ${missingLinkFeedbackRes.status}`);
-const dashboardAfterMissingLink = await (await handler(request('GET', 'dashboard'))).json();
+const dashboardAfterMissingLink = await (await handler(internalRequest('GET', 'dashboard'))).json();
 assert(dashboardAfterMissingLink.published_plans === 0, `missing publish_link must not count as published, got ${dashboardAfterMissingLink.published_plans}`);
 assert(dashboardAfterMissingLink.feedback_rate === 0, `missing publish_link must not change feedback_rate, got ${dashboardAfterMissingLink.feedback_rate}`);
 
@@ -1005,7 +1063,9 @@ assert(feedback72Data.dashboard.total_consultations === 7, `dashboard should use
 const allFeedback = await (await handler(request('GET', 'feedback'))).json();
 assert(allFeedback.some((x) => x.feedback_stage === 'T+24') && allFeedback.some((x) => x.feedback_stage === 'T+72'), 'GET /feedback should keep multiple timepoint rows for one plan');
 
-const reviewRes = await handler(request('POST', 'reviews', {}));
+const anonymousReviewPost = await handler(request('POST', 'reviews', {}));
+assert(anonymousReviewPost.status === 401, 'anonymous POST /reviews must be rejected');
+const reviewRes = await handler(internalRequest('POST', 'reviews', {}));
 if (reviewRes.status !== 201) throw new Error(`review expected 201, got ${reviewRes.status}: ${await reviewRes.text()}`);
 const reviewData = await reviewRes.json();
 assert(reviewData.review.next_actions.includes('加码'), 'review should generate next-round action from feedback');
@@ -1021,7 +1081,15 @@ const qaProjectId = 'qa_generation_project';
 const qaClientId = 'internal';
 const referenceText = 'mock video reference asset for generation workbench';
 const referenceSha = createHash('sha256').update(referenceText).digest('hex');
-const assetRes = await handler(request('POST', 'assets', {
+const anonymousAssetPost = await handler(request('POST', 'assets', { client_id: qaClientId }));
+assert(anonymousAssetPost.status === 401, 'anonymous POST /assets must be rejected');
+const anonymousTaskPost = await handler(request('POST', 'generation-tasks', { client_id: qaClientId }));
+assert(anonymousTaskPost.status === 401, 'anonymous POST /generation-tasks must be rejected');
+const anonymousTaskActionPost = await handler(request('POST', 'generation-tasks/nonexistent/submit', { client_id: qaClientId }));
+assert(anonymousTaskActionPost.status === 401, 'anonymous generation task action must be rejected');
+const anonymousFeishuPost = await handler(request('POST', 'feishu/sync', { client_id: qaClientId, task_id: 'nonexistent' }));
+assert(anonymousFeishuPost.status === 401, 'anonymous POST /feishu/sync must be rejected');
+const assetRes = await handler(internalRequest('POST', 'assets', {
   client_id: qaClientId,
   client_name: 'QA测试客户',
   project_id: qaProjectId,
@@ -1038,7 +1106,7 @@ const assetData = await assetRes.json();
 assert(assetData.asset.sha256 === referenceSha, 'asset upload should preserve server-verified sha256');
 assert(assetData.asset.status === 'ok', 'asset status should be ok');
 
-const videoTaskRes = await handler(request('POST', 'generation-tasks', {
+const videoTaskRes = await handler(internalRequest('POST', 'generation-tasks', {
   project_id: qaProjectId,
   client_id: qaClientId,
   client_name: 'QA测试客户',
@@ -1056,7 +1124,7 @@ const videoTask = (await videoTaskRes.json()).task;
 assert(videoTask.status === 'draft', 'video task should start as draft');
 assert(videoTask.requested_model === 'Seedance 2.0', 'video task requested_model should be Seedance 2.0');
 
-const submittedVideo = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/submit`, { client_id: qaClientId }))).json();
+const submittedVideo = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedVideo.task.status === 'generating', 'video submit should enter generating, not wait for final output');
 assert(submittedVideo.task.provider_job_id, 'video submit should return provider_job_id');
 assert(submittedVideo.task.actual_model === 'Seedance 2.0', 'mock video adapter should set actual_model to requested model');
@@ -1064,15 +1132,15 @@ assert(submittedVideo.task.provider === 'seedance-video', 'video adapter provide
 assert(submittedVideo.task.fallback === true && submittedVideo.task.fallback_reason === 'MOCK_KEY_MISSING', 'missing Ark key should return explicit Seedance mock evidence');
 assert(submittedVideo.task.adapter_manifest?.mode === 'mock', 'video submit should persist adapter manifest');
 
-const videoPoll1 = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
+const videoPoll1 = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
 assert(videoPoll1.task.status === 'generating', 'first video poll should remain generating');
 assert(videoPoll1.task.adapter_state?.backoff_ms > 0, 'video poll should persist retry/backoff state for resume');
-const videoPoll2 = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
+const videoPoll2 = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/poll`, { client_id: qaClientId }))).json();
 assert(videoPoll2.task.status === 'qa_pending', 'second video poll should produce output and enter qa_pending');
 assert(videoPoll2.task.output_asset_ids.length === 1, 'generated video should create one output asset');
 assert(videoPoll2.task.adapter_manifest?.provider === 'seedance-video', 'video poll should keep output manifest');
 
-const qaFailed = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/qa`, {
+const qaFailed = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/qa`, {
   client_id: qaClientId,
   qa_status: 'failed',
   qa_reviewer: 'QA',
@@ -1081,10 +1149,10 @@ const qaFailed = await (await handler(request('POST', `generation-tasks/${videoT
 }))).json();
 assert(qaFailed.task.status === 'qa_failed', 'QA failed should move task to qa_failed');
 assert(qaFailed.task.qa.rejection_reason.includes('字幕'), 'QA failed should record rejection_reason');
-const clientTasksAfterFail = await (await handler(request('GET', `generation-tasks?client_id=${qaClientId}&project_id=${qaProjectId}&view=client`))).json();
+const clientTasksAfterFail = await (await handler(internalRequest('GET', `generation-tasks?client_id=${qaClientId}&project_id=${qaProjectId}&view=client`))).json();
 assert(!clientTasksAfterFail.tasks.some((task) => task.task_id === videoTask.task_id), 'failed QA task must not appear in client delivery view');
 
-const qaPassed = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/qa`, {
+const qaPassed = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/qa`, {
   client_id: qaClientId,
   qa_status: 'passed',
   qa_reviewer: 'QA',
@@ -1097,7 +1165,7 @@ const qaPassed = await (await handler(request('POST', `generation-tasks/${videoT
 }))).json();
 assert(qaPassed.task.status === 'client_ready', 'QA passed should move task to client_ready');
 assert(qaPassed.task.qa.qa_status === 'passed', 'QA passed should record qa_status');
-const clientTasksAfterPass = await (await handler(request('GET', `generation-tasks?client_id=${qaClientId}&project_id=${qaProjectId}&view=client`))).json();
+const clientTasksAfterPass = await (await handler(internalRequest('GET', `generation-tasks?client_id=${qaClientId}&project_id=${qaProjectId}&view=client`))).json();
 const visibleVideoTask = clientTasksAfterPass.tasks.find((task) => task.task_id === videoTask.task_id);
 assert(visibleVideoTask, 'passed QA task should appear in client delivery view');
 const visibleText = JSON.stringify(visibleVideoTask);
@@ -1105,15 +1173,15 @@ const visibleText = JSON.stringify(visibleVideoTask);
   assert(!visibleText.includes(word), `client delivery task must hide internal field ${word}`);
 });
 
-const deliveredVideo = await (await handler(request('POST', `generation-tasks/${videoTask.task_id}/deliver`, { client_id: qaClientId }))).json();
+const deliveredVideo = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/deliver`, { client_id: qaClientId }))).json();
 assert(deliveredVideo.task.status === 'delivered', 'client_ready task should be deliverable');
-const feishuMock = await (await handler(request('POST', 'feishu/sync', { client_id: qaClientId, task_id: videoTask.task_id }))).json();
+const feishuMock = await (await handler(internalRequest('POST', 'feishu/sync', { client_id: qaClientId, task_id: videoTask.task_id }))).json();
 assert(feishuMock.synced === false && feishuMock.mode === 'mock', 'feishu sync should be mock in V1');
 ['A_customer_profile', 'B_content_plan', 'C_outsourced_production', 'D_internal_qa', 'E_client_delivery', 'F_data_return'].forEach((key) => {
   assert(feishuMock.payload[key], `feishu payload should include ${key}`);
 });
 
-const coverTask = await (await handler(request('POST', 'generation-tasks', {
+const coverTask = await (await handler(internalRequest('POST', 'generation-tasks', {
   project_id: qaProjectId,
   client_id: qaClientId,
   client_name: 'QA测试客户',
@@ -1126,11 +1194,11 @@ const coverTask = await (await handler(request('POST', 'generation-tasks', {
   output_spec: { size: '1024x1024', style: '清晰专业', client_visible: true },
 }))).json();
 assert(coverTask.task.requested_model === 'GPT-Image-2', 'cover task should request GPT-Image-2');
-const submittedCover = await (await handler(request('POST', `generation-tasks/${coverTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
+const submittedCover = await (await handler(internalRequest('POST', `generation-tasks/${coverTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedCover.task.status === 'qa_pending', 'cover task should synchronously generate and enter qa_pending');
 assert(submittedCover.task.actual_model === 'GPT-Image-2' && submittedCover.task.provider === 'openai-image', 'cover task should use openai-image mock adapter');
 assert(submittedCover.task.fallback === true && submittedCover.task.fallback_reason === 'MOCK_KEY_MISSING', 'missing OpenAI key should return explicit image mock evidence');
-const coverPassed = await (await handler(request('POST', `generation-tasks/${coverTask.task.task_id}/qa`, {
+const coverPassed = await (await handler(internalRequest('POST', `generation-tasks/${coverTask.task.task_id}/qa`, {
   client_id: qaClientId,
   qa_status: 'passed',
   qa_reviewer: 'QA',
@@ -1142,7 +1210,7 @@ const coverPassed = await (await handler(request('POST', `generation-tasks/${cov
 }))).json();
 assert(coverPassed.task.status === 'client_ready', 'cover QA passed should enter client_ready');
 
-const copyTask = await (await handler(request('POST', 'generation-tasks', {
+const copyTask = await (await handler(internalRequest('POST', 'generation-tasks', {
   project_id: qaProjectId,
   client_id: qaClientId,
   client_name: 'QA测试客户',
@@ -1154,7 +1222,7 @@ const copyTask = await (await handler(request('POST', 'generation-tasks', {
   prompt: '生成一段 A/B 文案测试脚本',
   output_spec: { style: 'A/B', client_visible: false },
 }))).json();
-const submittedCopy = await (await handler(request('POST', `generation-tasks/${copyTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
+const submittedCopy = await (await handler(internalRequest('POST', `generation-tasks/${copyTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedCopy.task.status === 'qa_pending', 'copy task should synchronously generate and enter qa_pending');
 assert(submittedCopy.task.provider === 'claude-text+glm-text', 'copy task should run Claude + GLM A/B adapter');
 assert(submittedCopy.task.fallback === true && submittedCopy.task.fallback_reason.includes('MOCK_KEY_MISSING'), 'missing text keys should return explicit A/B mock evidence');

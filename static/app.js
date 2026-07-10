@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.79';
-const VERSION_LABEL = 'v1.6.79 · 记录入口状态保持修正版';
+const APP_VERSION = '1.6.80';
+const VERSION_LABEL = 'v1.6.80 · 内部鉴权与数据隔离安全版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -10,6 +10,7 @@ const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken';
 const INTERNAL_CLIENT_ID = 'internal';
 const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 const normalizeClientId = (value = '') => {
@@ -18,7 +19,25 @@ const normalizeClientId = (value = '') => {
   const normalized = raw.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
   return CLIENT_ID_RE.test(normalized) ? normalized : '';
 };
-const newAnonymousClientId = () => 'anonymous-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+const newAnonymousClientId = () => {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return `anonymous-${cryptoApi.randomUUID()}`;
+  if (cryptoApi?.getRandomValues) {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    return `anonymous-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+  }
+  throw new Error('secure_random_unavailable');
+};
+const readInternalAccessToken = () => {
+  try { return String(window.localStorage?.getItem(INTERNAL_ACCESS_TOKEN_STORAGE_KEY) || '').trim(); }
+  catch { return ''; }
+};
+const saveInternalAccessToken = (token = '') => {
+  try {
+    if (token) window.localStorage?.setItem(INTERNAL_ACCESS_TOKEN_STORAGE_KEY, String(token).trim());
+    else window.localStorage?.removeItem(INTERNAL_ACCESS_TOKEN_STORAGE_KEY);
+  } catch {}
+};
 const readSessionClientId = () => {
   try {
     const ls = window.localStorage;
@@ -32,7 +51,8 @@ const readSessionClientId = () => {
     ls?.setItem(CUSTOMER_SESSION_KEY, next);
     return next;
   } catch {
-    return 'anonymous-fallback';
+    try { return normalizeClientId(newAnonymousClientId()); }
+    catch { return ''; }
   }
 };
 const forbiddenPattern = (source, flags = 'g') => new RegExp(source, flags);
@@ -170,13 +190,21 @@ let allCustomersState = { customers: [], errors: [], loading: false, error: '' }
 let customerPendingCoCreationPayload = null;
 
 const api = async (url, opts={}) => {
-  const {timeoutMs = 35000, ...fetchOptions} = opts;
+  const {timeoutMs = 35000, internalToken = '', headers: requestedHeaders = {}, ...fetchOptions} = opts;
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...fetchOptions, signal: controller.signal});
+    const headers = {'Content-Type':'application/json', ...requestedHeaders};
+    const token = String(internalToken || (isInternalProfile() ? readInternalAccessToken() : '')).trim();
+    if (token) headers['x-internal-token'] = token;
+    const res = await fetch(url, {...fetchOptions, headers, signal: controller.signal});
     const data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.error || '请求失败');
+    if(!res.ok) {
+      const error = new Error(data.error || '请求失败');
+      error.status = res.status;
+      if (res.status === 401 && isInternalProfile()) handleInternalUnauthorized();
+      throw error;
+    }
     return sanitizeCustomerPayload(data);
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error('生成时间过长，请稍后重试');
@@ -1262,10 +1290,96 @@ function localDateIso(date = new Date()){
 }
 
 let customerSuggestionText = '';
+let internalAuthVerified = false;
+let internalAuthGateInitialized = false;
+let internalAuthCheckInFlight = false;
+
+function setInternalAccessMessage(message = '', tone = ''){
+  const messageEl = $('#internalAccessMessage');
+  if (!messageEl) return;
+  messageEl.textContent = message;
+  messageEl.classList.toggle('error', tone === 'error');
+  messageEl.classList.toggle('success', tone === 'success');
+}
+
+function setInternalAccessLocked(locked, message = ''){
+  if (!isInternalProfile()) return;
+  internalAuthVerified = !locked;
+  const gate = $('#internalAccessGate');
+  if (gate) gate.hidden = !locked;
+  document.body.classList.toggle('internal-auth-locked', locked);
+  if (message) setInternalAccessMessage(message, locked ? 'error' : 'success');
+  setAppShell();
+}
+
+function handleInternalUnauthorized(){
+  if (!isInternalProfile()) return;
+  saveInternalAccessToken('');
+  setInternalAccessLocked(true, '请输入有效的内部访问口令。');
+}
+
+async function verifyInternalAccessToken(token = ''){
+  const candidate = String(token || '').trim();
+  if (!candidate) {
+    setInternalAccessLocked(true, '请输入内部访问口令。');
+    return false;
+  }
+  if (internalAuthCheckInFlight) return false;
+  internalAuthCheckInFlight = true;
+  const submit = $('#internalAccessSubmit');
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = '正在验证...';
+  }
+  setInternalAccessMessage('正在验证访问权限...', '');
+  try {
+    await api('/api/dashboard', { internalToken: candidate, timeoutMs: 12000 });
+    saveInternalAccessToken(candidate);
+    internalAuthVerified = true;
+    const gate = $('#internalAccessGate');
+    if (gate) gate.hidden = true;
+    document.body.classList.remove('internal-auth-locked');
+    setAppShell();
+    syncRouteState();
+    return true;
+  } catch (error) {
+    internalAuthVerified = false;
+    saveInternalAccessToken('');
+    setInternalAccessLocked(true, error?.status === 401 ? '访问口令不正确，请重新输入。' : '暂时无法验证访问权限，请稍后重试。');
+    $('#internalAccessToken')?.focus();
+    return false;
+  } finally {
+    internalAuthCheckInFlight = false;
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = '进入内部工作区';
+    }
+  }
+}
+
+function initInternalAccessGate(){
+  if (!isInternalProfile()) return;
+  setInternalAccessLocked(true);
+  const form = $('#internalAccessForm');
+  if (!internalAuthGateInitialized && form) {
+    internalAuthGateInitialized = true;
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      verifyInternalAccessToken($('#internalAccessToken')?.value || '');
+    });
+  }
+  const stored = readInternalAccessToken();
+  if (stored) verifyInternalAccessToken(stored);
+  else {
+    setInternalAccessMessage('请输入内部访问口令。');
+    window.setTimeout(() => $('#internalAccessToken')?.focus(), 0);
+  }
+}
 
 function setAppShell(){
   const profile = currentProfile();
   const internal = profile.role === 'internal_admin';
+  const internalLocked = internal && !internalAuthVerified;
   const customerApp = $('#customerApp');
   const internalApp = $('#internalApp');
   if (customerApp) {
@@ -1274,17 +1388,20 @@ function setAppShell(){
     customerApp.setAttribute('aria-hidden', String(internal));
   }
   if (internalApp) {
-    internalApp.hidden = !internal;
-    internalApp.toggleAttribute('inert', !internal);
-    internalApp.setAttribute('aria-hidden', String(!internal));
+    internalApp.hidden = !internal || internalLocked;
+    internalApp.toggleAttribute('inert', !internal || internalLocked);
+    internalApp.setAttribute('aria-hidden', String(!internal || internalLocked));
   }
+  const accessGate = $('#internalAccessGate');
+  if (accessGate) accessGate.hidden = !internalLocked;
   document.body.classList.toggle('customer-mode', !internal);
   document.body.classList.toggle('internal-mode', internal);
+  document.body.classList.toggle('internal-auth-locked', internalLocked);
   document.body.classList.toggle('generation-workbench-mode', isGenerationWorkbenchRoute());
   document.body.dataset.activeMode = internal ? 'internal' : 'customer';
   document.body.dataset.viewRole = profile.role;
   document.body.dataset.viewTabs = (profile.tabs || []).join(',');
-  renderSharedJourneyShell(profile);
+  if (!internalLocked) renderSharedJourneyShell(profile);
 }
 
 function sharedJourneySteps(profile = currentProfile()){
@@ -3619,6 +3736,7 @@ window.showDiagnosisWorkflow = showDiagnosisWorkflow;
 window.startNextCycle = startNextCycle;
 
 function renderAllFromClient(){
+  if (isInternalProfile() && !internalAuthVerified) return;
   syncProjectStage();
   hydrateInternalFormValuesFromState();
   renderInternalClientIdentity();
@@ -3711,7 +3829,7 @@ function renderAllCustomersPanel(){
 }
 
 async function loadAllCustomers(){
-  if (!isInternalProfile()) return;
+  if (!isInternalProfile() || !internalAuthVerified) return;
   allCustomersState = { ...allCustomersState, loading: true, error: '' };
   renderAllCustomersPanel();
   try {
@@ -5032,6 +5150,10 @@ function initGenerationWorkbench(){
 
 function syncRouteState(){
   setAppShell();
+  if (isInternalProfile() && !internalAuthVerified) {
+    initInternalAccessGate();
+    return;
+  }
   renderGenerationWorkbenchRoute();
   if (!isInternalProfile()) return;
   const nextClientId = customerClientId();
@@ -5074,6 +5196,10 @@ let internalAppInitialized = false;
 let activeInternalRouteClientId = '';
 
 function initInternalApp(){
+  if (!internalAuthVerified) {
+    initInternalAccessGate();
+    return;
+  }
   if (internalAppInitialized) {
     syncRouteState();
     return;
@@ -5096,6 +5222,8 @@ function initInternalApp(){
       }
       payload.client_mode = 'internal_test';
       payload.source = 'internal_test';
+      payload.client_id = customerClientId();
+      payload.customer_key = explicitCustomerClientId() || customerClientId();
       delete payload.ai_understanding_confirmed;
       if (payload.posting_frequency_detail) payload.posting_frequency = payload.posting_frequency_detail;
       delete payload.posting_frequency_detail;
@@ -5215,7 +5343,7 @@ $('#allCustomersPanel')?.addEventListener('click', (event) => {
   window.location.href = '/internal/?client_id=' + encodeURIComponent(button.dataset.allCustomerClient);
 });
 if (isInternalProfile()) {
-  initInternalApp();
+  initInternalAccessGate();
 } else {
   initCustomerTrial();
 }
