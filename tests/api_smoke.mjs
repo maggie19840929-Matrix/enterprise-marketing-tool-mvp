@@ -469,6 +469,7 @@ assert(apiSource.includes('stripCustomerModelMetadata') && apiSource.includes('C
 assert(apiSource.includes("envValue('ARK_PLAN_MODEL') || arkModel()") && apiSource.includes('model: arkPlanModel()'), 'initial plan generation should prefer the dedicated ARK_PLAN_MODEL and fall back to ARK_MODEL');
 assert(apiSource.includes('MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 19000') && apiSource.includes('CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 19000') && apiSource.includes('), 20000);'), 'model timeouts should leave enough room for a rule fallback before the Netlify request limit');
 assert(apiSource.includes('每条仅含这4个核心字段') && apiSource.includes("responseFormat: { type: 'json_object' }") && apiSource.includes('planRuleFields') && apiSource.includes('limitPlanText'), 'plan model output should be compact and JSON-stable while rule post-processing restores the seven-field row contract');
+assert(apiSource.includes('UNSUPPORTED_PLAN_CLAIMS') && apiSource.includes("throw new Error('unsupported_claim')"), 'model plans should reject unsupported discounts, pickup promises, or outcome claims');
 assert(appJs.includes("['正在分析业务...', '正在生成选题...', '正在适配平台...']"), 'customer generation should show staged progress copy');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
@@ -1263,6 +1264,32 @@ const publicTimeoutText = await publicTimeoutResponse.text();
 ['requested_model', 'actual_model', 'provider', 'fallback_reason', 'doubao-timeout-plan'].forEach((word) => {
   assert(!publicTimeoutText.includes(word), `public timeout fallback response must hide model field ${word}`);
 });
+globalThis.fetch = async () => new Response(JSON.stringify({
+  model: 'doubao-timeout-plan',
+  choices: [{ message: { content: JSON.stringify({
+    plans: Array.from({ length: 7 }, (_, index) => ({
+      topic: index === 0 ? '免费接送孩子上篮球课' : `安全选题${index + 1}`,
+      angle: '围绕家长真实顾虑说明课程',
+      content_type: '图文',
+      cta: '咨询体验课安排',
+    })),
+  }) } }],
+  usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+}), { status: 200, headers: { 'content-type': 'application/json' } });
+const { default: claimGuardHandler } = await import(`../netlify/functions/api.mjs?claim-smoke=${Date.now()}`);
+const claimGuardResponse = await claimGuardHandler(internalRequest('POST', 'assessments', {
+  ...payload,
+  client_id: 'unsupported-claim-smoke',
+  company_name: '模型承诺门禁验证客户',
+  industry: '少儿篮球培训机构',
+  main_goal: '获得家长咨询和体验课预约',
+  target_customer: '附近有6-12岁孩子的家长',
+  customer_pain: '担心安全和孩子跟不上',
+}));
+assert(claimGuardResponse.status === 201, `unsupported model claim should still return 201, got ${claimGuardResponse.status}`);
+const claimGuardData = await claimGuardResponse.json();
+assert(claimGuardData.generation_meta?.fallback_reason === 'unsupported_claim', `expected unsupported_claim fallback, got ${claimGuardData.generation_meta?.fallback_reason}`);
+assert(!JSON.stringify(claimGuardData.plans).includes('免费接送'), 'unsupported model claim must not reach the returned content plans');
 globalThis.fetch = originalFetch;
 delete process.env.ARK_API_KEY;
 delete process.env.ARK_MODEL;
@@ -1286,6 +1313,10 @@ console.log(JSON.stringify({
     fallback: timeoutData.generation_meta.fallback,
     fallback_reason: timeoutData.generation_meta.fallback_reason,
     plan_count: timeoutData.plans.length,
+  },
+  unsupported_claim_guard: {
+    status: claimGuardResponse.status,
+    fallback_reason: claimGuardData.generation_meta.fallback_reason,
   },
   generation_workbench: {
     asset_sha256: assetData.asset.sha256,

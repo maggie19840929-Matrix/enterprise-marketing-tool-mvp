@@ -1608,6 +1608,19 @@ const rowsFromModelJson = (parsed) => normalizeLlmPlanRows(
     : (parsed?.plans || parsed?.content_plans || parsed?.next_7_day_plan || parsed?.next_plan_days || [])
 );
 
+const UNSUPPORTED_PLAN_CLAIMS = ['免费', '接送', '无隐形消费', '包会', '保证效果', '立减', '折扣', '优惠', '赠送', '返现'];
+const hasUnsupportedPlanClaim = (rows = [], assessment = {}) => {
+  const source = [
+    assessment.industry,
+    assessment.main_goal,
+    assessment.target_customer,
+    assessment.customer_pain,
+    assessment.biggest_problem,
+  ].filter(Boolean).join(' ');
+  const output = rows.flat().join(' ');
+  return UNSUPPORTED_PLAN_CLAIMS.some((claim) => output.includes(claim) && !source.includes(claim));
+};
+
 const callArkPlanRows = async (assessment, diagnosis) => {
   const call = await callArkChatCompletion({
     route: '/api/assessments',
@@ -1635,13 +1648,14 @@ const callArkPlanRows = async (assessment, diagnosis) => {
   try {
     const rows = rowsFromModelJson(extractModelJson(call.content));
     if (rows.length < 7) throw new Error(`ark_returned_${rows.length}_plans`);
+    if (hasUnsupportedPlanClaim(rows, assessment)) throw new Error('unsupported_claim');
     return { rows, meta: normalizeModelMeta(call) };
   } catch (error) {
     return {
       rows: null,
       meta: modelFailureMeta({
         requestedModel: call.requested_model,
-        fallbackReason: error.message === 'invalid_json' ? 'invalid_json' : 'partial_parse',
+        fallbackReason: ['invalid_json', 'unsupported_claim'].includes(error.message) ? error.message : 'partial_parse',
         latencyMs: call.latency_ms,
       }),
     };
