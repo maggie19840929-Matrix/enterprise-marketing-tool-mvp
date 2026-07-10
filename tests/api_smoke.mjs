@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.81';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.82';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
 
@@ -104,7 +104,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.81', `expected app_version 1.6.81, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.82', `expected app_version 1.6.82, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -116,6 +116,36 @@ assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', '
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
+let queuedPlanJobPromise = null;
+const planJobStartedAt = Date.now();
+const planJobCreateResponse = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'plan-job-owner',
+  customer_key: 'plan-job-owner',
+}), {
+  waitUntil(promise) { queuedPlanJobPromise = promise; },
+});
+const planJobSubmitLatencyMs = Date.now() - planJobStartedAt;
+assert(planJobCreateResponse.status === 202, `POST /plan-jobs should return 202, got ${planJobCreateResponse.status}`);
+assert(planJobSubmitLatencyMs < 500, `POST /plan-jobs should return immediately, took ${planJobSubmitLatencyMs}ms`);
+const createdPlanJob = await planJobCreateResponse.json();
+assert(createdPlanJob.job_id && createdPlanJob.status === 'pending', 'POST /plan-jobs should return a pending job id');
+assert(queuedPlanJobPromise, 'POST /plan-jobs should schedule background processing with context.waitUntil');
+await queuedPlanJobPromise;
+const ownPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-owner`));
+assert(ownPlanJobResponse.status === 200, `same client should read its plan job, got ${ownPlanJobResponse.status}`);
+const ownPlanJob = await ownPlanJobResponse.json();
+assert(ownPlanJob.status === 'completed' && ownPlanJob.result?.plans?.length === 7, 'same client should receive the completed seven-plan result');
+const ownPlanJobText = JSON.stringify(ownPlanJob);
+['requested_model', 'actual_model', 'provider', 'fallback_reason', 'generation_meta', 'model_info'].forEach((word) => {
+  assert(!ownPlanJobText.includes(word), `customer plan job response must hide model field ${word}`);
+});
+const crossClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-other`));
+assert(crossClientPlanJobResponse.status === 404, `cross-client plan job read should return 404, got ${crossClientPlanJobResponse.status}`);
+const noClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}`));
+assert(noClientPlanJobResponse.status === 400, `plan job read without client_id should return 400, got ${noClientPlanJobResponse.status}`);
+const planJobListResponse = await handler(request('GET', 'plan-jobs?client_id=plan-job-owner'));
+assert(planJobListResponse.status === 404, `plan jobs must not expose a customer listing endpoint, got ${planJobListResponse.status}`);
 assert(diagnosis.strategy_mvp && diagnosis.strategy_mvp.seven_day_flywheel.length === 7, 'diagnosis should expose platform strategy MVP and 7-day flywheel');
 assert(plans.every((plan) => plan.experiment_type && plan.why_platform_fit && Array.isArray(plan.observe_metrics) && plan.observe_metrics.length >= 3 && plan.next_adjustment && plan.content_hypothesis), 'plans should include experiment type, platform fit, metrics, next adjustment and hypothesis');
 assert(diagnosis.merchant_profile && diagnosis.merchant_profile.bottleneck && diagnosis.merchant_profile.conversion_action, 'diagnosis should expose merchant_profile for differentiated customer advice');
@@ -460,7 +490,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.81'"), 'app should expose v1.6.81 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.82'"), 'app should expose v1.6.82 internally/API-side');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
 assert(appJs.includes('cryptoApi?.randomUUID') && appJs.includes('cryptoApi?.getRandomValues') && !appJs.includes("Math.random().toString(36).slice(2, 8)"), 'new anonymous client ids should use cryptographic randomness');
@@ -471,6 +501,9 @@ assert(apiSource.includes('MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 190
 assert(apiSource.includes('每条仅含这4个核心字段') && apiSource.includes("responseFormat: { type: 'json_object' }") && apiSource.includes('planRuleFields') && apiSource.includes('limitPlanText'), 'plan model output should be compact and JSON-stable while rule post-processing restores the seven-field row contract');
 assert(apiSource.includes('UNSUPPORTED_PLAN_CLAIMS') && apiSource.includes("throw new Error('unsupported_claim')"), 'model plans should reject unsupported discounts, pickup promises, or outcome claims');
 assert(appJs.includes("['正在分析业务...', '正在生成选题...', '正在适配平台...']"), 'customer generation should show staged progress copy');
+assert(apiSource.includes("path === '/plan-jobs'") && apiSource.includes("path.match(/^\\/plan-jobs\\/([^/]+)$/)") && apiSource.includes("readCloudCollection('plan-jobs'") && apiSource.includes('context.waitUntil(promise)'), 'customer plan jobs should use a client-scoped blob collection and Netlify waitUntil processing');
+assert(apiSource.includes('planJobClientIdFrom') && apiSource.includes('读取计划任务需要 client_id') && apiSource.includes("return json({ error: '计划任务不存在' }, 404)"), 'plan job reads should require client_id and hide cross-client job existence');
+assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCustomerPlanJob') && appJs.includes('&fallback=1'), 'customer plan generation should submit, poll with a limit, and request a safe fallback when polling expires');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -559,7 +592,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.81') && indexHtml.includes('/styles.css?v=1.6.81') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.82'), 'customer page should cache-bust the v1.6.81 latency release while preserving the centered footer stylesheet');
+assert(indexHtml.includes('/app.js?v=1.6.82') && indexHtml.includes('/styles.css?v=1.6.82') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.82'), 'customer page should cache-bust the v1.6.82 async latency release while preserving the centered footer stylesheet');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -1290,10 +1323,41 @@ assert(claimGuardResponse.status === 201, `unsupported model claim should still 
 const claimGuardData = await claimGuardResponse.json();
 assert(claimGuardData.generation_meta?.fallback_reason === 'unsupported_claim', `expected unsupported_claim fallback, got ${claimGuardData.generation_meta?.fallback_reason}`);
 assert(!JSON.stringify(claimGuardData.plans).includes('免费接送'), 'unsupported model claim must not reach the returned content plans');
+process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = '600';
+globalThis.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
+  const abort = () => {
+    const error = new Error('simulated long provider call');
+    error.name = 'AbortError';
+    reject(error);
+  };
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener('abort', abort, { once: true });
+});
+const { default: slowPlanJobHandler } = await import(`../netlify/functions/api.mjs?slow-plan-job-smoke=${Date.now()}`);
+let slowPlanJobPromise = null;
+const slowPlanJobStartedAt = Date.now();
+const slowPlanJobCreateResponse = await slowPlanJobHandler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'slow-plan-job-owner',
+  customer_key: 'slow-plan-job-owner',
+}), {
+  waitUntil(promise) { slowPlanJobPromise = promise; },
+});
+const slowPlanJobSubmitLatencyMs = Date.now() - slowPlanJobStartedAt;
+assert(slowPlanJobCreateResponse.status === 202, `slow provider plan job should return 202, got ${slowPlanJobCreateResponse.status}`);
+assert(slowPlanJobSubmitLatencyMs < 500, `slow provider should not block plan-job submit, took ${slowPlanJobSubmitLatencyMs}ms`);
+const slowPlanJobCreated = await slowPlanJobCreateResponse.json();
+assert(slowPlanJobPromise, 'slow provider plan job should continue through waitUntil');
+await slowPlanJobPromise;
+const slowPlanJobPollResponse = await slowPlanJobHandler(request('GET', `plan-jobs/${encodeURIComponent(slowPlanJobCreated.job_id)}?client_id=slow-plan-job-owner`));
+assert(slowPlanJobPollResponse.status === 200, `slow provider plan job poll should return 200, got ${slowPlanJobPollResponse.status}`);
+const slowPlanJob = await slowPlanJobPollResponse.json();
+assert(slowPlanJob.status === 'completed' && slowPlanJob.result?.plans?.length === 7, 'slow provider should complete asynchronously with seven fallback plans instead of 504');
 globalThis.fetch = originalFetch;
 delete process.env.ARK_API_KEY;
 delete process.env.ARK_MODEL;
 delete process.env.ARK_PLAN_MODEL;
+delete process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS;
 
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
@@ -1317,6 +1381,17 @@ console.log(JSON.stringify({
   unsupported_claim_guard: {
     status: claimGuardResponse.status,
     fallback_reason: claimGuardData.generation_meta.fallback_reason,
+  },
+  async_plan_job: {
+    submit_status: planJobCreateResponse.status,
+    submit_latency_ms: planJobSubmitLatencyMs,
+    completed_status: ownPlanJob.status,
+    cross_client_status: crossClientPlanJobResponse.status,
+    no_client_status: noClientPlanJobResponse.status,
+    list_status: planJobListResponse.status,
+    slow_submit_status: slowPlanJobCreateResponse.status,
+    slow_submit_latency_ms: slowPlanJobSubmitLatencyMs,
+    slow_completed_status: slowPlanJob.status,
   },
   generation_workbench: {
     asset_sha256: assetData.asset.sha256,

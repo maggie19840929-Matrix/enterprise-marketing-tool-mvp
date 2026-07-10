@@ -5,9 +5,10 @@ let memoryCloudState = null;
 const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
+const memoryPlanJobStates = new Map();
 
-const APP_VERSION = '1.6.81';
-const VERSION_LABEL = 'v1.6.81 · 生成延迟一期优化版';
+const APP_VERSION = '1.6.82';
+const VERSION_LABEL = 'v1.6.82 · 客户计划异步生成版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -20,7 +21,7 @@ const CLAUDE_SCRIPT_MODEL = process.env.CLAUDE_SCRIPT_MODEL || 'claude-opus-4-8'
 const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
 const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 19000), 1000), 20000);
-const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 19000), 8000), 20000);
+const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 19000), 500), 20000);
 const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 10000), 5000), 12000);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
@@ -3160,8 +3161,8 @@ const writeCloudState = async (payload = {}, clientId = clientIdFrom(payload)) =
 };
 
 const collectionKey = (kind, clientId = 'anonymous') => `${kind}/${normalizeClientId(clientId) || 'anonymous'}`;
-const collectionField = (kind) => (kind === 'assets' ? 'assets' : 'tasks');
-const memoryCollectionMap = (kind) => (kind === 'assets' ? memoryAssetStates : memoryGenerationTaskStates);
+const collectionField = (kind) => (kind === 'assets' ? 'assets' : kind === 'plan-jobs' ? 'jobs' : 'tasks');
+const memoryCollectionMap = (kind) => (kind === 'assets' ? memoryAssetStates : kind === 'plan-jobs' ? memoryPlanJobStates : memoryGenerationTaskStates);
 const sha256Hex = (value) => createHash('sha256').update(value).digest('hex');
 const ensureArray = (value) => Array.isArray(value) ? value : [];
 const makeId = (prefix) => `${prefix}_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
@@ -3839,7 +3840,150 @@ const modelPayloadForRequest = (payload = {}, internalAuthorized = false) => {
   return customerPayload;
 };
 
-export default async (request) => {
+const generateAssessmentResult = async ({ payload = {}, clientId = '', internalAuthorized = false, forceRules = false, fallbackReason = 'async_fallback' } = {}) => {
+  const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
+  const assessment_id = createAssessment(trustedPayload, clientId);
+  const assessment = state.assessments.find((item) => item.id === assessment_id);
+  if (internalAuthorized) {
+    markInternalAuthorized(assessment, true);
+    if (payload.model_provider || payload.model_mode) {
+      Object.defineProperty(assessment, 'model_provider', { value: payload.model_provider || payload.model_mode, enumerable: false });
+    }
+  }
+  const diagnosis = generateDiagnosis(assessment_id);
+  const generated = forceRules
+    ? { rows: null, meta: modelFailureMeta({ requestedModel: arkPlanModel() || null, fallbackReason }) }
+    : await generateOpusPlanRows(assessment, diagnosis);
+  const plans = createContentPlan(diagnosis.id, generated.rows, generated.meta);
+  const generation_meta = normalizeModelMeta(generated.meta);
+  return { assessment_id, assessment, diagnosis, plans, model_info: generation_meta, generation_meta };
+};
+
+const planJobClientIdFrom = (payload = {}, url = null, request = null) => normalizeClientId(
+  payload.client_id
+  || payload.customer_key
+  || url?.searchParams?.get('client_id')
+  || url?.searchParams?.get('customer')
+  || request?.headers?.get('x-client-id')
+  || ''
+);
+
+const createPlanJob = async (payload = {}) => {
+  const client_id = planJobClientIdFrom(payload);
+  if (!client_id) throw new Error('创建计划任务需要有效 client_id');
+  const createdAt = nowIso();
+  const job = {
+    job_id: makeId('planjob'),
+    client_id,
+    status: 'pending',
+    assessment_payload: sanitizeCustomerPayload({ ...modelPayloadForRequest(payload, false), client_id }),
+    attempts: 0,
+    result: null,
+    error: '',
+    created_at: createdAt,
+    updated_at: createdAt,
+    started_at: '',
+    completed_at: '',
+  };
+  await upsertCollectionItem('plan-jobs', client_id, job, 'job_id');
+  return job;
+};
+
+const getPlanJob = async (clientId = '', jobId = '') => {
+  if (!clientId || !jobId) return null;
+  const current = await readCloudCollection('plan-jobs', clientId);
+  return ensureArray(current.jobs).find((job) => String(job.job_id) === String(jobId)) || null;
+};
+
+const savePlanJob = async (job = {}) => {
+  if (!job.client_id || !job.job_id) throw new Error('计划任务缺少归属信息');
+  await upsertCollectionItem('plan-jobs', job.client_id, job, 'job_id');
+  return job;
+};
+
+const isPlanJobStale = (job = {}) => {
+  const started = Date.parse(job.started_at || '');
+  return !started || Date.now() - started > 25000;
+};
+
+const processPlanJob = async (clientId = '', jobId = '') => {
+  let job = await getPlanJob(clientId, jobId);
+  if (!job || ['completed', 'failed'].includes(job.status)) return job;
+  if (job.status === 'generating' && !isPlanJobStale(job)) return job;
+  job = {
+    ...job,
+    status: 'generating',
+    attempts: Number(job.attempts || 0) + 1,
+    started_at: nowIso(),
+    updated_at: nowIso(),
+    error: '',
+  };
+  await savePlanJob(job);
+  try {
+    const result = await generateAssessmentResult({ payload: job.assessment_payload, clientId: job.client_id });
+    const latest = await getPlanJob(clientId, jobId);
+    if (latest?.status === 'completed') return latest;
+    return savePlanJob({
+      ...job,
+      status: 'completed',
+      result,
+      completed_at: nowIso(),
+      updated_at: nowIso(),
+    });
+  } catch (error) {
+    return savePlanJob({
+      ...job,
+      status: 'failed',
+      error: error?.message || 'plan_job_failed',
+      completed_at: nowIso(),
+      updated_at: nowIso(),
+    });
+  }
+};
+
+const forcePlanJobFallback = async (clientId = '', jobId = '') => {
+  const job = await getPlanJob(clientId, jobId);
+  if (!job || job.status === 'completed') return job;
+  try {
+    const result = await generateAssessmentResult({
+      payload: job.assessment_payload,
+      clientId: job.client_id,
+      forceRules: true,
+      fallbackReason: 'client_poll_timeout',
+    });
+    return savePlanJob({
+      ...job,
+      status: 'completed',
+      result,
+      completed_at: nowIso(),
+      updated_at: nowIso(),
+      forced_fallback: true,
+      error: '',
+    });
+  } catch (error) {
+    return savePlanJob({ ...job, status: 'failed', error: error?.message || 'plan_job_fallback_failed', updated_at: nowIso() });
+  }
+};
+
+const clientVisiblePlanJob = (job = {}) => ({
+  job_id: job.job_id || '',
+  status: job.status || 'pending',
+  poll_after_ms: job.status === 'pending' ? 700 : 1200,
+  created_at: job.created_at || '',
+  updated_at: job.updated_at || '',
+  ...(job.status === 'completed' ? { result: job.result } : {}),
+  ...(job.status === 'failed' ? { error: '刚刚生成失败了，请稍后再试一次。' } : {}),
+});
+
+const queuePlanJob = (context, clientId, jobId) => {
+  const promise = processPlanJob(clientId, jobId).catch((error) => {
+    console.error(JSON.stringify({ event: 'plan_job_failed', job_id: jobId, reason: error?.message || 'unknown' }));
+  });
+  if (typeof context?.waitUntil === 'function') context.waitUntil(promise);
+  return promise;
+};
+
+export default async (request, context = {}) => {
   ensureState();
   const url = new URL(request.url);
   const route = (
@@ -3858,7 +4002,7 @@ export default async (request) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling', 'customer_plan_jobs'],
       });
       if (path === '/customers') {
         if (!internalAuthorized) return unauthorized();
@@ -3890,6 +4034,20 @@ export default async (request) => {
         const task = await getTask(requestClientId, decodeURIComponent(taskDetailMatch[1]));
         return task ? json({ task }, 200, { internal: true }) : json({ error: '生成任务不存在' }, 404, { internal: true });
       }
+      const planJobDetailMatch = path.match(/^\/plan-jobs\/([^/]+)$/);
+      if (planJobDetailMatch) {
+        const clientId = planJobClientIdFrom({}, url, request);
+        if (!clientId) return json({ error: '读取计划任务需要 client_id' }, 400);
+        const jobId = decodeURIComponent(planJobDetailMatch[1]);
+        let job = await getPlanJob(clientId, jobId);
+        if (!job) return json({ error: '计划任务不存在' }, 404);
+        if (url.searchParams.get('fallback') === '1' && !['completed', 'failed'].includes(job.status)) {
+          job = await forcePlanJobFallback(clientId, jobId);
+        } else if (job.status === 'pending' || (job.status === 'generating' && isPlanJobStale(job))) {
+          queuePlanJob(context, clientId, jobId);
+        }
+        return json(clientVisiblePlanJob(job));
+      }
       if (path === '/dashboard') {
         if (!internalAuthorized) return unauthorized();
         return json(dashboard(), 200, { internal: true });
@@ -3913,21 +4071,15 @@ export default async (request) => {
     const payload = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     const payloadClientId = clientIdFrom(payload, url, request);
     const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
+    if (request.method === 'POST' && path === '/plan-jobs') {
+      const clientId = planJobClientIdFrom(payload, url, request);
+      if (!clientId) return json({ error: '创建计划任务需要 client_id' }, 400);
+      const job = await createPlanJob({ ...payload, client_id: clientId });
+      queuePlanJob(context, clientId, job.job_id);
+      return json(clientVisiblePlanJob(job), 202);
+    }
     if (request.method === 'POST' && path === '/assessments') {
-      const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
-      const assessment_id = createAssessment(trustedPayload, payloadClientId);
-      const assessment = state.assessments.find((item) => item.id === assessment_id);
-      if (internalAuthorized) {
-        markInternalAuthorized(assessment, true);
-        if (payload.model_provider || payload.model_mode) {
-          Object.defineProperty(assessment, 'model_provider', { value: payload.model_provider || payload.model_mode, enumerable: false });
-        }
-      }
-      const diagnosis = generateDiagnosis(assessment_id);
-      const generated = await generateOpusPlanRows(assessment, diagnosis);
-      const plans = createContentPlan(diagnosis.id, generated.rows, generated.meta);
-      const generation_meta = normalizeModelMeta(generated.meta);
-      return json({ assessment_id, assessment, diagnosis, plans, model_info: generation_meta, generation_meta }, 201, { internal: internalAuthorized });
+      return json(await generateAssessmentResult({ payload, clientId: payloadClientId, internalAuthorized }), 201, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/state') {
       if (payloadClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();

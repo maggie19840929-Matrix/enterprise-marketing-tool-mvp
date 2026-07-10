@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.81';
-const VERSION_LABEL = 'v1.6.81 · 生成延迟一期优化版';
+const APP_VERSION = '1.6.82';
+const VERSION_LABEL = 'v1.6.82 · 客户计划异步生成版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1782,12 +1782,46 @@ function collectCustomerCoCreation(){
   });
 }
 
+const CUSTOMER_PLAN_JOB_POLL_DELAYS = [700, 900, 1200, 1600, 2200, 3000, 4000, 5000, 5000, 5000];
+const waitForCustomerPlanJob = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+async function pollCustomerPlanJob(job = {}, clientId = ''){
+  const jobId = String(job.job_id || '').trim();
+  const scopedClientId = normalizeClientId(clientId);
+  if (!jobId || !scopedClientId) throw new Error('计划任务创建失败，请稍后重试');
+  let lastError = null;
+  for (const delay of CUSTOMER_PLAN_JOB_POLL_DELAYS) {
+    await waitForCustomerPlanJob(delay);
+    try {
+      const current = await api(`/api/plan-jobs/${encodeURIComponent(jobId)}?client_id=${encodeURIComponent(scopedClientId)}`, { timeoutMs: 10000 });
+      if (current.status === 'completed' && current.result) return current.result;
+      if (current.status === 'failed') throw new Error(current.error || '刚刚生成失败了，请稍后再试一次');
+    } catch (error) {
+      lastError = error;
+      if (error?.status === 404) throw error;
+    }
+  }
+  try {
+    const fallback = await api(`/api/plan-jobs/${encodeURIComponent(jobId)}?client_id=${encodeURIComponent(scopedClientId)}&fallback=1`, { timeoutMs: 10000 });
+    if (fallback.status === 'completed' && fallback.result) return fallback.result;
+  } catch (error) {
+    lastError = error;
+  }
+  throw new Error(lastError?.message || '生成时间较长，请稍后再试一次');
+}
+
 async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton = $('#customerGenerateBtn')){
   const errorBox = $('#customerCoCreationSection')?.hidden ? '#customerFormError' : '#customerCoCreationMessage';
   setCustomerMessage(errorBox, '');
   await withBusy(triggerButton, ['正在分析业务...', '正在生成选题...', '正在适配平台...'], async () => {
     try {
-      const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(scopedPayload)});
+      const clientId = normalizeClientId(scopedPayload.client_id || scopedPayload.customer_key || customerClientId());
+      const submitted = await api('/api/plan-jobs', {
+        method:'POST',
+        timeoutMs: 10000,
+        body: JSON.stringify({ ...scopedPayload, client_id: clientId, customer_key: scopedPayload.customer_key || clientId }),
+      });
+      const result = await pollCustomerPlanJob(submitted, clientId);
       const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
       clientState = buildVersionedProjectState(result, scopedPayload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
       saveLocal();
