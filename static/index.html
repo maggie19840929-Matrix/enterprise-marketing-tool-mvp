@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.83" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.83" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.84" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.84" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -136,6 +136,8 @@
               <span class="customer-field-title">你的目标客户是谁？*</span>
               <input name="target_customer" required placeholder="如：附近客户、企业负责人、家长、门店老板；越具体越好" />
             </label>
+            <details class="customer-more-fields customer-optional-fields">
+              <summary>补充更多（可选） · 平台、内容问题、资质与素材</summary>
             <fieldset class="customer-choice-group customer-key-choice customer-platform-choice">
               <legend>选择主要平台语境 <small>可选；未选择时由系统智能推荐</small></legend>
               <input type="hidden" name="current_channels" value="还不确定" />
@@ -156,8 +158,6 @@
               </div>
               <p class="customer-field-hint">建议适配，不强迫适配。一稿多发省时间，但转化可能弱；平台适配更费事，但更符合人群和平台机制。</p>
             </fieldset>
-            <details class="customer-more-fields customer-optional-fields">
-              <summary>补充更多（可选） · 资质、素材与对标信息</summary>
               <div class="customer-more-grid">
                 <label>公司/门店名
                   <input name="company_name" placeholder="如：本地服务机构 / 真实公司名" />
@@ -390,9 +390,9 @@
               <details class="customer-effect-more">
                 <summary>更多（可选）</summary>
                 <div class="customer-effect-more-grid">
-                  <label>点赞<input name="likes" type="number" min="0" placeholder="0" /></label>
-                  <label>评论<input name="comments" type="number" min="0" placeholder="0" /></label>
-                  <label>转发<input name="shares" type="number" min="0" placeholder="0" /></label>
+                  <label>点赞<input name="likes" type="number" min="0" value="0" /></label>
+                  <label>评论<input name="comments" type="number" min="0" value="0" /></label>
+                  <label>转发<input name="shares" type="number" min="0" value="0" /></label>
                 </div>
               </details>
               <fieldset class="customer-choice-group customer-observation-tags">
@@ -862,6 +862,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.83"></script>
+  <script src="/app.js?v=1.6.84"></script>
 </body>
 </html>
