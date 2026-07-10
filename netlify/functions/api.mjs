@@ -7,8 +7,8 @@ const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 
-const APP_VERSION = '1.6.82';
-const VERSION_LABEL = 'v1.6.82 · 客户计划异步生成版';
+const APP_VERSION = '1.6.83';
+const VERSION_LABEL = 'v1.6.83 · 可读性与循环体验优化版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -1457,9 +1457,16 @@ const generateDiagnosis = (assessmentId) => {
   const target = assessment.target_customer || '目标客户';
   const offer = assessment.offer || '明确咨询入口';
   const pain = assessment.customer_pain || assessment.biggest_problem || '当前核心痛点';
-  const channels = assessment.current_channels || '当前平台';
-  const frequency = assessment.posting_frequency || '当前发布频率';
   const platformRecommendations = recommendPlatforms(assessment);
+  const recommendedChannels = (platformRecommendations.primary || [])
+    .map((item) => String(item?.platform || item || '').trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join('、');
+  const channels = !assessment.current_channels || assessment.current_channels === '还不确定'
+    ? (recommendedChannels || '系统推荐平台')
+    : assessment.current_channels;
+  const frequency = assessment.posting_frequency || '当前发布频率';
   const benchmarkReference = benchmarkReferenceFor(assessment);
   const businessContext = inferBusinessContext(assessment);
   const merchantProfile = merchantProfileFor(assessment, businessContext);
@@ -1548,6 +1555,20 @@ const compactPlatformRecommendations = (recommendations = {}) => ({
   support: (recommendations?.support || []).slice(0, 2).map((item) => String(item?.platform || item || '').slice(0, 20)).filter(Boolean),
 });
 
+const PLAN_VARIATION_DIRECTIONS = [
+  '优先从客户最常问的具体问题切入',
+  '优先从常见误区和反常识切入',
+  '优先从服务过程与幕后细节切入',
+  '优先从选择标准和对比清单切入',
+  '优先从本地场景与真实时刻切入',
+  '优先从客户犹豫到行动路径切入',
+];
+const planGenerationVariant = (value = '') => {
+  const text = String(value || nowIso());
+  const hash = Array.from(text).reduce((total, char) => ((total * 31) + char.codePointAt(0)) >>> 0, 0);
+  return PLAN_VARIATION_DIRECTIONS[hash % PLAN_VARIATION_DIRECTIONS.length];
+};
+
 const planPromptContext = (assessment = {}, diagnosis = {}) => ({
   industry: String(assessment.industry || '').slice(0, 120),
   main_goal: String(assessment.main_goal || '').slice(0, 100),
@@ -1557,12 +1578,14 @@ const planPromptContext = (assessment = {}, diagnosis = {}) => ({
   biggest_problem: String(assessment.biggest_problem || '').slice(0, 60),
   priority_problem: String(diagnosis.priority_problem || '').slice(0, 60),
   platform_recommendations: compactPlatformRecommendations(diagnosis.platform_recommendations),
+  variation_direction: String(assessment.plan_generation_variant || '').slice(0, 40),
 });
 
 const contentPlanPrompt = (assessment, diagnosis) => [
   '请生成正好7条可直接进入内容草稿的选题，只返回JSON对象，不要Markdown。',
   '格式固定为{"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，每条仅含这4个核心字段。topic<=20字，angle<=24字，content_type<=8字，cta<=20字。',
   '内容写给目标客户，必须贴合行业、目标、痛点和平台；7条角度不得重复；禁止评论区或留言关键词引导；禁止照抄输入长句；禁止编造未提供的优惠、接送、价格或效果承诺。',
+  '根据 variation_direction 改变本批次的选题切口；不要机械复用同一行业的固定标题顺序。',
   `上下文:${JSON.stringify(planPromptContext(assessment, diagnosis))}`,
 ].join('\n');
 
@@ -1626,7 +1649,7 @@ const callArkPlanRows = async (assessment, diagnosis) => {
   const call = await callArkChatCompletion({
     route: '/api/assessments',
     purpose: 'initial_7_day_plan',
-    temperature: 0.3,
+    temperature: 0.55,
     maxTokens: 450,
     timeoutMs: CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS,
     model: arkPlanModel(),
@@ -1713,8 +1736,13 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   const platforms = planPlatforms(diagnosis.platform_recommendations, assessment?.current_channels);
   // 不再在生成新诊断时清空反馈/复盘。serverless 内存不是可信数据库，
   // 但至少避免新诊断把同一实例中的历史反馈直接抹掉。
+  const fallbackRows = planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference);
+  const fallbackShift = PLAN_VARIATION_DIRECTIONS.indexOf(assessment?.plan_generation_variant);
+  const variedFallbackRows = fallbackShift > 0
+    ? [...fallbackRows.slice(fallbackShift % fallbackRows.length), ...fallbackRows.slice(0, fallbackShift % fallbackRows.length)]
+    : fallbackRows;
   const sourceRows = applyCoCreationToPlanRows(
-    modelRows?.length ? modelRows : planTemplates(diagnosis.priority_problem, industry, goal, target, offer, pain, problem, diagnosis.benchmark_reference),
+    modelRows?.length ? modelRows : variedFallbackRows,
     assessment || {}
   );
   const generation = normalizeModelMeta(modelMeta || { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, fallback_reason: 'model_not_requested', failure_reason: 'model_not_requested' });
@@ -3196,8 +3224,8 @@ const writeCloudCollection = async (kind, clientId = 'anonymous', items = []) =>
   return fallback;
 };
 
-const upsertCollectionItem = async (kind, clientId, item, idField) => {
-  const current = await readCloudCollection(kind, clientId);
+const upsertCollectionItem = async (kind, clientId, item, idField, currentState = null) => {
+  const current = currentState || await readCloudCollection(kind, clientId);
   const field = collectionField(kind);
   const id = String(item[idField] || '');
   const items = ensureArray(current[field]).filter((entry) => String(entry[idField] || '') !== id);
@@ -3840,10 +3868,16 @@ const modelPayloadForRequest = (payload = {}, internalAuthorized = false) => {
   return customerPayload;
 };
 
-const generateAssessmentResult = async ({ payload = {}, clientId = '', internalAuthorized = false, forceRules = false, fallbackReason = 'async_fallback' } = {}) => {
+const generateAssessmentResult = async ({ payload = {}, clientId = '', internalAuthorized = false, forceRules = false, fallbackReason = 'async_fallback', generationVariant = '' } = {}) => {
   const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
   const assessment_id = createAssessment(trustedPayload, clientId);
   const assessment = state.assessments.find((item) => item.id === assessment_id);
+  Object.defineProperty(assessment, 'plan_generation_variant', {
+    value: PLAN_VARIATION_DIRECTIONS.includes(generationVariant)
+      ? generationVariant
+      : planGenerationVariant(generationVariant || `${clientId}:${assessment_id}:${nowIso()}`),
+    enumerable: false,
+  });
   if (internalAuthorized) {
     markInternalAuthorized(assessment, true);
     if (payload.model_provider || payload.model_mode) {
@@ -3872,11 +3906,14 @@ const createPlanJob = async (payload = {}) => {
   const client_id = planJobClientIdFrom(payload);
   if (!client_id) throw new Error('创建计划任务需要有效 client_id');
   const createdAt = nowIso();
+  const existing = await readCloudCollection('plan-jobs', client_id);
+  const generationVariant = PLAN_VARIATION_DIRECTIONS[ensureArray(existing.jobs).length % PLAN_VARIATION_DIRECTIONS.length];
   const job = {
     job_id: makeId('planjob'),
     client_id,
     status: 'pending',
     assessment_payload: sanitizeCustomerPayload({ ...modelPayloadForRequest(payload, false), client_id }),
+    generation_variant: generationVariant,
     attempts: 0,
     result: null,
     error: '',
@@ -3885,7 +3922,7 @@ const createPlanJob = async (payload = {}) => {
     started_at: '',
     completed_at: '',
   };
-  await upsertCollectionItem('plan-jobs', client_id, job, 'job_id');
+  await upsertCollectionItem('plan-jobs', client_id, job, 'job_id', existing);
   return job;
 };
 
@@ -3920,7 +3957,7 @@ const processPlanJob = async (clientId = '', jobId = '') => {
   };
   await savePlanJob(job);
   try {
-    const result = await generateAssessmentResult({ payload: job.assessment_payload, clientId: job.client_id });
+    const result = await generateAssessmentResult({ payload: job.assessment_payload, clientId: job.client_id, generationVariant: job.generation_variant || job.job_id });
     const latest = await getPlanJob(clientId, jobId);
     if (latest?.status === 'completed') return latest;
     return savePlanJob({
@@ -3950,6 +3987,7 @@ const forcePlanJobFallback = async (clientId = '', jobId = '') => {
       clientId: job.client_id,
       forceRules: true,
       fallbackReason: 'client_poll_timeout',
+      generationVariant: job.generation_variant || job.job_id,
     });
     return savePlanJob({
       ...job,

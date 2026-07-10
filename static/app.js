@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.82';
-const VERSION_LABEL = 'v1.6.82 · 客户计划异步生成版';
+const APP_VERSION = '1.6.83';
+const VERSION_LABEL = 'v1.6.83 · 可读性与循环体验优化版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -188,6 +188,7 @@ let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
 let customerPendingCoCreationPayload = null;
+let lastCustomerGenerationPayload = null;
 
 const api = async (url, opts={}) => {
   const {timeoutMs = 35000, internalToken = '', headers: requestedHeaders = {}, ...fetchOptions} = opts;
@@ -879,16 +880,22 @@ function resetCustomerTrialForm(){
   const form = $('#customerAssessmentForm');
   form?.reset();
   form?.querySelectorAll('.customer-choice-chip').forEach((button) => {
-    const selected = button.dataset.value === '推荐模式：平台差异化适配';
+    const selected = [
+      '推荐模式：平台差异化适配',
+      '还不确定',
+      '不知道发什么',
+    ].includes(button.dataset.value);
     button.classList.toggle('is-selected', selected);
     button.setAttribute('aria-pressed', String(selected));
   });
   const contentMode = form?.querySelector('[name="content_mode"]');
   if (contentMode) contentMode.value = '推荐模式：平台差异化适配';
-  ['current_channels', 'biggest_problem'].forEach((name) => {
-    const field = form?.querySelector(`[name="${name}"]`);
-    if (field) field.value = '';
-  });
+  const platform = form?.querySelector('[name="current_channels"]');
+  const problem = form?.querySelector('[name="biggest_problem"]');
+  if (platform) platform.value = '还不确定';
+  if (problem) problem.value = '不知道发什么';
+  lastCustomerGenerationPayload = null;
+  setCustomerGenerationRetryVisible(false);
   setCustomerMessage('#customerFormError', '');
 }
 
@@ -1572,7 +1579,7 @@ function updateCustomerStepCopy(step = 'intake'){
   if (step === 'next') {
     if (kicker) kicker.textContent = 'STEP 5 · 效果判断';
     if (title) title.textContent = '看这条内容怎么调整';
-    if (desc) desc.textContent = '系统会先根据刚记录的数据给出本条优化建议；反馈足够后，再开放下一轮计划。';
+    if (desc) desc.textContent = '系统会先根据刚记录的数据给出本条优化建议；记录更多真实效果后，就能得到更准的下一轮建议。';
     return;
   }
   if (kicker) kicker.textContent = 'STEP 4 · 效果记录';
@@ -1612,6 +1619,12 @@ function setCustomerMessage(id, message, tone = 'success'){
   el.classList.toggle('error', tone === 'error');
   el.classList.toggle('success', tone !== 'error');
   el.hidden = !message;
+}
+
+function setCustomerGenerationRetryVisible(visible){
+  const button = $('#customerGenerationRetry');
+  if (!button) return;
+  button.hidden = !visible || !lastCustomerGenerationPayload;
 }
 
 function customerNeedsOfferDetail(payload = {}){
@@ -1727,10 +1740,13 @@ function hideCustomerCoCreation(){
   const list = $('#customerCoCreationDirections');
   if (list) list.innerHTML = '';
   setCustomerMessage('#customerCoCreationMessage', '');
+  setCustomerGenerationRetryVisible(false);
 }
 
 function renderCustomerCoCreation(payload = {}){
   customerPendingCoCreationPayload = sanitizeCustomerPayload({...payload});
+  lastCustomerGenerationPayload = null;
+  setCustomerGenerationRetryVisible(false);
   const section = $('#customerCoCreationSection');
   const list = $('#customerCoCreationDirections');
   const form = $('#customerCoCreationForm');
@@ -1812,6 +1828,8 @@ async function pollCustomerPlanJob(job = {}, clientId = ''){
 
 async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton = $('#customerGenerateBtn')){
   const errorBox = $('#customerCoCreationSection')?.hidden ? '#customerFormError' : '#customerCoCreationMessage';
+  lastCustomerGenerationPayload = sanitizeCustomerPayload({...scopedPayload});
+  setCustomerGenerationRetryVisible(false);
   setCustomerMessage(errorBox, '');
   await withBusy(triggerButton, ['正在分析业务...', '正在生成选题...', '正在适配平台...'], async () => {
     try {
@@ -1850,10 +1868,13 @@ async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton
       };
       saveCustomerTrialState({ ...generatedState, draft_assessment: null });
       scheduleCustomerTrialCloudSync(generatedState);
+      lastCustomerGenerationPayload = null;
+      setCustomerGenerationRetryVisible(false);
       hideCustomerCoCreation();
       renderCustomerGeneratedState(generatedState, {focus: true, step: 'plan'});
     } catch (error) {
       setCustomerMessage(errorBox, customerFriendlyError(error), 'error');
+      setCustomerGenerationRetryVisible(true);
     }
   });
 }
@@ -2128,7 +2149,11 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
   const audience = customerText(payload.target_customer || '你的目标客户');
   const business = customerText(payload.industry || '你的业务');
   const goal = customerText(payload.main_goal || '获得更多咨询');
-  const platform = customerText(payload.current_channels || safePlans[0]?.platform || '抖音、小红书、视频号');
+  const selectedPlatform = customerText(payload.current_channels || '');
+  const generatedPlatforms = [...new Set(safePlans.map((plan)=>customerText(plan.platform || '')).filter(Boolean))].join('、');
+  const platform = selectedPlatform && selectedPlatform !== '还不确定'
+    ? selectedPlatform
+    : (generatedPlatforms || '系统推荐平台');
   const location = customerText(payload.store_location || '');
   const schedule = customerText(payload.course_schedule || '');
   const coach = customerText(payload.coach_credentials || '');
@@ -2872,7 +2897,7 @@ function renderCustomerNextAdvice(saved = {}){
     : (advice.judgment || '先根据这条内容的数据，调整下一条内容角度。');
   const gateHint = readiness.canActivate
     ? `已记录 ${readiness.count}/${readiness.target} 条内容效果，可以选择结束本轮并使用第 ${nextRoundNumber} 轮计划；也可以继续补齐本轮剩余数据。`
-    : `已记录 ${readiness.count}/${readiness.target} 条内容效果。现在先看本条怎么改；再记录 ${readiness.remainingToStage} 条不同内容后，才会开放“结束本轮并使用下一轮计划”。`;
+    : `已记录 ${readiness.count}/${readiness.target} 条内容效果。现在先看本条怎么改；再记录 ${readiness.remainingToStage} 条不同内容，就能解锁更准的下一轮建议。`;
   box.innerHTML = `<p class="customer-loop-kicker">${esc(phaseTitle)}</p>
     <h3>${esc(phaseSummary)}</h3>
     <ul class="customer-next-actions">
@@ -2914,7 +2939,7 @@ function activateCustomerNextRound(){
   }
   const readiness = customerNextRoundReadiness(current);
   if (!readiness.canActivate) {
-    setCustomerMessage('#customerEffectMessage', `当前只记录了 ${readiness.count}/${readiness.target} 条内容效果。至少记录 ${readiness.minRequired} 条不同内容后，再结束本轮并生成下一轮计划。`, 'error');
+    setCustomerMessage('#customerEffectMessage', `当前已记录 ${readiness.count}/${readiness.target} 条内容效果。再记录 ${readiness.remainingToStage} 条不同内容，就能解锁更准的下一轮建议。`, 'error');
     return;
   }
   const {nextRound, rows} = nextRoundRowsFromRecord(current, latest);
@@ -3154,9 +3179,10 @@ function syncCustomerChoiceButtons(form, groupSelector, inputName){
   });
 }
 
-function customerPlatformItems(value = ''){
+function customerPlatformItems(value = '', plans = []){
   const selected = value.split(/[,，、/\s]+/).map((item)=>item.trim()).filter(Boolean).filter((item)=>item !== '还不确定');
-  return [...new Set(selected.length ? selected : ['抖音', '小红书', '视频号'])];
+  const recommended = (plans || []).map((plan)=>customerText(plan?.platform || '')).filter(Boolean);
+  return [...new Set(selected.length ? selected : (recommended.length ? recommended : ['抖音', '小红书', '视频号']))];
 }
 
 function customerPlatformRole(platform = ''){
@@ -3201,7 +3227,7 @@ function customerContentModeHtml(payload = {}){
 }
 
 function customerPlatformMatrixHtml(payload = {}, plans = []){
-  const platforms = customerPlatformItems(payload.current_channels || '');
+  const platforms = customerPlatformItems(payload.current_channels || '', plans);
   const firstPlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, Math.max(3, platforms.length));
   const mode = customerContentMode(payload.content_mode);
   return `<div class="customer-platform-matrix">${platforms.map((platform, index) => {
@@ -3359,6 +3385,13 @@ function initCustomerTrial(){
     setCustomerFormCollapsed(false);
     setCustomerStep('intake', {focus: true});
   });
+  $('#customerGenerationRetry')?.addEventListener('click', async () => {
+    if (!lastCustomerGenerationPayload) {
+      setCustomerMessage('#customerCoCreationMessage', '请先确认本轮内容方向，再重新生成。', 'error');
+      return;
+    }
+    await submitCustomerAssessmentPayload(lastCustomerGenerationPayload, $('#customerGenerationRetry'));
+  });
   $('#customerCoCreationForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const basePayload = customerPendingCoCreationPayload || customerScopedPayload(currentCustomerFormPayload());
@@ -3462,7 +3495,7 @@ function initCustomerTrial(){
     const resultType = nextRound.review_judgment?.type || '继续观察';
     const saveMessage = readiness.canActivate
       ? `已记录这条内容。已形成阶段性复盘判断：${resultType}。现在可以选择结束本轮并使用下一轮计划，也可以继续补齐本轮数据。`
-      : `已记录这条内容。系统先给出本条优化建议：${resultType}。再记录 ${readiness.remainingToStage} 条不同内容后，才会开放下一轮计划。`;
+      : `已记录这条内容。系统先给出本条优化建议：${resultType}。再记录 ${readiness.remainingToStage} 条不同内容，就能解锁更准的下一轮建议。`;
     setCustomerMessage('#customerEffectMessage', saveMessage);
     renderCustomerEffects(nextState);
     renderCustomerRecordSummary(nextState);

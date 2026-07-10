@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.82';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.83';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
 
@@ -104,7 +104,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.82', `expected app_version 1.6.82, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.83', `expected app_version 1.6.83, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -136,6 +136,21 @@ const ownPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURICo
 assert(ownPlanJobResponse.status === 200, `same client should read its plan job, got ${ownPlanJobResponse.status}`);
 const ownPlanJob = await ownPlanJobResponse.json();
 assert(ownPlanJob.status === 'completed' && ownPlanJob.result?.plans?.length === 7, 'same client should receive the completed seven-plan result');
+let repeatedPlanJobPromise = null;
+const repeatedPlanJobResponse = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'plan-job-owner',
+  customer_key: 'plan-job-owner',
+}), {
+  waitUntil(promise) { repeatedPlanJobPromise = promise; },
+});
+assert(repeatedPlanJobResponse.status === 202 && repeatedPlanJobPromise, 'repeated customer plan job should be queued normally');
+const repeatedPlanJobCreated = await repeatedPlanJobResponse.json();
+await repeatedPlanJobPromise;
+const repeatedPlanJob = await (await handler(request('GET', `plan-jobs/${encodeURIComponent(repeatedPlanJobCreated.job_id)}?client_id=plan-job-owner`))).json();
+const firstPlanTopics = ownPlanJob.result.plans.map((plan) => plan.topic);
+const repeatedPlanTopics = repeatedPlanJob.result.plans.map((plan) => plan.topic);
+assert(JSON.stringify(firstPlanTopics) !== JSON.stringify(repeatedPlanTopics), 'same customer input submitted twice should rotate the creative direction instead of returning the identical seven-topic order');
 const ownPlanJobText = JSON.stringify(ownPlanJob);
 ['requested_model', 'actual_model', 'provider', 'fallback_reason', 'generation_meta', 'model_info'].forEach((word) => {
   assert(!ownPlanJobText.includes(word), `customer plan job response must hide model field ${word}`);
@@ -490,7 +505,7 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.82'"), 'app should expose v1.6.82 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.83'"), 'app should expose v1.6.83 internally/API-side');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
 assert(appJs.includes('cryptoApi?.randomUUID') && appJs.includes('cryptoApi?.getRandomValues') && !appJs.includes("Math.random().toString(36).slice(2, 8)"), 'new anonymous client ids should use cryptographic randomness');
@@ -504,6 +519,13 @@ assert(appJs.includes("['正在分析业务...', '正在生成选题...', '正�
 assert(apiSource.includes("path === '/plan-jobs'") && apiSource.includes("path.match(/^\\/plan-jobs\\/([^/]+)$/)") && apiSource.includes("readCloudCollection('plan-jobs'") && apiSource.includes('context.waitUntil(promise)'), 'customer plan jobs should use a client-scoped blob collection and Netlify waitUntil processing');
 assert(apiSource.includes('planJobClientIdFrom') && apiSource.includes('读取计划任务需要 client_id') && apiSource.includes("return json({ error: '计划任务不存在' }, 404)"), 'plan job reads should require client_id and hide cross-client job existence');
 assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCustomerPlanJob') && appJs.includes('&fallback=1'), 'customer plan generation should submit, poll with a limit, and request a safe fallback when polling expires');
+assert(apiSource.includes('PLAN_VARIATION_DIRECTIONS') && apiSource.includes('generation_variant: generationVariant') && apiSource.includes('temperature: 0.55') && apiSource.includes('variation_direction'), 'customer plan jobs should rotate a lightweight creative direction and use moderate temperature to reduce same-industry repetition');
+assert(indexHtml.includes('name="current_channels" value="还不确定"') && indexHtml.includes('name="biggest_problem" value="不知道发什么"'), 'customer intake should require only the three core text fields and carry safe defaults for platform and biggest problem');
+assert(apiSource.includes("assessment.current_channels === '还不确定'") && appJs.includes('generatedPlatforms') && appJs.includes("selectedPlatform !== '还不确定'"), 'an uncertain platform default should be rendered as the actual recommended plan platforms, not as literal uncertain copy');
+assert(indexHtml.includes('class="customer-effect-more"') && indexHtml.includes('<summary>更多（可选）</summary>') && !indexHtml.includes('<input name="likes" type="hidden"'), 'customer effect form should show only three core metrics by default and place split engagement fields in optional details');
+assert(appJs.includes('lastCustomerGenerationPayload') && appJs.includes('customerGenerationRetry') && appJs.includes('setCustomerGenerationRetryVisible(true)'), 'failed customer plan generation should expose an in-place retry using the last confirmed payload');
+assert(appJs.includes('就能解锁更准的下一轮建议') && !appJs.includes('才会开放下一轮计划'), 'next-round readiness copy should encourage additional records without changing the gate');
+assert(warRoomCss.includes('v1.6.83 customer readability and low-friction loop') && warRoomCss.includes('body.customer-mode .war-tag.green') && warRoomCss.includes('color:#065f46!important') && warRoomCss.includes('.war-tag.green{color:#8ff2cb'), 'customer light mode should use dark green readable text while the internal dark theme keeps its mint green baseline');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -577,7 +599,7 @@ assert(apiSourceIncludes("path === '/customer-growth-advice'") && apiSourceInclu
 assert(appJs.includes('function buildVersionedProjectState') && appJs.includes('diagnosis_history') && appJs.includes('intake_history'), 'customer/internal submissions should create versioned project states');
 assert(appJs.includes('customer_public') && appJs.includes('saveLocal();') && appJs.includes('scheduleCloudSync'), 'customer public submissions should enter the same project store and cloud sync path');
 assert(appJs.includes('function regenerateCurrentDiagnosis') && appJs.includes('旧诊断已归档'), 'internal workbench should support rediagnosis with archived old diagnoses');
-assert(appJs.includes('已记录这条内容。系统先给出本条优化建议') && appJs.includes('结束本轮，使用第') && appJs.includes('至少记录 ${readiness.minRequired} 条不同内容后') && !appJs.includes('已记录这条内容。系统已生成复盘判断和下一轮内容计划'), 'effect save should not present a full next-round plan after only one feedback record');
+assert(appJs.includes('已记录这条内容。系统先给出本条优化建议') && appJs.includes('结束本轮，使用第') && appJs.includes('就能解锁更准的下一轮建议') && !appJs.includes('已记录这条内容。系统已生成复盘判断和下一轮内容计划'), 'effect save should not present a full next-round plan after only one feedback record');
 assert(appJs.includes('盆底肌修复'), 'customer offer extraction should recognize postpartum pelvic-floor repair instead of generic service wording');
 
 assert(appJs.includes('function autoReviewFromFeedback()'), 'app should auto-generate weekly review from existing feedback');
@@ -592,7 +614,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.82') && indexHtml.includes('/styles.css?v=1.6.82') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.82'), 'customer page should cache-bust the v1.6.82 async latency release while preserving the centered footer stylesheet');
+assert(indexHtml.includes('/app.js?v=1.6.83') && indexHtml.includes('/styles.css?v=1.6.83') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.83'), 'customer page should cache-bust the v1.6.83 readability release while preserving the centered footer stylesheet');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -1386,6 +1408,7 @@ console.log(JSON.stringify({
     submit_status: planJobCreateResponse.status,
     submit_latency_ms: planJobSubmitLatencyMs,
     completed_status: ownPlanJob.status,
+    repeated_plan_differs: JSON.stringify(firstPlanTopics) !== JSON.stringify(repeatedPlanTopics),
     cross_client_status: crossClientPlanJobResponse.status,
     no_client_status: noClientPlanJobResponse.status,
     list_status: planJobListResponse.status,

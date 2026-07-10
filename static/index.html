@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.82" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.82" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.83" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.83" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -137,14 +137,14 @@
               <input name="target_customer" required placeholder="如：附近客户、企业负责人、家长、门店老板；越具体越好" />
             </label>
             <fieldset class="customer-choice-group customer-key-choice customer-platform-choice">
-              <legend>选择主要平台语境 <small>可多选，建议先定主战场</small></legend>
-              <input type="hidden" name="current_channels" />
+              <legend>选择主要平台语境 <small>可选；未选择时由系统智能推荐</small></legend>
+              <input type="hidden" name="current_channels" value="还不确定" />
               <div class="customer-choice-row" data-customer-platforms data-multi-select="true">
                 <button class="customer-choice-chip platform-choice-chip" type="button" data-value="抖音"><span></span><b>抖音</b></button>
                 <button class="customer-choice-chip platform-choice-chip" type="button" data-value="小红书"><span></span><b>小红书</b></button>
                 <button class="customer-choice-chip platform-choice-chip" type="button" data-value="视频号"><span></span><b>视频号</b></button>
                 <button class="customer-choice-chip platform-choice-chip" type="button" data-value="朋友圈/私域"><span></span><b>朋友圈/私域</b></button>
-                <button class="customer-choice-chip platform-choice-chip" type="button" data-value="还不确定"><span></span><b>还不确定</b></button>
+                <button class="customer-choice-chip platform-choice-chip is-selected" type="button" data-value="还不确定" aria-pressed="true"><span></span><b>还不确定</b></button>
               </div>
             </fieldset>
             <fieldset class="customer-choice-group customer-key-choice">
@@ -189,9 +189,9 @@
               </div>
               <fieldset class="customer-choice-group">
                 <legend>你当前最大的内容问题是什么？</legend>
-                <input type="hidden" name="biggest_problem" />
+                <input type="hidden" name="biggest_problem" value="不知道发什么" />
                 <div class="customer-problem-grid" data-customer-problems>
-                  <button class="customer-choice-chip" type="button" data-value="不知道发什么"><span></span>不知道发什么</button>
+                  <button class="customer-choice-chip is-selected" type="button" data-value="不知道发什么" aria-pressed="true"><span></span>不知道发什么</button>
                   <button class="customer-choice-chip" type="button" data-value="发了没流量"><span></span>发了没流量</button>
                   <button class="customer-choice-chip" type="button" data-value="有浏览没咨询"><span></span>有浏览没咨询</button>
                   <button class="customer-choice-chip" type="button" data-value="发完没人复盘"><span></span>发了没效果总结</button>
@@ -318,6 +318,7 @@
           </label>
 
           <div id="customerCoCreationMessage" class="customer-message error" role="alert" hidden></div>
+          <button id="customerGenerationRetry" class="customer-secondary customer-generation-retry" type="button" hidden>重新尝试生成</button>
           <div class="customer-cocreation-actions">
             <button id="customerCoCreationSubmit" class="customer-primary" type="submit">按这个方向生成本轮计划</button>
             <button id="customerCoCreationBack" class="customer-secondary" type="button">返回修改业务信息</button>
@@ -368,10 +369,7 @@
           <input name="content_plan_id" type="hidden" required />
           <input name="publish_link" type="hidden" />
           <input name="published_at" type="hidden" />
-          <input name="likes" type="hidden" value="0" />
           <input name="favorites" type="hidden" value="0" />
-          <input name="comments" type="hidden" value="0" />
-          <input name="shares" type="hidden" value="0" />
           <input name="appointments" type="hidden" value="0" />
           <div class="customer-effect-step customer-wide">
             <span>1</span>
@@ -389,6 +387,14 @@
                 <label>互动<input name="engagement" type="number" min="0" value="0" /></label>
                 <label>咨询<input name="consultations" type="number" min="0" value="0" /></label>
               </div>
+              <details class="customer-effect-more">
+                <summary>更多（可选）</summary>
+                <div class="customer-effect-more-grid">
+                  <label>点赞<input name="likes" type="number" min="0" placeholder="0" /></label>
+                  <label>评论<input name="comments" type="number" min="0" placeholder="0" /></label>
+                  <label>转发<input name="shares" type="number" min="0" placeholder="0" /></label>
+                </div>
+              </details>
               <fieldset class="customer-choice-group customer-observation-tags">
                 <legend>客户主要反馈是什么？可选</legend>
                 <input type="hidden" name="observation_tags" />
@@ -856,6 +862,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.82"></script>
+  <script src="/app.js?v=1.6.83"></script>
 </body>
 </html>
