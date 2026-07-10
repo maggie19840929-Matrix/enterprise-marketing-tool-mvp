@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.86';
-const VERSION_LABEL = 'v1.6.86 · 对比度收尾版';
+const APP_VERSION = '1.6.87';
+const VERSION_LABEL = 'v1.6.87 · 客户内页设计统一版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1577,12 +1577,12 @@ function updateCustomerStepCopy(step = 'intake'){
   const title = head.querySelector('h2');
   const desc = head.querySelector('span');
   if (step === 'next') {
-    if (kicker) kicker.textContent = 'STEP 5 · 效果判断';
+    if (kicker) kicker.textContent = '第 5 步 · 效果判断';
     if (title) title.textContent = '看这条内容怎么调整';
     if (desc) desc.textContent = '系统会先根据刚记录的数据给出本条优化建议；记录更多真实效果后，就能得到更准的下一轮建议。';
     return;
   }
-  if (kicker) kicker.textContent = 'STEP 4 · 效果记录';
+  if (kicker) kicker.textContent = '第 4 步 · 效果记录';
   if (title) title.textContent = '发完后，记录一下效果';
   if (desc) desc.textContent = '只填几个关键数字。下次系统会根据真实效果，帮你优化下一条内容。';
 }
@@ -1753,10 +1753,13 @@ function renderCustomerCoCreation(payload = {}){
   if (!section || !list || !form) return;
   const directions = customerCoCreationDirections(payload);
   list.innerHTML = directions.map((item, index)=>`<button class="customer-direction-card ${index === 0 ? 'is-selected' : ''}" type="button" data-cocreation-direction="${esc(item.value)}" aria-pressed="${index === 0 ? 'true' : 'false'}">
-    <span>${esc(index === 0 ? '推荐优先' : '可选方向')}</span>
-    <strong>${esc(item.title)}</strong>
-    <p>${esc(item.desc)}</p>
-    <em>${esc(item.examples.join(' / '))}</em>
+    <span class="customer-direction-radio" aria-hidden="true">✓</span>
+    <span class="customer-direction-copy">
+      <span class="customer-direction-meta">${esc(index === 0 ? '推荐优先' : '可选方向')}</span>
+      <strong>${esc(item.title)}</strong>
+      <p>${esc(item.desc)}</p>
+      <em>${esc(item.examples.join(' / '))}</em>
+    </span>
   </button>`).join('');
   form.reset();
   form.querySelector('[name="selected_direction"]').value = directions[0]?.value || '';
@@ -2281,7 +2284,7 @@ function buildCustomerPlanList(payload, plans){
   const recordedPlanIds = new Set((Array.isArray(saved.records) ? saved.records : [])
     .map((record)=>String(record.content_plan_id || '').trim())
     .filter(Boolean));
-  return safePlans.map((plan, index) => {
+  const cards = safePlans.map((plan, index) => {
     const planId = planIdValue(plan) || String(index + 1);
     const day = `第${index + 1}天`;
     const platform = customerText(plan.platform || payload.current_channels || '抖音、小红书、视频号');
@@ -2298,12 +2301,15 @@ function buildCustomerPlanList(payload, plans){
     const audit = customerPublishAuditFor(plan, payload);
     return `<article class="customer-plan-item customer-plan-lite${recorded ? ' is-recorded' : ''}" data-customer-plan-id="${esc(planId)}">
       <div class="plan-lite-main">
-        <span class="plan-day-pill">${esc(day)}</span>
-        <p class="plan-topic">${esc(topic)}</p>
+        <span class="plan-day-pill" aria-label="${esc(day)}">${esc(index + 1)}</span>
+        <div class="plan-lite-copy">
+          <p class="plan-topic">${esc(topic)}</p>
+          <p class="plan-angle">${esc(angle)}</p>
+        </div>
         <span class="plan-platform-pill">${esc(platform)}</span>
       </div>
       <details class="plan-lite-reason">
-        <summary>为什么这样发 ›</summary>
+        <summary>为什么这样发</summary>
         <div class="plan-lite-reason-body">
           <p><strong>角度：</strong>${esc(angle)}</p>
           ${reasoning.map(([label, value])=>`<p><strong>${esc(label)}：</strong>${esc(value)}</p>`).join('')}
@@ -2316,7 +2322,12 @@ function buildCustomerPlanList(payload, plans){
       </details>
       <button class="customer-plan-select" type="button" data-customer-record-plan="${esc(planId)}">${recorded ? '已记录，继续补充' : '这条发完了，去记录效果'}</button>
     </article>`;
-  }).join('');
+  });
+  const visibleCards = cards.slice(0, 3).join('');
+  const remainingCards = cards.slice(3).join('');
+  return remainingCards
+    ? `${visibleCards}<details class="customer-plan-more"><summary>查看全部 ${safePlans.length} 天 →</summary><div class="customer-plan-more-list">${remainingCards}</div></details>`
+    : visibleCards;
 }
 
 function customerPlans(saved = {}){

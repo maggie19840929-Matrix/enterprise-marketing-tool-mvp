@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.86" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.86" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.87" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.87" />
 </head>
 <body>
   <div id="customerApp" class="customer-trial-app">
@@ -292,12 +292,13 @@
     <main class="customer-main customer-result-main">
       <section id="customerCoCreationSection" class="customer-card customer-cocreation-card" hidden>
         <div class="customer-section-head">
-          <p>STEP 2 · 方向确认</p>
+          <p>第 2 步 · 确认方向</p>
           <h2>先确认本轮内容方向</h2>
           <span>系统先给你 3 个方向。选一个最想测试的，再生成本轮内容计划。</span>
         </div>
         <form id="customerCoCreationForm" class="customer-cocreation-form" novalidate>
           <input type="hidden" name="selected_direction" />
+          <p class="customer-direction-hint">选一个方向</p>
           <div id="customerCoCreationDirections" class="customer-direction-grid"></div>
 
           <fieldset class="customer-choice-group customer-cocreation-avoid">
@@ -320,7 +321,7 @@
           <div id="customerCoCreationMessage" class="customer-message error" role="alert" hidden></div>
           <button id="customerGenerationRetry" class="customer-secondary customer-generation-retry" type="button" hidden>重新尝试生成</button>
           <div class="customer-cocreation-actions">
-            <button id="customerCoCreationSubmit" class="customer-primary" type="submit">按这个方向生成本轮计划</button>
+            <button id="customerCoCreationSubmit" class="customer-primary" type="submit">用这个方向生成内容 →</button>
             <button id="customerCoCreationBack" class="customer-secondary" type="button">返回修改业务信息</button>
           </div>
         </form>
@@ -328,7 +329,7 @@
 
       <section id="customerResultSection" class="customer-card customer-result-card" hidden>
         <div class="customer-section-head">
-          <p>STEP 3 · 本轮计划</p>
+          <p>第 3 步 · 本轮计划</p>
           <h2>你的专属发布建议</h2>
           <span>根据你刚填的业务情况生成。选一条先发，不需要全部用完——发完一条后在下方记录效果。</span>
         </div>
@@ -361,7 +362,7 @@
 
       <section id="customerEffectSection" class="customer-card customer-effect-card" hidden>
         <div class="customer-section-head">
-          <p>STEP 4 · 效果记录</p>
+          <p>第 4 步 · 效果记录</p>
           <h2>发完后，记录一下效果</h2>
           <span>只填几个关键数字。下次系统会根据真实效果，帮你优化下一条内容。</span>
         </div>
@@ -862,6 +863,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.86"></script>
+  <script src="/app.js?v=1.6.87"></script>
 </body>
 </html>
