@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.80';
-const VERSION_LABEL = 'v1.6.80 · 团队鉴权与数据隔离安全版';
+const APP_VERSION = '1.6.81';
+const VERSION_LABEL = 'v1.6.81 · 生成延迟一期优化版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1090,17 +1090,30 @@ function renderReturnToProjectAction(){
 const toNonNegative = (value) => Math.max(0, Number(value || 0));
 const withBusy = async (button, busyText, task) => {
   const originalText = button?.textContent;
+  const stages = (Array.isArray(busyText) ? busyText : [busyText]).filter(Boolean);
+  let stageIndex = 0;
+  let stageTimer = null;
   if (button) {
     button.disabled = true;
-    button.textContent = busyText;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = stages[0] || '处理中...';
+    if (stages.length > 1) {
+      stageTimer = window.setInterval(() => {
+        stageIndex = Math.min(stageIndex + 1, stages.length - 1);
+        button.textContent = stages[stageIndex];
+        if (stageIndex === stages.length - 1) window.clearInterval(stageTimer);
+      }, 2800);
+    }
   }
   try {
     await task();
   } catch (error) {
     toast(error.message || '操作失败，请稍后再试');
   } finally {
+    if (stageTimer) window.clearInterval(stageTimer);
     if (button) {
       button.disabled = false;
+      button.removeAttribute('aria-busy');
       button.textContent = originalText;
     }
   }
@@ -1772,7 +1785,7 @@ function collectCustomerCoCreation(){
 async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton = $('#customerGenerateBtn')){
   const errorBox = $('#customerCoCreationSection')?.hidden ? '#customerFormError' : '#customerCoCreationMessage';
   setCustomerMessage(errorBox, '');
-  await withBusy(triggerButton, '正在生成建议...', async () => {
+  await withBusy(triggerButton, ['正在分析业务...', '正在生成选题...', '正在适配平台...'], async () => {
     try {
       const result = await api('/api/assessments', {method:'POST', body: JSON.stringify(scopedPayload)});
       const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';

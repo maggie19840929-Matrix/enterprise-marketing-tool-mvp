@@ -6,8 +6,8 @@ const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 
-const APP_VERSION = '1.6.80';
-const VERSION_LABEL = 'v1.6.80 · 团队鉴权与数据隔离安全版';
+const APP_VERSION = '1.6.81';
+const VERSION_LABEL = 'v1.6.81 · 生成延迟一期优化版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -19,8 +19,8 @@ const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
 const CLAUDE_SCRIPT_MODEL = process.env.CLAUDE_SCRIPT_MODEL || 'claude-opus-4-8';
 const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
-const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 23000), 1000), 32000);
-const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 30000), 8000), 32000);
+const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 19000), 1000), 20000);
+const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 19000), 8000), 20000);
 const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 10000), 5000), 12000);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
@@ -127,6 +127,7 @@ const anthropicApiKey = () => envValue('ANTHROPIC_API_KEY');
 const glmApiKey = () => envValue('GLM_API_KEY');
 const paidGenerationSafeToRun = () => ['1', 'true', 'yes', 'SAFE_TO_RUN'].includes(String(process.env.SAFE_TO_RUN || '').trim());
 const arkModel = (override = '') => String(override || envValue('ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL')).trim();
+const arkPlanModel = () => String(envValue('ARK_PLAN_MODEL') || arkModel()).trim();
 const arkChatCompletionsUrl = () => {
   const base = String(ARK_BASE_URL || '').trim().replace(/\/+$/, '');
   return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
@@ -201,7 +202,7 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = MODEL_TIMEOUT_MS)
     clearTimeout(timer);
   }
 };
-const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '', timeoutMs = MODEL_TIMEOUT_MS, responseFormat = null } = {}) => {
+const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '', timeoutMs = MODEL_TIMEOUT_MS, responseFormat = null, thinking = null } = {}) => {
   const requestedModel = arkModel(model);
   const started = Date.now();
   if (!arkApiKey()) {
@@ -227,6 +228,7 @@ const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxToke
         temperature,
         max_tokens: maxTokens,
         ...(responseFormat ? { response_format: responseFormat } : {}),
+        ...(thinking ? { thinking } : {}),
       }),
     }, timeoutMs);
     const latencyMs = Date.now() - started;
@@ -1539,44 +1541,31 @@ const generateDiagnosis = (assessmentId) => {
   return diagnosis;
 };
 
-const contentPlanPrompt = (assessment, diagnosis) => {
-  const platforms = planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).join(' / ');
-  return `你是企业营销增长顾问。请基于客户输入生成7条适合「${platforms}」的内容选题。
-要求：
-1. 只写给客户的目标客户，不写给老板/运营者；
-2. 标题短、具体、可发布，不要泛化模板；
-3. 禁止评论区/留言关键词引导；
-4. 如果客户选择的是抖音，优先给短视频开头钩子、场景/案例/口播方向，不要默认输出小红书标签或小红书种草话术；
-5. 如果客户提供 co_creation，必须优先围绕 selected_direction 和 customer_emphasis，避开 avoided_content；
-6. 每条必须包含 topic, angle, content_type, cta, target_metric, publish_quality, quality_note；
-7. 只返回 JSON 数组，不要解释。
-客户输入：${JSON.stringify({assessment, diagnosis}, null, 2)}`;
-};
+const compactPlatformRecommendations = (recommendations = {}) => ({
+  strategy: String(recommendations?.strategy || '').slice(0, 80),
+  primary: (recommendations?.primary || []).slice(0, 3).map((item) => String(item?.platform || item || '').slice(0, 20)).filter(Boolean),
+  support: (recommendations?.support || []).slice(0, 2).map((item) => String(item?.platform || item || '').slice(0, 20)).filter(Boolean),
+});
 
-const arkContentPlanPrompt = (assessment = {}, diagnosis = {}) => {
-  const platforms = planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).join(' / ');
-  const compact = {
-    industry: assessment.industry || '',
-    main_goal: assessment.main_goal || '',
-    target_customer: assessment.target_customer || '',
-    offer: assessment.offer || '',
-    customer_pain: assessment.customer_pain || assessment.biggest_problem || '',
-    content_assets: assessment.content_assets || '',
-    current_channels: assessment.current_channels || '',
-    biggest_problem: assessment.biggest_problem || '',
-    priority_problem: diagnosis.priority_problem || '',
-    weekly_action: diagnosis.weekly_action || '',
-    benchmark_signal: diagnosis.benchmark_reference?.recent_topics?.slice?.(0, 3) || [],
-    co_creation: assessment.co_creation || {},
-    platforms,
-  };
-  return [
-    '请为这个商家生成7条内容选题，只返回JSON数组，不要Markdown。',
-    '格式固定为：[["标题","角度"],...]。',
-    '标题18字内，角度20字内；围绕目标客户、产品/服务、痛点和平台；禁止评论区/留言关键词引导；不要照抄长字段。',
-    JSON.stringify(compact, null, 2),
-  ].join('\n');
-};
+const planPromptContext = (assessment = {}, diagnosis = {}) => ({
+  industry: String(assessment.industry || '').slice(0, 120),
+  main_goal: String(assessment.main_goal || '').slice(0, 100),
+  target_customer: String(assessment.target_customer || '').slice(0, 120),
+  platforms: planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).slice(0, 4),
+  pain: String(assessment.customer_pain || assessment.biggest_problem || '').slice(0, 120),
+  biggest_problem: String(assessment.biggest_problem || '').slice(0, 60),
+  priority_problem: String(diagnosis.priority_problem || '').slice(0, 60),
+  platform_recommendations: compactPlatformRecommendations(diagnosis.platform_recommendations),
+});
+
+const contentPlanPrompt = (assessment, diagnosis) => [
+  '请生成正好7条可直接进入内容草稿的选题，只返回JSON对象，不要Markdown。',
+  '格式固定为{"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，每条仅含这4个核心字段。topic<=20字，angle<=24字，content_type<=8字，cta<=20字。',
+  '内容写给目标客户，必须贴合行业、目标、痛点和平台；7条角度不得重复；禁止评论区或留言关键词引导；禁止照抄输入长句；禁止编造未提供的优惠、接送、价格或效果承诺。',
+  `上下文:${JSON.stringify(planPromptContext(assessment, diagnosis))}`,
+].join('\n');
+
+const arkContentPlanPrompt = (assessment = {}, diagnosis = {}) => contentPlanPrompt(assessment, diagnosis);
 
 const extractModelJson = (text = '') => {
   const fence = String.fromCharCode(96, 96, 96);
@@ -1596,15 +1585,22 @@ const extractModelJson = (text = '') => {
   throw new Error('invalid_json');
 };
 
-const normalizeLlmPlanRows = (rows) => Array.isArray(rows) ? rows.slice(0, 7).map((item) => [
-  String(Array.isArray(item) ? item[0] : item.topic || '').trim(),
-  String(Array.isArray(item) ? item[1] : item.angle || '').trim(),
-  String(Array.isArray(item) ? '图文/短视频' : item.content_type || '图文/短视频').trim(),
-  String(Array.isArray(item) ? '引导客户咨询具体情况或预约咨询。' : item.cta || '引导客户咨询具体情况或预约咨询。').trim(),
-  String(Array.isArray(item) ? '收藏/咨询' : item.target_metric || '收藏/咨询').trim(),
-  String(Array.isArray(item) ? '可直接进入草稿' : item.publish_quality || '需要人工润色').trim(),
-  String(Array.isArray(item) ? '火山方舟生成核心选题，发布前补充客户真实素材。' : item.quality_note || '模型生成，发布前补充客户真实素材。').trim(),
-]).filter((row) => row[0] && row[1]) : [];
+const limitPlanText = (value = '', maxLength = 36) => Array.from(String(value || '').trim()).slice(0, maxLength).join('');
+const planRuleFields = ({ contentType = '', cta = '' } = {}) => {
+  const compact = `${contentType} ${cta}`;
+  const targetMetric = /预约|咨询|到店|体验/.test(compact)
+    ? '咨询/预约'
+    : (/视频|口播/.test(compact) ? '播放/咨询' : '收藏/咨询');
+  return [targetMetric, '需要人工润色', '发布前补充真实案例、画面或服务细节。'];
+};
+const normalizeLlmPlanRows = (rows) => Array.isArray(rows) ? rows.slice(0, 7).map((item) => {
+  const topic = limitPlanText(Array.isArray(item) ? item[0] : item?.topic, 24);
+  const angle = limitPlanText(Array.isArray(item) ? item[1] : item?.angle, 36);
+  const contentType = limitPlanText(Array.isArray(item) ? item[2] : item?.content_type, 10) || '图文/短视频';
+  const cta = limitPlanText(Array.isArray(item) ? item[3] : item?.cta, 28) || '引导客户咨询具体情况或预约。';
+  const [targetMetric, publishQuality, qualityNote] = planRuleFields({ contentType, cta });
+  return [topic, angle, contentType, cta, targetMetric, publishQuality, qualityNote];
+}).filter((row) => row[0] && row[1]) : [];
 
 const rowsFromModelJson = (parsed) => normalizeLlmPlanRows(
   Array.isArray(parsed)
@@ -1616,9 +1612,12 @@ const callArkPlanRows = async (assessment, diagnosis) => {
   const call = await callArkChatCompletion({
     route: '/api/assessments',
     purpose: 'initial_7_day_plan',
-    temperature: 0.55,
+    temperature: 0.3,
     maxTokens: 450,
     timeoutMs: CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS,
+    model: arkPlanModel(),
+    thinking: { type: 'disabled' },
+    responseFormat: { type: 'json_object' },
     messages: [
       {
         role: 'system',

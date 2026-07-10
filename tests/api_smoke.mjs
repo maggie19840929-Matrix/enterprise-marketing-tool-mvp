@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.80';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.81';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
 
@@ -104,7 +104,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.80', `expected app_version 1.6.80, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.81', `expected app_version 1.6.81, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -460,12 +460,16 @@ const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.80'"), 'app should expose v1.6.80 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.81'"), 'app should expose v1.6.81 internally/API-side');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
 assert(appJs.includes('cryptoApi?.randomUUID') && appJs.includes('cryptoApi?.getRandomValues') && !appJs.includes("Math.random().toString(36).slice(2, 8)"), 'new anonymous client ids should use cryptographic randomness');
 assert(apiSource.includes('timingSafeEqual') && apiSource.includes("request?.headers?.get('x-internal-token')") && apiSource.includes('const unauthorized = () => json') && !apiSource.includes("url?.searchParams?.get('token')"), 'server internal auth should use a constant-time header token check without URL-token fallback');
 assert(apiSource.includes('stripCustomerModelMetadata') && apiSource.includes('CUSTOMER_HIDDEN_MODEL_FIELDS'), 'customer API responses should strip model/provider metadata unless internally authorized');
+assert(apiSource.includes("envValue('ARK_PLAN_MODEL') || arkModel()") && apiSource.includes('model: arkPlanModel()'), 'initial plan generation should prefer the dedicated ARK_PLAN_MODEL and fall back to ARK_MODEL');
+assert(apiSource.includes('MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 19000') && apiSource.includes('CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 19000') && apiSource.includes('), 20000);'), 'model timeouts should leave enough room for a rule fallback before the Netlify request limit');
+assert(apiSource.includes('每条仅含这4个核心字段') && apiSource.includes("responseFormat: { type: 'json_object' }") && apiSource.includes('planRuleFields') && apiSource.includes('limitPlanText'), 'plan model output should be compact and JSON-stable while rule post-processing restores the seven-field row contract');
+assert(appJs.includes("['正在分析业务...', '正在生成选题...', '正在适配平台...']"), 'customer generation should show staged progress copy');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -554,7 +558,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.80') && indexHtml.includes('/styles.css?v=1.6.80') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.82'), 'customer page should cache-bust the v1.6.80 security release while preserving the centered footer stylesheet');
+assert(indexHtml.includes('/app.js?v=1.6.81') && indexHtml.includes('/styles.css?v=1.6.81') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.82'), 'customer page should cache-bust the v1.6.81 latency release while preserving the centered footer stylesheet');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -1228,6 +1232,42 @@ assert(submittedCopy.task.provider === 'claude-text+glm-text', 'copy task should
 assert(submittedCopy.task.fallback === true && submittedCopy.task.fallback_reason.includes('MOCK_KEY_MISSING'), 'missing text keys should return explicit A/B mock evidence');
 assert(submittedCopy.task.adapter_manifest?.output?.variants?.claude && submittedCopy.task.adapter_manifest?.output?.variants?.glm, 'copy task manifest should include both text adapter variants');
 
+const originalFetch = globalThis.fetch;
+process.env.ARK_API_KEY = 'timeout-smoke-key';
+process.env.ARK_MODEL = 'ep-timeout-baseline';
+process.env.ARK_PLAN_MODEL = 'doubao-timeout-plan';
+globalThis.fetch = async () => {
+  const error = new Error('simulated timeout');
+  error.name = 'AbortError';
+  throw error;
+};
+const { default: timeoutHandler } = await import(`../netlify/functions/api.mjs?timeout-smoke=${Date.now()}`);
+const timeoutResponse = await timeoutHandler(internalRequest('POST', 'assessments', {
+  ...payload,
+  client_id: 'timeout-fallback-smoke',
+  company_name: '超时兜底验证客户',
+}));
+assert(timeoutResponse.status === 201, `simulated Ark timeout should return 201, got ${timeoutResponse.status}`);
+const timeoutData = await timeoutResponse.json();
+assert(timeoutData.plans?.length === 7, 'simulated Ark timeout should still return seven rule-template plans');
+assert(timeoutData.generation_meta?.fallback === true && timeoutData.generation_meta?.actual_model === 'rule_template', 'simulated Ark timeout should explicitly use the rule-template fallback');
+assert(timeoutData.generation_meta?.fallback_reason === 'ark_timeout', `expected ark_timeout fallback reason, got ${timeoutData.generation_meta?.fallback_reason}`);
+assert(timeoutData.generation_meta?.requested_model === 'doubao-timeout-plan', 'timeout evidence should identify the dedicated plan model request');
+const publicTimeoutResponse = await timeoutHandler(request('POST', 'assessments', {
+  ...payload,
+  client_id: 'timeout-public-smoke',
+  company_name: '公开超时兜底验证客户',
+}));
+assert(publicTimeoutResponse.status === 201, `public simulated Ark timeout should return 201, got ${publicTimeoutResponse.status}`);
+const publicTimeoutText = await publicTimeoutResponse.text();
+['requested_model', 'actual_model', 'provider', 'fallback_reason', 'doubao-timeout-plan'].forEach((word) => {
+  assert(!publicTimeoutText.includes(word), `public timeout fallback response must hide model field ${word}`);
+});
+globalThis.fetch = originalFetch;
+delete process.env.ARK_API_KEY;
+delete process.env.ARK_MODEL;
+delete process.env.ARK_PLAN_MODEL;
+
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,
   app_version: diagnosis.app_version,
@@ -1241,6 +1281,12 @@ console.log(JSON.stringify({
   first_date: plans[0].planned_date,
   first_topics: plans.slice(0, 3).map((p) => p.topic),
   quality_labels: plans.map((p) => p.publish_quality),
+  simulated_plan_timeout: {
+    status: timeoutResponse.status,
+    fallback: timeoutData.generation_meta.fallback,
+    fallback_reason: timeoutData.generation_meta.fallback_reason,
+    plan_count: timeoutData.plans.length,
+  },
   generation_workbench: {
     asset_sha256: assetData.asset.sha256,
     video_task_id: videoTask.task_id,

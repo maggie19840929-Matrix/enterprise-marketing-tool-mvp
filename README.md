@@ -163,6 +163,7 @@ ANTHROPIC_API_KEY=Anthropic API Key，用于 Claude Opus 文案/脚本
 ```bash
 ARK_API_KEY=火山方舟 API Key
 ARK_MODEL=火山方舟模型 Endpoint ID，例如 ep-xxxxxxxxxxxxxxxxxxxxx
+ARK_PLAN_MODEL=内容计划专用轻量模型或 Endpoint ID，例如 doubao-seed-2-0-lite-260215
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ```
 
