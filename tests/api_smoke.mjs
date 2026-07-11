@@ -1529,8 +1529,12 @@ const claimGuardResponse = await claimGuardHandler(internalRequest('POST', 'asse
 }));
 assert(claimGuardResponse.status === 201, `unsupported model claim should still return 201, got ${claimGuardResponse.status}`);
 const claimGuardData = await claimGuardResponse.json();
-assert(claimGuardData.generation_meta?.fallback_reason === 'unsupported_claim', `expected unsupported_claim fallback, got ${claimGuardData.generation_meta?.fallback_reason}`);
+assert(claimGuardData.generation_meta?.provider === 'volcengine_ark' && claimGuardData.generation_meta?.fallback === false, 'safe local claim cleanup should preserve the real Ark result instead of dropping the whole batch to templates');
+assert(claimGuardData.generation_meta?.content_safety_adjusted === true && claimGuardData.generation_meta?.safety_adjustment_count >= 2, 'claim cleanup must remain auditable in internal model evidence');
 assert(!JSON.stringify(claimGuardData.plans).includes('免费接送'), 'unsupported model claim must not reach the returned content plans');
+for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效果', '立减', '折扣', '优惠', '赠送', '返现']) {
+  assert(!JSON.stringify(claimGuardData.plans).includes(claim), `unsupported model claim must be removed before delivery: ${claim}`);
+}
 for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效果', '立减', '折扣', '优惠', '赠送', '返现']) {
   assert(claimGuardRequestBody.includes(claim), `Ark plan prompt should explicitly forbid unsupported claim: ${claim}`);
 }
@@ -1592,7 +1596,9 @@ console.log(JSON.stringify({
   },
   unsupported_claim_guard: {
     status: claimGuardResponse.status,
-    fallback_reason: claimGuardData.generation_meta.fallback_reason,
+    provider: claimGuardData.generation_meta.provider,
+    fallback: claimGuardData.generation_meta.fallback,
+    safety_adjustment_count: claimGuardData.generation_meta.safety_adjustment_count,
   },
   async_plan_job: {
     submit_status: planJobCreateResponse.status,

@@ -103,6 +103,8 @@ const CUSTOMER_HIDDEN_MODEL_FIELDS = new Set([
   'raw_usage',
   'token_usage',
   'provider_job_id',
+  'content_safety_adjusted',
+  'safety_adjustment_count',
   'transparent_note',
   'debug',
 ]);
@@ -196,6 +198,8 @@ const normalizeModelMeta = (meta = {}) => ({
   latency_ms: Number(meta.latency_ms || 0),
   usage: meta.usage || meta.raw_usage || null,
   raw_usage: meta.raw_usage || meta.usage || null,
+  content_safety_adjusted: Boolean(meta.content_safety_adjusted),
+  safety_adjustment_count: Number(meta.safety_adjustment_count || 0),
 });
 const logModelCall = ({ route, purpose, meta, status = null } = {}) => {
   const safeMeta = normalizeModelMeta(meta);
@@ -1656,16 +1660,44 @@ const rowsFromModelJson = (parsed) => normalizeLlmPlanRows(
 );
 
 const UNSUPPORTED_PLAN_CLAIMS = ['免费', '接送', '无隐形消费', '包会', '保证效果', '立减', '折扣', '优惠', '赠送', '返现'];
+const UNSUPPORTED_PLAN_CLAIM_REPLACEMENTS = new Map([
+  ['无隐形消费', '收费说明'],
+  ['保证效果', '关注实际体验'],
+  ['包会', '学习过程'],
+  ['免费', ''],
+  ['接送', ''],
+  ['立减', ''],
+  ['折扣', ''],
+  ['优惠', ''],
+  ['赠送', ''],
+  ['返现', ''],
+]);
+const planClaimSource = (assessment = {}) => [
+  assessment.industry,
+  assessment.main_goal,
+  assessment.target_customer,
+  assessment.offer,
+  assessment.customer_pain,
+  assessment.biggest_problem,
+].filter(Boolean).join(' ');
 const hasUnsupportedPlanClaim = (rows = [], assessment = {}) => {
-  const source = [
-    assessment.industry,
-    assessment.main_goal,
-    assessment.target_customer,
-    assessment.customer_pain,
-    assessment.biggest_problem,
-  ].filter(Boolean).join(' ');
+  const source = planClaimSource(assessment);
   const output = rows.flat().join(' ');
   return UNSUPPORTED_PLAN_CLAIMS.some((claim) => output.includes(claim) && !source.includes(claim));
+};
+const sanitizeUnsupportedPlanClaims = (rows = [], assessment = {}) => {
+  const source = planClaimSource(assessment);
+  let adjustmentCount = 0;
+  const sanitizedRows = rows.map((row) => row.map((value) => {
+    let text = String(value || '');
+    for (const [claim, replacement] of UNSUPPORTED_PLAN_CLAIM_REPLACEMENTS) {
+      if (source.includes(claim) || !text.includes(claim)) continue;
+      adjustmentCount += text.split(claim).length - 1;
+      text = text.split(claim).join(replacement);
+    }
+    return text.replace(/\s{2,}/g, ' ').trim();
+  }));
+  return { rows: sanitizedRows, adjustmentCount };
 };
 
 const callArkPlanRows = async (assessment, diagnosis) => {
@@ -1695,8 +1727,16 @@ const callArkPlanRows = async (assessment, diagnosis) => {
   try {
     const rows = rowsFromModelJson(extractModelJson(call.content));
     if (rows.length < 7) throw new Error(`ark_returned_${rows.length}_plans`);
-    if (hasUnsupportedPlanClaim(rows, assessment)) throw new Error('unsupported_claim');
-    return { rows, meta: normalizeModelMeta(call) };
+    const sanitized = sanitizeUnsupportedPlanClaims(rows, assessment);
+    if (hasUnsupportedPlanClaim(sanitized.rows, assessment)) throw new Error('unsupported_claim');
+    return {
+      rows: sanitized.rows,
+      meta: normalizeModelMeta({
+        ...call,
+        content_safety_adjusted: sanitized.adjustmentCount > 0,
+        safety_adjustment_count: sanitized.adjustmentCount,
+      }),
+    };
   } catch (error) {
     return {
       rows: null,
@@ -3469,6 +3509,7 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
       job_id_hash: meteringHash('job', stableId),
       delivered: true,
       fallback: Boolean(meta.fallback),
+      content_safety_adjusted: Boolean(meta.content_safety_adjusted),
       created_at: nowIso(),
     });
   }
@@ -3478,6 +3519,8 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
     requested_model: meta.requested_model,
     paid_attempt: providerAttemptWasPaid(meta),
     fallback: Boolean(meta.fallback),
+    content_safety_adjusted: Boolean(meta.content_safety_adjusted),
+    safety_adjustment_count: Number(meta.safety_adjustment_count || 0),
     reason_code: meta.fallback_reason || error || '',
     created_at: nowIso(),
   });
