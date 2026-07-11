@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.88';
-const VERSION_LABEL = 'v1.6.88 · 客户内页收尾清理版';
+const APP_VERSION = '1.6.89';
+const VERSION_LABEL = 'v1.6.89 · 成本保护与漏斗埋点版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -10,6 +10,7 @@ const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const CUSTOMER_ANALYTICS_SESSION_KEY = 'enterpriseMarketingAnalyticsSession.v1';
 const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken';
 const INTERNAL_CLIENT_ID = 'internal';
 const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -203,6 +204,8 @@ const api = async (url, opts={}) => {
     if(!res.ok) {
       const error = new Error(data.error || '请求失败');
       error.status = res.status;
+      error.code = data.code || '';
+      error.retry_after_seconds = Number(data.retry_after_seconds || 0);
       if (res.status === 401 && isInternalProfile()) handleInternalUnauthorized();
       throw error;
     }
@@ -213,6 +216,45 @@ const api = async (url, opts={}) => {
   } finally {
     window.clearTimeout(timer);
   }
+};
+const newCustomerEventId = (prefix = 'event') => {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return `${prefix}-${uuid || Date.now().toString(36)}`;
+};
+const customerAnalyticsSessionId = () => {
+  try {
+    let value = String(window.sessionStorage?.getItem(CUSTOMER_ANALYTICS_SESSION_KEY) || '').trim();
+    if (!value) {
+      value = newCustomerEventId('session');
+      window.sessionStorage?.setItem(CUSTOMER_ANALYTICS_SESSION_KEY, value);
+    }
+    return value;
+  } catch {
+    return newCustomerEventId('session');
+  }
+};
+const customerTrackingEventId = (event = '', suffix = '') => `${customerAnalyticsSessionId()}-${event}${suffix ? `-${String(suffix).replace(/[^a-z0-9._-]+/gi, '-').slice(0, 48)}` : ''}`;
+const trackCustomerEvent = (event, properties = {}, eventId = '') => {
+  if (isInternalDataScope()) return;
+  const clientId = customerClientId();
+  api('/api/track', {
+    method: 'POST',
+    timeoutMs: 5000,
+    body: JSON.stringify({
+      event,
+      event_id: eventId || customerTrackingEventId(event),
+      client_id: clientId,
+      properties,
+    }),
+  }).catch(() => {});
+};
+const trackCustomerEventOnce = (event, properties = {}) => {
+  const key = `${CUSTOMER_ANALYTICS_SESSION_KEY}.${event}`;
+  try {
+    if (window.sessionStorage?.getItem(key)) return;
+    window.sessionStorage?.setItem(key, '1');
+  } catch {}
+  trackCustomerEvent(event, properties, customerTrackingEventId(event));
 };
 const toast = (msg) => { const el=$('#toast'); el.textContent=sanitizeCustomerText(msg); el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2400); };
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
@@ -1607,6 +1649,7 @@ function customerPickShort(text, fallback){
 
 function customerFriendlyError(error){
   const raw = String(error?.message || '');
+  if (error?.status === 429 || error?.code === 'rate_limited') return '生成太频繁，稍等片刻再试。';
   if (raw.includes('缺少必填字段')) return '刚刚生成失败了，请检查必填信息是否填写完整。';
   if (raw.includes('生成时间过长') || raw.includes('timeout')) return '生成时间过长，请稍后重试；如果仍失败，请先检查网络后再提交。';
   return '刚刚生成失败了，请稍后再试一次，或检查信息是否填写完整。';
@@ -1837,10 +1880,12 @@ async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton
   await withBusy(triggerButton, ['正在分析业务...', '正在生成选题...', '正在适配平台...'], async () => {
     try {
       const clientId = normalizeClientId(scopedPayload.client_id || scopedPayload.customer_key || customerClientId());
+      const requestId = newCustomerEventId('plan');
+      trackCustomerEvent('generation_submitted', {source:'customer_public', route:'plan-jobs'}, requestId);
       const submitted = await api('/api/plan-jobs', {
         method:'POST',
         timeoutMs: 10000,
-        body: JSON.stringify({ ...scopedPayload, client_id: clientId, customer_key: scopedPayload.customer_key || clientId }),
+        body: JSON.stringify({ ...scopedPayload, client_id: clientId, customer_key: scopedPayload.customer_key || clientId, request_id: requestId }),
       });
       const result = await pollCustomerPlanJob(submitted, clientId);
       const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
@@ -2925,9 +2970,11 @@ function renderCustomerNextAdvice(saved = {}){
 }
 
 async function requestCustomerDailyAdvice(saved = {}, record = {}){
+  const requestId = customerTrackingEventId('advice', customerRecordKey(record) || record.created_at || record.content_plan_id || 'record');
   return api('/api/customer-growth-advice', {
     method:'POST',
     body: JSON.stringify({
+      request_id: requestId,
       client_id: customerClientId(),
       assessment: saved.assessment || clientState.assessment || {},
       diagnosis: saved.diagnosis || clientState.diagnosis || {},
@@ -2979,6 +3026,7 @@ function activateCustomerNextRound(){
     updated_at: localTimestamp(),
   };
   saveCustomerTrialState(nextState);
+  trackCustomerEvent('next_round_entered', {source:'customer_public', round_number:roundNumber + 1}, `next-round-${roundNumber + 1}-${customerRecordKey(latest)}`);
   scheduleCustomerTrialCloudSync(nextState);
   if (clientState?.plans) {
     clientState.plans = nextPlans;
@@ -3285,6 +3333,7 @@ async function copyCustomerSuggestion(){
 }
 
 function initCustomerTrial(){
+  trackCustomerEventOnce('home_view', {source:'customer_public'});
   initCustomerChoices('[data-customer-platforms]', 'current_channels');
   initCustomerChoices('[data-customer-content-mode]', 'content_mode');
   initCustomerChoices('[data-customer-problems]', 'biggest_problem');
@@ -3325,6 +3374,9 @@ function initCustomerTrial(){
   $('#customerRegenerateBtn')?.addEventListener('click', editCustomerAssessment);
   $('#customerAssessmentForm')?.addEventListener('input', hideStaleCustomerResultIfNeeded);
   $('#customerAssessmentForm')?.addEventListener('change', hideStaleCustomerResultIfNeeded);
+  $('#customerAssessmentForm')?.addEventListener('focusin', () => {
+    trackCustomerEventOnce('intake_started', {source:'customer_public'});
+  }, {once:true});
   document.querySelectorAll('a[href="#customerFormCard"]').forEach((link)=>{
     link.addEventListener('click', (e) => {
       e.preventDefault();
@@ -3466,6 +3518,7 @@ function initCustomerTrial(){
       nextState = {...nextState, records: [record, ...records], updated_at: localTimestamp()};
     }
     saveCustomerTrialState(nextState);
+    trackCustomerEvent('effect_recorded', {source:'customer_public', round_number:customerActiveRound(nextState)}, `effect-${customerRecordKey(record)}`);
     if (clientState.plans?.length) {
       const livePlan = clientState.plans.find((plan)=>samePlanId(planIdValue(plan), selectedPlanId)) || selectedPlan;
       const feedback = {

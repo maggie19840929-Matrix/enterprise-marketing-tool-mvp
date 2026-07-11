@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
 let state;
 let memoryCloudState = null;
@@ -6,9 +6,10 @@ const memoryCloudStates = new Map();
 const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
+const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.88';
-const VERSION_LABEL = 'v1.6.88 · 客户内页收尾清理版';
+const APP_VERSION = '1.6.89';
+const VERSION_LABEL = 'v1.6.89 · 成本保护与漏斗埋点版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -127,6 +128,22 @@ const openaiApiKey = () => envValue('OPENAI_API_KEY');
 const anthropicApiKey = () => envValue('ANTHROPIC_API_KEY');
 const glmApiKey = () => envValue('GLM_API_KEY');
 const paidGenerationSafeToRun = () => ['1', 'true', 'yes', 'SAFE_TO_RUN'].includes(String(process.env.SAFE_TO_RUN || '').trim());
+const envFlag = (key, fallback = false) => {
+  const value = String(process.env[key] ?? '').trim().toLowerCase();
+  if (!value) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value);
+};
+const envInteger = (key, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) => {
+  const parsed = Number.parseInt(String(process.env[key] ?? ''), 10);
+  const value = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(max, Math.max(min, value));
+};
+const rateLimitEnforced = () => envFlag('RATE_LIMIT_ENFORCE', false);
+const generationRateWindowSeconds = () => envInteger('GENERATION_RATE_WINDOW_SECONDS', 60, { min: 10, max: 3600 });
+const generationRateClientMax = () => envInteger('GENERATION_RATE_CLIENT_MAX', 3, { min: 1, max: 1000 });
+const generationRateIpMax = () => envInteger('GENERATION_RATE_IP_MAX', 10, { min: 1, max: 5000 });
+const generationDailyClientMax = () => envInteger('GENERATION_DAILY_CLIENT_MAX', 30, { min: 1, max: 10000 });
+const trackingEnabled = () => envFlag('TRACKING_ENABLED', true);
 const arkModel = (override = '') => String(override || envValue('ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL')).trim();
 const arkPlanModel = () => String(envValue('ARK_PLAN_MODEL') || arkModel()).trim();
 const arkChatCompletionsUrl = () => {
@@ -206,6 +223,11 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = MODEL_TIMEOUT_MS)
 const callArkChatCompletion = async ({ messages = [], temperature = 0.7, maxTokens = 2200, purpose = 'generation', route = '/api/assessments', model = '', timeoutMs = MODEL_TIMEOUT_MS, responseFormat = null, thinking = null } = {}) => {
   const requestedModel = arkModel(model);
   const started = Date.now();
+  if (!paidGenerationSafeToRun()) {
+    const meta = modelFailureMeta({ requestedModel, fallbackReason: 'safe_to_run_disabled' });
+    logModelCall({ route, purpose, meta });
+    return { ok: false, ...meta, content: '' };
+  }
   if (!arkApiKey()) {
     const meta = modelFailureMeta({ requestedModel, fallbackReason: 'missing_ark_api_key' });
     logModelCall({ route, purpose, meta });
@@ -1688,10 +1710,13 @@ const callArkPlanRows = async (assessment, diagnosis) => {
 
 const generateOpusPlanRows = async (assessment, diagnosis) => {
   const provider = modelProviderFor(assessment, 'volcengine_ark');
-  if (provider === 'volcengine_ark') return callArkPlanRows(assessment, diagnosis);
   if (provider === 'local') {
     return { rows: null, meta: { requested_model: 'rule_template', actual_model: 'rule_template', provider: 'local', fallback: false, fallback_reason: null, failure_reason: '', latency_ms: 0 } };
   }
+  if (!paidGenerationSafeToRun()) {
+    return { rows: null, meta: modelFailureMeta({ requestedModel: provider === 'volcengine_ark' ? arkPlanModel() : REQUESTED_CONTENT_MODEL, fallbackReason: 'safe_to_run_disabled' }) };
+  }
+  if (provider === 'volcengine_ark') return callArkPlanRows(assessment, diagnosis);
   if (!REQUESTED_CONTENT_MODEL.includes('claude') && !REQUESTED_CONTENT_MODEL.includes('opus')) {
     return { rows: null, meta: { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: false, failure_reason: '' } };
   }
@@ -2201,6 +2226,7 @@ const parseModelJson = (text = '') => {
 
 const callCustomerStrategyModel = async (ctx) => {
   const meta = { requested_model: CUSTOMER_STRATEGY_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: '' };
+  if (!paidGenerationSafeToRun()) return { data: null, meta: { ...meta, fallback_reason: 'safe_to_run_disabled', failure_reason: 'safe_to_run_disabled' } };
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { data: null, meta: { ...meta, failure_reason: 'OPENAI_API_KEY missing' } };
   try {
@@ -2227,6 +2253,7 @@ const callCustomerStrategyModel = async (ctx) => {
 
 const callCustomerCopyModel = async (ctx, strategy = {}) => {
   const meta = { requested_model: CUSTOMER_COPY_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: '' };
+  if (!paidGenerationSafeToRun()) return { data: null, meta: { ...meta, fallback_reason: 'safe_to_run_disabled', failure_reason: 'safe_to_run_disabled' } };
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { data: null, meta: { ...meta, failure_reason: 'ANTHROPIC_API_KEY missing' } };
   try {
@@ -3233,6 +3260,326 @@ const upsertCollectionItem = async (kind, clientId, item, idField, currentState 
   return writeCloudCollection(kind, clientId, items);
 };
 
+const COMMERCIAL_METERING_PREFIX = 'metering/v1';
+const COMMERCIAL_ANALYTICS_PREFIX = 'analytics/v1';
+const FUNNEL_EVENTS = new Set([
+  'home_view',
+  'intake_started',
+  'generation_submitted',
+  'generation_result',
+  'effect_recorded',
+  'next_round_entered',
+]);
+const FUNNEL_PROPERTY_KEYS = new Set([
+  'source',
+  'route',
+  'outcome',
+  'fallback',
+  'reason_code',
+  'round_number',
+  'would_rate_limit',
+  'rate_scope',
+]);
+const meteringHashSecret = () => envValue('METERING_HASH_SECRET', 'INTERNAL_ACCESS_TOKEN') || 'local-development-metering-secret';
+const meteringHash = (scope = '', value = '') => createHmac('sha256', meteringHashSecret())
+  .update(`${scope}:${String(value || '')}`)
+  .digest('hex')
+  .slice(0, 32);
+const normalizeEventId = (value = '') => {
+  const normalized = String(value || '').trim().replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 96);
+  return normalized.length >= 8 ? normalized : `evt-${randomUUID()}`;
+};
+const requestIpValue = (request = null) => {
+  const direct = String(request?.headers?.get('x-nf-client-connection-ip') || '').trim();
+  const forwarded = String(request?.headers?.get('x-forwarded-for') || '').split(',')[0].trim();
+  return (direct || forwarded || 'unknown').slice(0, 128);
+};
+const commercialBlobGet = async (key = '') => {
+  const store = await cloudStore();
+  if (store) {
+    const data = await store.get(key, { type: 'json' }).catch(() => null);
+    if (data) return data;
+  }
+  return memoryCommercialEvents.get(key) || null;
+};
+const commercialBlobSet = async (key = '', value = {}) => {
+  const store = await cloudStore();
+  if (store) {
+    await store.setJSON(key, value);
+    return { ...value, storage: 'netlify-blobs' };
+  }
+  memoryCommercialEvents.set(key, value);
+  return { ...value, storage: 'memory-fallback' };
+};
+const commercialBlobKeys = async (prefix = '') => {
+  const keys = new Set();
+  const store = await cloudStore();
+  if (store?.list) {
+    let cursor = undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const result = await store.list({ prefix, ...(cursor ? { cursor } : {}) }).catch(() => null);
+      const blobs = Array.isArray(result?.blobs) ? result.blobs : (Array.isArray(result) ? result : []);
+      blobs.forEach((blob) => {
+        const key = typeof blob === 'string' ? blob : blob?.key;
+        if (key?.startsWith(prefix)) keys.add(key);
+      });
+      cursor = result?.cursor || result?.nextCursor || '';
+      if (!cursor) break;
+    }
+  }
+  for (const key of memoryCommercialEvents.keys()) if (key.startsWith(prefix)) keys.add(key);
+  return [...keys];
+};
+const safeTrackingString = (value = '') => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9._,-]+/g, '')
+  .slice(0, 80);
+const safeFunnelProperties = (properties = {}) => Object.fromEntries(
+  Object.entries(properties || {})
+    .filter(([key]) => FUNNEL_PROPERTY_KEYS.has(key))
+    .map(([key, value]) => {
+      if (typeof value === 'boolean') return [key, value];
+      if (typeof value === 'number' && Number.isFinite(value)) return [key, value];
+      return [key, safeTrackingString(value)];
+    })
+);
+const writeFunnelEvent = async ({ event = '', clientId = '', eventId = '', properties = {} } = {}) => {
+  if (!trackingEnabled()) return { accepted: false, reason: 'tracking_disabled' };
+  if (!FUNNEL_EVENTS.has(event)) throw new Error('unsupported_tracking_event');
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId) throw new Error('tracking_requires_client_id');
+  const occurredAt = nowIso();
+  const date = shanghaiDateIso();
+  const normalizedId = normalizeEventId(eventId);
+  const clientHash = meteringHash('client', safeClientId);
+  const eventHash = meteringHash('event', `${safeClientId}:${event}:${normalizedId}`);
+  const key = `${COMMERCIAL_ANALYTICS_PREFIX}/${date}/${event}/${clientHash}/${eventHash}`;
+  const record = {
+    event,
+    occurred_at: occurredAt,
+    client_hash: clientHash,
+    event_id_hash: eventHash,
+    properties: safeFunnelProperties(properties),
+  };
+  await commercialBlobSet(key, record);
+  return { accepted: true, event, event_id: normalizedId };
+};
+const rateEventTimestamp = (key = '') => Number(String(key).split('/').pop()?.split('-')[0] || 0);
+const countRateEvents = async (prefix = '', sinceMs = 0) => {
+  const keys = await commercialBlobKeys(prefix);
+  return keys.filter((key) => rateEventTimestamp(key) >= sinceMs).length;
+};
+const generationRequestId = (payload = {}) => normalizeEventId(payload.request_id || payload.idempotency_key || '');
+const reservationKeyFor = (clientHash = '', requestId = '') => `${COMMERCIAL_METERING_PREFIX}/reservations/${clientHash}/${meteringHash('request', requestId)}`;
+const reserveGenerationRequest = async ({ request = null, clientId = '', requestId = '', route = 'plan-jobs' } = {}) => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId) throw new Error('generation_requires_client_id');
+  const normalizedRequestId = normalizeEventId(requestId);
+  const clientHash = meteringHash('client', safeClientId);
+  const ipHash = meteringHash('ip', requestIpValue(request));
+  const reservationKey = reservationKeyFor(clientHash, normalizedRequestId);
+  const existing = await commercialBlobGet(reservationKey);
+  if (existing) return { ...existing, duplicate: true, reservation_key: reservationKey };
+
+  const nowMs = Date.now();
+  const date = shanghaiDateIso();
+  const requestHash = meteringHash('request', normalizedRequestId);
+  const base = {
+    reservation_id: requestHash,
+    request_id: normalizedRequestId,
+    client_hash: clientHash,
+    ip_hash: ipHash,
+    route,
+    status: 'reserved',
+    created_at: nowIso(),
+    created_at_ms: nowMs,
+  };
+  await commercialBlobSet(reservationKey, base);
+  const clientPrefix = `${COMMERCIAL_METERING_PREFIX}/rate/client/${clientHash}/${date}/`;
+  const ipPrefix = `${COMMERCIAL_METERING_PREFIX}/rate/ip/${ipHash}/${date}/`;
+  const rateSuffix = `${nowMs}-${requestHash}`;
+  await Promise.all([
+    commercialBlobSet(`${clientPrefix}${rateSuffix}`, { reservation_id: requestHash, created_at_ms: nowMs }),
+    commercialBlobSet(`${ipPrefix}${rateSuffix}`, { reservation_id: requestHash, created_at_ms: nowMs }),
+  ]);
+  const windowStart = nowMs - generationRateWindowSeconds() * 1000;
+  const [clientWindowCount, ipWindowCount, clientDailyCount] = await Promise.all([
+    countRateEvents(clientPrefix, windowStart),
+    countRateEvents(ipPrefix, windowStart),
+    countRateEvents(clientPrefix, 0),
+  ]);
+  const scopes = [];
+  if (clientWindowCount > generationRateClientMax()) scopes.push('client_window');
+  if (ipWindowCount > generationRateIpMax()) scopes.push('ip_window');
+  if (clientDailyCount > generationDailyClientMax()) scopes.push('client_daily');
+  const wouldRateLimit = scopes.length > 0;
+  const decision = {
+    ...base,
+    status: wouldRateLimit && rateLimitEnforced() ? 'rate_limited' : 'accepted',
+    duplicate: false,
+    would_rate_limit: wouldRateLimit,
+    rate_limit_enforced: rateLimitEnforced(),
+    rate_scope: scopes.join(','),
+    retry_after_seconds: scopes.includes('client_daily') ? 86400 : generationRateWindowSeconds(),
+    counts: { client_window: clientWindowCount, ip_window: ipWindowCount, client_daily: clientDailyCount },
+    limits: { client_window: generationRateClientMax(), ip_window: generationRateIpMax(), client_daily: generationDailyClientMax() },
+    reservation_key: reservationKey,
+  };
+  await commercialBlobSet(reservationKey, decision);
+  await writeFunnelEvent({
+    event: 'generation_submitted',
+    clientId: safeClientId,
+    eventId: normalizedRequestId,
+    properties: { route, would_rate_limit: wouldRateLimit, rate_scope: decision.rate_scope },
+  });
+  if (wouldRateLimit) {
+    console.log(JSON.stringify({
+      event: rateLimitEnforced() ? 'rate_limit_enforced' : 'rate_limit_shadow',
+      route,
+      client_hash: clientHash.slice(0, 12),
+      ip_hash: ipHash.slice(0, 12),
+      rate_scope: decision.rate_scope,
+    }));
+  }
+  return decision;
+};
+const linkGenerationReservation = async (reservation = {}, jobId = '') => {
+  if (!reservation.reservation_key) return reservation;
+  const linked = { ...reservation, job_id: jobId || reservation.job_id || '', updated_at: nowIso() };
+  await commercialBlobSet(reservation.reservation_key, linked);
+  return linked;
+};
+const providerAttemptWasPaid = (meta = {}) => {
+  const normalized = normalizeModelMeta(meta);
+  const reason = String(normalized.fallback_reason || '');
+  if (!normalized.requested_model || normalized.requested_model === 'rule_template') return false;
+  return !['missing_ark_api_key', 'missing_ark_model', 'safe_to_run_disabled', 'client_poll_timeout'].includes(reason);
+};
+const completeGenerationMetering = async ({ reservation = {}, clientId = '', jobId = '', result = null, outcome = 'completed', error = '' } = {}) => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId) return;
+  const clientHash = reservation.client_hash || meteringHash('client', safeClientId);
+  const date = shanghaiDateIso();
+  const stableId = String(jobId || reservation.request_id || randomUUID());
+  const meta = normalizeModelMeta(result?.generation_meta || result?.model_info || {});
+  if (outcome === 'completed') {
+    await commercialBlobSet(`${COMMERCIAL_METERING_PREFIX}/product/${clientHash}/${date}/${meteringHash('product', stableId)}`, {
+      job_id_hash: meteringHash('job', stableId),
+      delivered: true,
+      fallback: Boolean(meta.fallback),
+      created_at: nowIso(),
+    });
+  }
+  await commercialBlobSet(`${COMMERCIAL_METERING_PREFIX}/provider/${clientHash}/${date}/${meteringHash('provider', `${stableId}:${reservation.attempt || 1}`)}`, {
+    job_id_hash: meteringHash('job', stableId),
+    provider: meta.provider,
+    requested_model: meta.requested_model,
+    paid_attempt: providerAttemptWasPaid(meta),
+    fallback: Boolean(meta.fallback),
+    reason_code: meta.fallback_reason || error || '',
+    created_at: nowIso(),
+  });
+  if (reservation.reservation_key) {
+    await commercialBlobSet(reservation.reservation_key, {
+      ...reservation,
+      status: outcome,
+      job_id: jobId || reservation.job_id || '',
+      fallback: Boolean(meta.fallback),
+      reason_code: meta.fallback_reason || error || '',
+      completed_at: nowIso(),
+    });
+  }
+  await writeFunnelEvent({
+    event: 'generation_result',
+    clientId: safeClientId,
+    eventId: reservation.request_id || stableId,
+    properties: {
+      route: reservation.route || 'plan-jobs',
+      outcome,
+      fallback: Boolean(meta.fallback),
+      reason_code: meta.fallback_reason || error || '',
+      would_rate_limit: Boolean(reservation.would_rate_limit),
+      rate_scope: reservation.rate_scope || '',
+    },
+  });
+};
+const recordInternalProviderUsage = async ({ task = {}, submitted = {} } = {}) => {
+  const clientId = normalizeClientId(task.client_id) || INTERNAL_CLIENT_ID;
+  const clientHash = meteringHash('client', clientId);
+  const date = shanghaiDateIso();
+  const meta = normalizeModelMeta({
+    provider: submitted.provider || task.provider,
+    requested_model: task.requested_model,
+    actual_model: submitted.actual_model || task.actual_model || 'rule_template',
+    fallback: Boolean(submitted.fallback || !submitted.ok),
+    fallback_reason: submitted.fallback_reason || submitted.error || null,
+  });
+  await commercialBlobSet(`${COMMERCIAL_METERING_PREFIX}/provider/${clientHash}/${date}/${meteringHash('internal-task', task.task_id || randomUUID())}`, {
+    task_id_hash: meteringHash('task', task.task_id || ''),
+    provider: meta.provider,
+    requested_model: meta.requested_model,
+    paid_attempt: providerAttemptWasPaid(meta),
+    fallback: Boolean(meta.fallback),
+    reason_code: meta.fallback_reason || '',
+    source: 'internal_generation_task',
+    created_at: nowIso(),
+  });
+};
+const funnelSummary = async ({ from = '', to = '' } = {}) => {
+  const keys = await commercialBlobKeys(`${COMMERCIAL_ANALYTICS_PREFIX}/`);
+  const selected = keys.filter((key) => {
+    const date = key.split('/')[2] || '';
+    return (!from || date >= from) && (!to || date <= to);
+  }).slice(0, 5000);
+  const records = (await Promise.all(selected.map((key) => commercialBlobGet(key)))).filter(Boolean);
+  const counts = Object.fromEntries([...FUNNEL_EVENTS].map((event) => [event, 0]));
+  const generationOutcomes = {};
+  let rateLimitShadowHits = 0;
+  records.forEach((record) => {
+    if (FUNNEL_EVENTS.has(record.event)) counts[record.event] += 1;
+    if (record.event === 'generation_result') {
+      const outcome = record.properties?.outcome || 'unknown';
+      generationOutcomes[outcome] = Number(generationOutcomes[outcome] || 0) + 1;
+    }
+    if (record.event === 'generation_submitted' && record.properties?.would_rate_limit) rateLimitShadowHits += 1;
+  });
+  const inRange = (key) => {
+    const date = key.split('/')[4] || '';
+    return (!from || date >= from) && (!to || date <= to);
+  };
+  const [productKeys, providerKeys] = await Promise.all([
+    commercialBlobKeys(`${COMMERCIAL_METERING_PREFIX}/product/`),
+    commercialBlobKeys(`${COMMERCIAL_METERING_PREFIX}/provider/`),
+  ]);
+  const selectedProviderKeys = providerKeys.filter(inRange).slice(0, 5000);
+  const providerRecords = (await Promise.all(selectedProviderKeys.map((key) => commercialBlobGet(key)))).filter(Boolean);
+  return {
+    readonly: true,
+    from: from || null,
+    to: to || null,
+    counts,
+    generation_outcomes: generationOutcomes,
+    rate_limit_shadow_hits: rateLimitShadowHits,
+    metering: {
+      product_usage: productKeys.filter(inRange).length,
+      provider_attempts: providerRecords.length,
+      paid_provider_attempts: providerRecords.filter((record) => record.paid_attempt).length,
+    },
+  };
+};
+const rateLimitedResponse = (decision = {}) => new Response(JSON.stringify({
+  error: '生成太频繁，稍等片刻再试',
+  code: 'rate_limited',
+  retry_after_seconds: Number(decision.retry_after_seconds || generationRateWindowSeconds()),
+}, null, 2), {
+  status: 429,
+  headers: {
+    'content-type': 'application/json; charset=utf-8',
+    'retry-after': String(Number(decision.retry_after_seconds || generationRateWindowSeconds())),
+  },
+});
+
 const assetHashBuffer = (payload = {}) => {
   if (payload.file_content_base64 || payload.content_base64) {
     return Buffer.from(String(payload.file_content_base64 || payload.content_base64), 'base64');
@@ -3538,6 +3885,7 @@ const pollSeedanceVideo = async ({ task, provider_job_id }) => {
 const submitOpenAIImage = async ({ task }) => {
   const output = { storage_url: `mock://openai-image/${task.task_id}.png`, mime_type: 'image/png', resolution: task.output_spec?.size || '1024x1024', summary: `OpenAI image mock: ${task.prompt || task.content_type}` };
   if (!openaiApiKey()) return mockAdapterResult({ task, provider: 'openai-image', reason: 'MOCK_KEY_MISSING', output });
+  if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'openai-image', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const base = String(OPENAI_BASE_URL || '').replace(/\/+$/, '');
   const model = task.requested_model && !/^GPT-Image/i.test(task.requested_model) ? task.requested_model : OPENAI_IMAGE_MODEL;
   const data = await jsonFetch(`${base}/images/generations`, {
@@ -3561,6 +3909,7 @@ const submitOpenAIImage = async ({ task }) => {
 const submitClaudeTextSingle = async ({ task }) => {
   const output = { storage_url: `mock://claude-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Claude mock：${task.prompt || '按内容计划生成素材'}` };
   if (!anthropicApiKey()) return mockAdapterResult({ task, provider: 'claude-text', reason: 'MOCK_KEY_MISSING', output });
+  if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'claude-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const data = await jsonFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -3585,6 +3934,7 @@ const submitClaudeTextSingle = async ({ task }) => {
 const submitGlmTextSingle = async ({ task }) => {
   const output = { storage_url: `mock://glm-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `GLM mock：${task.prompt || '按内容计划生成素材'}` };
   if (!glmApiKey()) return mockAdapterResult({ task, provider: 'glm-text', reason: 'MOCK_KEY_MISSING', output });
+  if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'glm-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const base = String(GLM_BASE_URL || '').replace(/\/+$/, '');
   const data = await jsonFetch(`${base}/chat/completions`, {
     method: 'POST',
@@ -3690,6 +4040,7 @@ const submitGenerationTask = async (clientId, taskId) => {
   } catch (error) {
     submitted = { ok: false, provider: adapter.name, actual_model: 'rule_template', fallback_reason: error.message || 'adapter_failed', error: error.message || 'adapter_failed' };
   }
+  await recordInternalProviderUsage({ task, submitted });
   if (!submitted.ok) {
     const status = /auth|key|credential/i.test(submitted.fallback_reason || submitted.error || '') ? 'blocked_model_auth' : 'failed';
     task = withStatus({
@@ -3902,18 +4253,34 @@ const planJobClientIdFrom = (payload = {}, url = null, request = null) => normal
   || ''
 );
 
-const createPlanJob = async (payload = {}) => {
+const createPlanJob = async (payload = {}, reservation = {}) => {
   const client_id = planJobClientIdFrom(payload);
   if (!client_id) throw new Error('创建计划任务需要有效 client_id');
   const createdAt = nowIso();
   const existing = await readCloudCollection('plan-jobs', client_id);
+  const requestId = generationRequestId(payload);
+  const existingJob = ensureArray(existing.jobs).find((item) => String(item.request_id || '') === requestId);
+  if (existingJob) return existingJob;
   const generationVariant = PLAN_VARIATION_DIRECTIONS[ensureArray(existing.jobs).length % PLAN_VARIATION_DIRECTIONS.length];
+  const assessmentPayload = { ...modelPayloadForRequest(payload, false), client_id };
+  delete assessmentPayload.request_id;
+  delete assessmentPayload.idempotency_key;
   const job = {
-    job_id: makeId('planjob'),
+    job_id: `planjob_${sha256Hex(`${client_id}:${requestId}`).slice(0, 24)}`,
+    request_id: requestId,
     client_id,
     status: 'pending',
-    assessment_payload: sanitizeCustomerPayload({ ...modelPayloadForRequest(payload, false), client_id }),
+    assessment_payload: sanitizeCustomerPayload(assessmentPayload),
     generation_variant: generationVariant,
+    rate_limit_shadow: Boolean(reservation.would_rate_limit && !reservation.rate_limit_enforced),
+    metering_reservation: {
+      reservation_key: reservation.reservation_key || '',
+      request_id: reservation.request_id || requestId,
+      client_hash: reservation.client_hash || '',
+      route: reservation.route || 'plan-jobs',
+      would_rate_limit: Boolean(reservation.would_rate_limit),
+      rate_scope: reservation.rate_scope || '',
+    },
     attempts: 0,
     result: null,
     error: '',
@@ -3960,21 +4327,37 @@ const processPlanJob = async (clientId = '', jobId = '') => {
     const result = await generateAssessmentResult({ payload: job.assessment_payload, clientId: job.client_id, generationVariant: job.generation_variant || job.job_id });
     const latest = await getPlanJob(clientId, jobId);
     if (latest?.status === 'completed') return latest;
-    return savePlanJob({
+    const completed = await savePlanJob({
       ...job,
       status: 'completed',
       result,
       completed_at: nowIso(),
       updated_at: nowIso(),
     });
+    await completeGenerationMetering({
+      reservation: { ...(job.metering_reservation || {}), attempt: job.attempts },
+      clientId: job.client_id,
+      jobId: job.job_id,
+      result,
+      outcome: 'completed',
+    });
+    return completed;
   } catch (error) {
-    return savePlanJob({
+    const failed = await savePlanJob({
       ...job,
       status: 'failed',
       error: error?.message || 'plan_job_failed',
       completed_at: nowIso(),
       updated_at: nowIso(),
     });
+    await completeGenerationMetering({
+      reservation: { ...(job.metering_reservation || {}), attempt: job.attempts },
+      clientId: job.client_id,
+      jobId: job.job_id,
+      outcome: 'failed',
+      error: error?.message || 'plan_job_failed',
+    });
+    return failed;
   }
 };
 
@@ -3989,7 +4372,7 @@ const forcePlanJobFallback = async (clientId = '', jobId = '') => {
       fallbackReason: 'client_poll_timeout',
       generationVariant: job.generation_variant || job.job_id,
     });
-    return savePlanJob({
+    const completed = await savePlanJob({
       ...job,
       status: 'completed',
       result,
@@ -3998,8 +4381,24 @@ const forcePlanJobFallback = async (clientId = '', jobId = '') => {
       forced_fallback: true,
       error: '',
     });
+    await completeGenerationMetering({
+      reservation: { ...(job.metering_reservation || {}), attempt: Number(job.attempts || 0) + 1 },
+      clientId: job.client_id,
+      jobId: job.job_id,
+      result,
+      outcome: 'completed',
+    });
+    return completed;
   } catch (error) {
-    return savePlanJob({ ...job, status: 'failed', error: error?.message || 'plan_job_fallback_failed', updated_at: nowIso() });
+    const failed = await savePlanJob({ ...job, status: 'failed', error: error?.message || 'plan_job_fallback_failed', updated_at: nowIso() });
+    await completeGenerationMetering({
+      reservation: { ...(job.metering_reservation || {}), attempt: Number(job.attempts || 0) + 1 },
+      clientId: job.client_id,
+      jobId: job.job_id,
+      outcome: 'failed',
+      error: error?.message || 'plan_job_fallback_failed',
+    });
+    return failed;
   }
 };
 
@@ -4040,7 +4439,7 @@ export default async (request, context = {}) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling', 'customer_plan_jobs'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking'],
       });
       if (path === '/customers') {
         if (!internalAuthorized) return unauthorized();
@@ -4052,6 +4451,13 @@ export default async (request, context = {}) => {
           clientIds: url.searchParams.get('client_ids') || '',
           displayName: url.searchParams.get('display_name') || url.searchParams.get('customer_name') || '',
           canonicalClientId: url.searchParams.get('canonical_client_id') || '',
+        }), 200, { internal: true });
+      }
+      if (path === '/analytics/funnel') {
+        if (!internalAuthorized) return unauthorized();
+        return json(await funnelSummary({
+          from: String(url.searchParams.get('from') || '').slice(0, 10),
+          to: String(url.searchParams.get('to') || '').slice(0, 10),
         }), 200, { internal: true });
       }
       if (path === '/state') {
@@ -4090,7 +4496,10 @@ export default async (request, context = {}) => {
         if (!internalAuthorized) return unauthorized();
         return json(dashboard(), 200, { internal: true });
       }
-      if (path === '/assessments') return json(state.assessments.filter((item) => !item.client_id || item.client_id === requestClientId));
+      if (path === '/assessments') {
+        if (!internalAuthorized) return unauthorized();
+        return json(state.assessments.filter((item) => !item.client_id || item.client_id === requestClientId), 200, { internal: true });
+      }
       if (path === '/diagnoses') {
         if (!internalAuthorized) return unauthorized();
         return json(state.diagnoses.filter((item) => !item.client_id || item.client_id === requestClientId), 200, { internal: true });
@@ -4112,12 +4521,31 @@ export default async (request, context = {}) => {
     if (request.method === 'POST' && path === '/plan-jobs') {
       const clientId = planJobClientIdFrom(payload, url, request);
       if (!clientId) return json({ error: '创建计划任务需要 client_id' }, 400);
-      const job = await createPlanJob({ ...payload, client_id: clientId });
-      queuePlanJob(context, clientId, job.job_id);
+      if (clientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const requestId = generationRequestId(payload);
+      const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'plan-jobs' });
+      if (reservation.would_rate_limit && reservation.rate_limit_enforced) {
+        await completeGenerationMetering({ reservation, clientId, outcome: 'rate_limited', error: 'rate_limited' });
+        return rateLimitedResponse(reservation);
+      }
+      const job = await createPlanJob({ ...payload, client_id: clientId, request_id: requestId }, reservation);
+      await linkGenerationReservation(reservation, job.job_id);
+      if (!reservation.duplicate) queuePlanJob(context, clientId, job.job_id);
       return json(clientVisiblePlanJob(job), 202);
     }
     if (request.method === 'POST' && path === '/assessments') {
+      if (!internalAuthorized) return unauthorized();
       return json(await generateAssessmentResult({ payload, clientId: payloadClientId, internalAuthorized }), 201, { internal: internalAuthorized });
+    }
+    if (request.method === 'POST' && path === '/track') {
+      if (payloadClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const result = await writeFunnelEvent({
+        event: String(payload.event || ''),
+        clientId: payloadClientId,
+        eventId: payload.event_id || payload.request_id || '',
+        properties: payload.properties || {},
+      });
+      return json({ ok: true, ...result }, 202);
     }
     if (request.method === 'POST' && path === '/state') {
       if (payloadClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
@@ -4148,8 +4576,24 @@ export default async (request, context = {}) => {
       return json(buildFeishuPayload(task), 200, { internal: true });
     }
     if (request.method === 'POST' && path === '/customer-growth-advice') {
-      const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
-      return json(await createCustomerGrowthAdvice(trustedPayload), 200, { internal: internalAuthorized });
+      const clientId = planJobClientIdFrom(payload, url, request);
+      if (!clientId) return json({ error: '生成下一轮建议需要 client_id' }, 400);
+      if (clientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const requestId = generationRequestId(payload);
+      const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'customer-growth-advice' });
+      if (reservation.would_rate_limit && reservation.rate_limit_enforced) {
+        await completeGenerationMetering({ reservation, clientId, outcome: 'rate_limited', error: 'rate_limited' });
+        return rateLimitedResponse(reservation);
+      }
+      try {
+        const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
+        const result = await createCustomerGrowthAdvice(trustedPayload);
+        await completeGenerationMetering({ reservation, clientId, jobId: requestId, result, outcome: 'completed' });
+        return json(result, 200, { internal: internalAuthorized });
+      } catch (error) {
+        await completeGenerationMetering({ reservation, clientId, jobId: requestId, outcome: 'failed', error: error?.message || 'customer_growth_advice_failed' });
+        throw error;
+      }
     }
     if (request.method === 'POST' && path === '/feedback') {
       const plan_id = Number(payload.content_plan_id);

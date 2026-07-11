@@ -1,11 +1,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.88';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.89';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.89-not-production';
+process.env.RATE_LIMIT_ENFORCE = 'false';
+process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
+process.env.GENERATION_RATE_CLIENT_MAX = '100';
+process.env.GENERATION_RATE_IP_MAX = '100';
+process.env.GENERATION_DAILY_CLIENT_MAX = '100';
+process.env.TRACKING_ENABLED = 'true';
 const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
 
 const request = (method, path, body, options = {}) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
@@ -76,7 +83,7 @@ const assertRetailAccessoryPlans = (label, value) => {
   assert(!value.diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), `${label} should not prioritize 美团 as product retail primary platform`);
 };
 
-const submitAssessment = async (body, { internal = false } = {}) => {
+const submitAssessment = async (body, { internal = true } = {}) => {
   const res = await handler((internal ? internalRequest : request)('POST', 'assessments', body));
   if (res.status !== 201) throw new Error(`expected 201, got ${res.status}: ${await res.text()}`);
   return res.json();
@@ -104,7 +111,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.88', `expected app_version 1.6.88, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.89', `expected app_version 1.6.89, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -161,16 +168,125 @@ const noClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encode
 assert(noClientPlanJobResponse.status === 400, `plan job read without client_id should return 400, got ${noClientPlanJobResponse.status}`);
 const planJobListResponse = await handler(request('GET', 'plan-jobs?client_id=plan-job-owner'));
 assert(planJobListResponse.status === 404, `plan jobs must not expose a customer listing endpoint, got ${planJobListResponse.status}`);
+
+const publicFunnelBefore = await handler(request('GET', 'analytics/funnel'));
+assert(publicFunnelBefore.status === 401, 'public clients must not read funnel or metering aggregates');
+const meteringBefore = await (await handler(internalRequest('GET', 'analytics/funnel'))).json();
+process.env.RATE_LIMIT_ENFORCE = 'true';
+process.env.GENERATION_RATE_CLIENT_MAX = '1';
+process.env.GENERATION_RATE_IP_MAX = '100';
+process.env.GENERATION_DAILY_CLIENT_MAX = '1';
+const idempotentPayload = {
+  ...payload,
+  client_id: 'p0-idempotent-client',
+  customer_key: 'p0-idempotent-client',
+  request_id: 'p0-idempotent-request-0001',
+};
+let idempotentJobPromise = null;
+const idempotentFirstResponse = await handler(request('POST', 'plan-jobs', idempotentPayload, {
+  headers: { 'x-nf-client-connection-ip': '198.51.100.21' },
+}), {
+  waitUntil(promise) { idempotentJobPromise = promise; },
+});
+let duplicateJobPromise = null;
+const idempotentRetryResponse = await handler(request('POST', 'plan-jobs', idempotentPayload, {
+  headers: { 'x-nf-client-connection-ip': '198.51.100.21' },
+}), {
+  waitUntil(promise) { duplicateJobPromise = promise; },
+});
+assert(idempotentFirstResponse.status === 202 && idempotentRetryResponse.status === 202, 'same request_id retry should remain accepted under a one-use daily limit');
+const idempotentFirst = await idempotentFirstResponse.json();
+const idempotentRetry = await idempotentRetryResponse.json();
+assert(idempotentFirst.job_id === idempotentRetry.job_id, 'same request_id must resolve to the same deterministic plan job');
+assert(idempotentJobPromise && !duplicateJobPromise, 'idempotent network retry must not queue a second provider task');
+await idempotentJobPromise;
+const meteringAfterIdempotent = await (await handler(internalRequest('GET', 'analytics/funnel'))).json();
+assert(meteringAfterIdempotent.metering.product_usage === meteringBefore.metering.product_usage + 1, 'idempotent retry should record product usage exactly once after delivery');
+
+process.env.RATE_LIMIT_ENFORCE = 'false';
+process.env.GENERATION_RATE_CLIENT_MAX = '100';
+process.env.GENERATION_RATE_IP_MAX = '1';
+process.env.GENERATION_DAILY_CLIENT_MAX = '100';
+let shadowFirstPromise = null;
+const shadowFirstResponse = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'p0-shadow-client-a',
+  customer_key: 'p0-shadow-client-a',
+  request_id: 'p0-shadow-request-0001',
+}, { headers: { 'x-nf-client-connection-ip': '198.51.100.31' } }), {
+  waitUntil(promise) { shadowFirstPromise = promise; },
+});
+let shadowSharedIpPromise = null;
+const shadowSharedIpResponse = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'p0-shadow-client-b',
+  customer_key: 'p0-shadow-client-b',
+  request_id: 'p0-shadow-request-0002',
+}, { headers: { 'x-nf-client-connection-ip': '198.51.100.31' } }), {
+  waitUntil(promise) { shadowSharedIpPromise = promise; },
+});
+assert(shadowFirstResponse.status === 202 && shadowSharedIpResponse.status === 202, 'shadow mode must not block two customers sharing one IP even when the IP threshold is exceeded');
+await Promise.all([shadowFirstPromise, shadowSharedIpPromise]);
+const shadowSummary = await (await handler(internalRequest('GET', 'analytics/funnel'))).json();
+assert(shadowSummary.rate_limit_shadow_hits >= 1, 'shadow limit hit should be visible in the internal funnel summary');
+
+process.env.RATE_LIMIT_ENFORCE = 'true';
+process.env.GENERATION_RATE_CLIENT_MAX = '1';
+process.env.GENERATION_RATE_IP_MAX = '100';
+process.env.GENERATION_DAILY_CLIENT_MAX = '1';
+let enforcedFirstPromise = null;
+const enforcedFirst = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'p0-enforced-client',
+  customer_key: 'p0-enforced-client',
+  request_id: 'p0-enforced-request-0001',
+}, { headers: { 'x-nf-client-connection-ip': '198.51.100.41' } }), {
+  waitUntil(promise) { enforcedFirstPromise = promise; },
+});
+assert(enforcedFirst.status === 202 && enforcedFirstPromise, 'first enforced-mode request should stay within the configured limit');
+const enforcedSecond = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'p0-enforced-client',
+  customer_key: 'p0-enforced-client',
+  request_id: 'p0-enforced-request-0002',
+}, { headers: { 'x-nf-client-connection-ip': '198.51.100.42' } }));
+assert(enforcedSecond.status === 429, `second enforced-mode request should return 429, got ${enforcedSecond.status}`);
+const enforcedBody = await enforcedSecond.json();
+assert(enforcedBody.code === 'rate_limited' && enforcedBody.error === '生成太频繁，稍等片刻再试', 'enforced rate limit should return the approved friendly business message');
+await enforcedFirstPromise;
+
+for (const [event, suffix] of [['home_view', 'home'], ['intake_started', 'intake'], ['effect_recorded', 'effect'], ['next_round_entered', 'next']]) {
+  const tracked = await handler(request('POST', 'track', {
+    client_id: 'p0-funnel-client',
+    event,
+    event_id: `p0-funnel-${suffix}-0001`,
+    properties: { source: 'customer_public', round_number: 1, ignored_business_content: '不应保存客户业务内容' },
+  }));
+  assert(tracked.status === 202, `POST /track should accept allowlisted event ${event}`);
+}
+const unsupportedTrack = await handler(request('POST', 'track', { client_id: 'p0-funnel-client', event: 'customer_email', event_id: 'p0-funnel-invalid-0001' }));
+assert(unsupportedTrack.status === 400, 'POST /track must reject non-allowlisted event names');
+const funnelSummaryResponse = await handler(internalRequest('GET', 'analytics/funnel'));
+assert(funnelSummaryResponse.status === 200, 'authorized internal request should read funnel aggregates');
+const funnelData = await funnelSummaryResponse.json();
+for (const event of ['home_view', 'intake_started', 'generation_submitted', 'generation_result', 'effect_recorded', 'next_round_entered']) {
+  assert(funnelData.counts[event] >= 1, `funnel aggregate should include ${event}`);
+}
+assert(!JSON.stringify(funnelData).includes('不应保存客户业务内容'), 'funnel aggregate must not expose ignored business content');
+process.env.RATE_LIMIT_ENFORCE = 'false';
+process.env.GENERATION_RATE_CLIENT_MAX = '100';
+process.env.GENERATION_RATE_IP_MAX = '100';
+process.env.GENERATION_DAILY_CLIENT_MAX = '100';
+
 assert(diagnosis.strategy_mvp && diagnosis.strategy_mvp.seven_day_flywheel.length === 7, 'diagnosis should expose platform strategy MVP and 7-day flywheel');
 assert(plans.every((plan) => plan.experiment_type && plan.why_platform_fit && Array.isArray(plan.observe_metrics) && plan.observe_metrics.length >= 3 && plan.next_adjustment && plan.content_hypothesis), 'plans should include experiment type, platform fit, metrics, next adjustment and hypothesis');
 assert(diagnosis.merchant_profile && diagnosis.merchant_profile.bottleneck && diagnosis.merchant_profile.conversion_action, 'diagnosis should expose merchant_profile for differentiated customer advice');
 assert(plans.every((plan) => plan.customer_reasoning?.pain_basis && plan.customer_reasoning?.platform_basis && plan.customer_reasoning?.conversion_basis && plan.customer_reasoning?.validation_goal && plan.customer_reasoning?.publish_note), 'plans should include concrete customer_reasoning fields for why-this-plan explanations');
 assert(plans.every((plan) => plan.publish_audit?.risk_level && Array.isArray(plan.publish_audit.checks) && plan.publish_audit.checks.length >= 1), 'plans should include publish_audit checks for platform-rule review');
 assert(plans.some((plan) => plan.platform === '小红书' && plan.publish_audit.checks.some((check) => String(check.label || '').includes('小红书'))), 'XHS plans should include a 小红书 publish pre-check');
-assert(!('model_info' in data) && !('generation_meta' in data), 'anonymous POST /assessments must strip model metadata from the customer response');
-['requested_model', 'actual_model', 'provider', 'fallback_reason', 'raw_usage'].forEach((field) => {
-  assert(!JSON.stringify(data).includes(`"${field}"`), `anonymous assessment response must not expose ${field}`);
-});
+const publicAssessmentDenied = await handler(request('POST', 'assessments', payload));
+assert(publicAssessmentDenied.status === 401, `public POST /assessments must be protected by INTERNAL_ACCESS_TOKEN, got ${publicAssessmentDenied.status}`);
+assert(data.model_info && data.generation_meta, 'authorized assessment smoke data should retain internal model evidence');
 const internalEvidence = await submitAssessment({
   ...payload,
   client_id: 'internal-evidence-smoke',
@@ -181,6 +297,27 @@ const internalEvidence = await submitAssessment({
 }, { internal: true });
 assert(internalEvidence.model_info && internalEvidence.generation_meta, 'authorized internal POST /assessments should retain model evidence');
 assert(internalEvidence.generation_meta.provider === 'local' && internalEvidence.generation_meta.actual_model === 'rule_template' && typeof internalEvidence.generation_meta.fallback === 'boolean', 'authorized internal generation should retain explicit model evidence');
+process.env.ARK_API_KEY = 'safe-gate-smoke-key';
+process.env.ARK_MODEL = 'safe-gate-smoke-model';
+delete process.env.SAFE_TO_RUN;
+const fetchBeforeSafeGate = globalThis.fetch;
+let safeGateFetchCount = 0;
+globalThis.fetch = async (...args) => {
+  safeGateFetchCount += 1;
+  return fetchBeforeSafeGate(...args);
+};
+const safeGateEvidence = await submitAssessment({
+  ...payload,
+  client_id: 'safe-gate-smoke',
+  customer_key: 'safe-gate-smoke',
+  client_mode: 'internal_version',
+  source: 'internal_version',
+});
+globalThis.fetch = fetchBeforeSafeGate;
+delete process.env.ARK_API_KEY;
+delete process.env.ARK_MODEL;
+assert(safeGateFetchCount === 0, 'SAFE_TO_RUN disabled must prevent every Ark outbound request');
+assert(safeGateEvidence.generation_meta.fallback === true && safeGateEvidence.generation_meta.fallback_reason === 'safe_to_run_disabled', 'SAFE_TO_RUN disabled should preserve a renderable rule fallback with explicit internal evidence');
 
 const basketballData = await submitAssessmentForClient('basketball', {
   company_name: '星跃少儿篮球训练营',
@@ -285,7 +422,8 @@ const dentalPlansGet = await handler(internalRequest('GET', 'plans?client_id=den
 assert(dentalPlansGet.status === 200, 'authorized GET /plans?client_id=dental should succeed');
 const dentalPlans = await dentalPlansGet.json();
 assert(dentalPlans.length >= 7 && dentalPlans.every((plan) => plan.client_id === 'dental'), 'GET /plans should filter to dental client_id');
-const basketballAssessmentsGet = await handler(request('GET', 'assessments?client_id=basketball'));
+const basketballAssessmentsGet = await handler(internalRequest('GET', 'assessments?client_id=basketball'));
+assert(basketballAssessmentsGet.status === 200, 'authorized GET /assessments should remain available to the internal workspace');
 const basketballAssessments = await basketballAssessmentsGet.json();
 assert(basketballAssessments.some((item) => item.company_name === '星跃少儿篮球训练营'), 'basketball assessments should include basketball client');
 assert(!basketballAssessments.some((item) => item.company_name === '社区口腔门诊' || item.company_name === '清屿花艺工作室'), 'basketball assessment list must not include dental/florist clients');
@@ -507,7 +645,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.88'"), 'app should expose v1.6.88 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.89'"), 'app should expose v1.6.89 internally/API-side');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
 assert(appJs.includes('cryptoApi?.randomUUID') && appJs.includes('cryptoApi?.getRandomValues') && !appJs.includes("Math.random().toString(36).slice(2, 8)"), 'new anonymous client ids should use cryptographic randomness');
@@ -521,6 +659,17 @@ assert(appJs.includes("['正在分析业务...', '正在生成选题...', '正�
 assert(apiSource.includes("path === '/plan-jobs'") && apiSource.includes("path.match(/^\\/plan-jobs\\/([^/]+)$/)") && apiSource.includes("readCloudCollection('plan-jobs'") && apiSource.includes('context.waitUntil(promise)'), 'customer plan jobs should use a client-scoped blob collection and Netlify waitUntil processing');
 assert(apiSource.includes('planJobClientIdFrom') && apiSource.includes('读取计划任务需要 client_id') && apiSource.includes("return json({ error: '计划任务不存在' }, 404)"), 'plan job reads should require client_id and hide cross-client job existence');
 assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCustomerPlanJob') && appJs.includes('&fallback=1'), 'customer plan generation should submit, poll with a limit, and request a safe fallback when polling expires');
+assert(apiSource.includes("const COMMERCIAL_METERING_PREFIX = 'metering/v1'") && apiSource.includes("const COMMERCIAL_ANALYTICS_PREFIX = 'analytics/v1'") && apiSource.includes('reserveGenerationRequest') && apiSource.includes('RATE_LIMIT_ENFORCE'), 'P0 should keep metering and analytics in independent blob namespaces with a shadow/enforced switch');
+assert(apiSource.includes('reservationKeyFor') && apiSource.includes('existingJob') && apiSource.includes("job_id: `planjob_${sha256Hex(`${client_id}:${requestId}`).slice(0, 24)}`"), 'request_id should key both reservation and deterministic plan job identity');
+assert(apiSource.includes("error: '生成太频繁，稍等片刻再试'") && appJs.includes("生成太频繁，稍等片刻再试。"), 'enforced rate limiting should use the approved friendly customer message');
+assert(apiSource.includes("if (!paidGenerationSafeToRun())") && apiSource.includes("fallbackReason: 'safe_to_run_disabled'") && apiSource.includes('MOCK_SAFE_TO_RUN_REQUIRED'), 'SAFE_TO_RUN should guard Ark and internal paid provider adapters without breaking local fallbacks');
+assert(apiSource.includes("if (request.method === 'POST' && path === '/assessments')") && apiSource.includes('if (!internalAuthorized) return unauthorized();'), 'direct assessments generation should require INTERNAL_ACCESS_TOKEN');
+for (const event of ['home_view', 'intake_started', 'generation_submitted', 'generation_result', 'effect_recorded', 'next_round_entered']) {
+  assert(apiSource.includes(`'${event}'`), `P0 server funnel allowlist should include ${event}`);
+}
+for (const event of ['home_view', 'intake_started', 'generation_submitted', 'effect_recorded', 'next_round_entered']) {
+  assert(appJs.includes(`'${event}'`), `customer flow should emit ${event}`);
+}
 assert(apiSource.includes('PLAN_VARIATION_DIRECTIONS') && apiSource.includes('generation_variant: generationVariant') && apiSource.includes('temperature: 0.55') && apiSource.includes('variation_direction'), 'customer plan jobs should rotate a lightweight creative direction and use moderate temperature to reduce same-industry repetition');
 assert(indexHtml.includes('name="current_channels" value="还不确定"') && indexHtml.includes('name="biggest_problem" value="不知道发什么"'), 'customer intake should require only the three core text fields and carry safe defaults for platform and biggest problem');
 assert((customerAssessmentFormHtml.match(/\srequired(?:\s|\/?>)/g) || []).length === 3, 'customer intake should contain exactly three required fields');
@@ -641,7 +790,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.88') && indexHtml.includes('/styles.css?v=1.6.88') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.88'), 'customer page should cache-bust the v1.6.88 inner-page cleanup release while preserving the centered footer stylesheet');
+assert(indexHtml.includes('/app.js?v=1.6.89') && indexHtml.includes('/styles.css?v=1.6.89') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.89'), 'customer page should cache-bust the v1.6.89 cost-protection release while preserving the centered footer stylesheet');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -771,6 +920,8 @@ for (const [index, metrics] of [
     ...metrics,
   };
   const res = await handler(request('POST', 'customer-growth-advice', {
+    request_id: `basketball-advice-day-${index + 1}-0001`,
+    client_id: 'basketball-advice-cycle',
     assessment: basketballAdviceCase.assessment,
     diagnosis: basketballAdviceCase.diagnosis,
     plans: basketballAdviceCase.plans,
@@ -794,6 +945,8 @@ dailyAdvice.forEach((item, index) => {
   assert(!historicalTopics.includes(item.advice.nextTopic), 'nextTopic should not return to historical basketball plan topic on day ' + (index + 1));
 });
 const skippedFirstPlanRes = await handler(request('POST', 'customer-growth-advice', {
+  request_id: 'basketball-advice-skip-first-0001',
+  client_id: 'basketball-advice-cycle',
   assessment: basketballAdviceCase.assessment,
   diagnosis: basketballAdviceCase.diagnosis,
   plans: basketballAdviceCase.plans,
@@ -847,6 +1000,8 @@ const secondRoundRecord = {
   notes: '第二轮第一条也有体验课咨询，家长继续问零基础和周末班。',
 };
 const thirdRoundRes = await handler(request('POST', 'customer-growth-advice', {
+  request_id: 'basketball-advice-third-round-0001',
+  client_id: 'basketball-advice-cycle',
   assessment: basketballAdviceCase.assessment,
   diagnosis: basketballAdviceCase.diagnosis,
   plans: secondRoundPlans,
@@ -867,6 +1022,8 @@ assert(/体验课|家长|孩子|体能|周末班|零基础/.test(JSON.stringify(
 assert(dailyAdvice.every((item) => !('model_info' in item) && !('generation_meta' in item) && !('transparent_note' in item)), 'anonymous customer-growth-advice responses must strip model metadata');
 assert(dailyAdvice.every((item) => !/"requested_model"|"actual_model"|"provider"|"fallback_reason"|"raw_usage"/.test(JSON.stringify(item))), 'anonymous customer-growth-advice responses must not leak nested model fields');
 const internalAdviceEvidenceRes = await handler(internalRequest('POST', 'customer-growth-advice', {
+  request_id: 'basketball-advice-internal-0001',
+  client_id: 'basketball-advice-internal',
   assessment: basketballAdviceCase.assessment,
   diagnosis: basketballAdviceCase.diagnosis,
   plans: basketballAdviceCase.plans,
@@ -882,6 +1039,8 @@ assert(internalAdviceEvidence.model_info && internalAdviceEvidence.generation_me
 assert(internalAdviceEvidence.model_info.provider === 'local' && internalAdviceEvidence.model_info.actual_model === 'rule_template' && typeof internalAdviceEvidence.model_info.fallback === 'boolean', 'authorized internal advice should expose rule_template model evidence');
 
 const unboundAdvice = await handler(request('POST', 'customer-growth-advice', {
+  request_id: 'basketball-advice-unbound-0001',
+  client_id: 'basketball-advice-unbound',
   assessment: basketballAdviceCase.assessment,
   diagnosis: basketballAdviceCase.diagnosis,
   plans: basketballAdviceCase.plans,
@@ -1039,8 +1198,7 @@ assert(/篮球|体能|体验课|6-12岁|家长|教练|班型|课堂|运球|投�
 assert(!basketballText.includes('课程/体验课') && !basketballText.includes('家长报名前，最容易踩的3个坑') && !basketballText.includes('相关服务'), 'basketball plans should not fall back to generic education/service wording');
 assert(basketball.diagnosis.platform_recommendations.primary.map((x) => x.platform).join('|') === '抖音|小红书|视频号', 'basketball should use Douyin + Xiaohongshu + Shipinhao content matrix');
 assert(basketball.plans.every((p) => p.platform === '小红书'), 'basketball plans should use only the user-selected platform (小红书), not spread to recommended matrix');
-assert(!basketball.generation_meta && !basketball.model_info, 'customer basketball response must not expose model metadata');
-assert(basketball.plans.every((plan) => !('actual_model' in plan) && !('provider' in plan) && !('fallback' in plan)), 'customer plan rows must strip model evidence fields');
+assert(basketball.generation_meta && basketball.model_info, 'authorized internal basketball fixture should retain model evidence for QA');
 assertCustomerFacingPlans('basketball service output', basketball);
 
 const restaurant = await submitAssessment({
@@ -1319,6 +1477,7 @@ const originalFetch = globalThis.fetch;
 process.env.ARK_API_KEY = 'timeout-smoke-key';
 process.env.ARK_MODEL = 'ep-timeout-baseline';
 process.env.ARK_PLAN_MODEL = 'doubao-timeout-plan';
+process.env.SAFE_TO_RUN = 'true';
 globalThis.fetch = async () => {
   const error = new Error('simulated timeout');
   error.name = 'AbortError';
@@ -1341,11 +1500,7 @@ const publicTimeoutResponse = await timeoutHandler(request('POST', 'assessments'
   client_id: 'timeout-public-smoke',
   company_name: '公开超时兜底验证客户',
 }));
-assert(publicTimeoutResponse.status === 201, `public simulated Ark timeout should return 201, got ${publicTimeoutResponse.status}`);
-const publicTimeoutText = await publicTimeoutResponse.text();
-['requested_model', 'actual_model', 'provider', 'fallback_reason', 'doubao-timeout-plan'].forEach((word) => {
-  assert(!publicTimeoutText.includes(word), `public timeout fallback response must hide model field ${word}`);
-});
+assert(publicTimeoutResponse.status === 401, `public POST /assessments must stay behind the internal token during provider timeout, got ${publicTimeoutResponse.status}`);
 globalThis.fetch = async () => new Response(JSON.stringify({
   model: 'doubao-timeout-plan',
   choices: [{ message: { content: JSON.stringify({
@@ -1407,6 +1562,7 @@ delete process.env.ARK_API_KEY;
 delete process.env.ARK_MODEL;
 delete process.env.ARK_PLAN_MODEL;
 delete process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS;
+delete process.env.SAFE_TO_RUN;
 
 console.log(JSON.stringify({
   strategy_score: diagnosis.strategy_score,

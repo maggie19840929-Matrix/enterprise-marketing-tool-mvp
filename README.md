@@ -87,6 +87,28 @@ INTERNAL_ACCESS_TOKEN=团队内部使用的高强度随机口令
 
 客户根路径 `/` 不发送内部令牌，匿名自助流程仍按浏览器保存的高熵 `client_id` 读写自己的项目。`/api/health` 保持公开。
 
+### P0 成本保护与漏斗埋点
+
+内容计划与下一轮建议使用独立的 `metering/v1`、`analytics/v1` Blobs 命名空间，不修改现有 `global-project-store.*` 客户数据。建议在 Netlify 生产环境配置：
+
+```bash
+SAFE_TO_RUN=true
+RATE_LIMIT_ENFORCE=false
+GENERATION_RATE_WINDOW_SECONDS=60
+GENERATION_RATE_CLIENT_MAX=3
+GENERATION_RATE_IP_MAX=10
+GENERATION_DAILY_CLIENT_MAX=30
+TRACKING_ENABLED=true
+TRACKING_RETENTION_DAYS=90
+METERING_HASH_SECRET=至少32字节的随机服务端密钥
+```
+
+`RATE_LIMIT_ENFORCE=false` 是首发影子模式：达到阈值时写入计量和漏斗记录，但不阻断请求。观察真实试用一至两天后，人工改成 `true` 才会返回 `429` 和“生成太频繁，稍等片刻再试”。同一个 `request_id` 会复用同一 reservation 与任务，不因网络重试重复计量。
+
+`SAFE_TO_RUN` 是所有真实付费模型调用的总闸。生产部署代码与 `SAFE_TO_RUN=true` 必须同步完成；关闭时客户仍会获得规则兜底结果，但不会发起真实模型请求。`GET /api/analytics/funnel` 仅允许携带 `INTERNAL_ACCESS_TOKEN` 的内部请求读取聚合计数，公开端不能枚举事件。
+
+`/api/assessments` 已改为内部令牌专用。公开客户流程只通过异步 `/api/plan-jobs` 生成内容计划。
+
 ### 客户连续内容周期
 
 客户版主路径：
