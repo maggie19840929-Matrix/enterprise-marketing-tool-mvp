@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.87';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.88';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
 
@@ -104,7 +104,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.87', `expected app_version 1.6.87, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.88', `expected app_version 1.6.88, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -507,7 +507,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.87'"), 'app should expose v1.6.87 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.88'"), 'app should expose v1.6.88 internally/API-side');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
 assert(appJs.includes('cryptoApi?.randomUUID') && appJs.includes('cryptoApi?.getRandomValues') && !appJs.includes("Math.random().toString(36).slice(2, 8)"), 'new anonymous client ids should use cryptographic randomness');
@@ -549,6 +549,10 @@ assert(warRoomCss.includes('body.customer-mode .customer-plan-more:not([open])>.
 assert(warRoomCss.includes('body.customer-mode .customer-plan-lite .plan-day-pill{') && warRoomCss.includes('width:26px!important') && warRoomCss.includes('body.customer-mode .customer-plan-lite .plan-platform-pill{') && warRoomCss.includes('border:.5px solid #d0d5dd!important'), 'customer plans should use quiet circular day numbers and neutral platform pills');
 assert(warRoomCss.includes('body.customer-mode .customer-why summary{') && warRoomCss.includes('color:#1f2937!important') && warRoomCss.includes('font-weight:500!important'), 'customer rationale disclosure should use readable neutral ink and regular emphasis');
 assert(warRoomCss.includes('body.customer-mode .customer-loop-note{') && warRoomCss.includes('background:#fff!important') && warRoomCss.includes('body.customer-mode .customer-effect-step{'), 'effect and next-round surfaces should use white hairline cards rather than large green tints');
+assert(warRoomCss.includes('v1.6.88 customer inner-page cleanup') && warRoomCss.includes('body.customer-mode .customer-preview-kicker{\n  color:#1f2937!important'), 'customer preview kicker should use high-contrast dark ink while internal mode keeps its original palette');
+assert(indexHtml.includes('class="customer-inline-link"') && warRoomCss.includes('body.customer-mode .customer-inline-link{') && warRoomCss.includes('border:.5px solid rgba(17,24,39,.20)!important') && warRoomCss.includes('background:#fff!important;\n  color:#1f2937!important') && warRoomCss.includes('font-weight:500!important'), 'the live customer inline link should use neutral ink, a solid hairline border and regular emphasis');
+assert(warRoomCss.includes('body.customer-mode .customer-plan-item.is-selected{\n  border:1.5px solid #111827!important;\n  background:#fff!important;\n  box-shadow:none!important'), 'customer plan selection should use a neutral dark border without green tint');
+assert(warRoomCss.includes('body.customer-mode .customer-section-head p,\nbody.customer-mode .customer-plan-head p{\n  color:#667085!important'), 'customer section and plan kickers should meet small-text contrast requirements');
 assert(appJs.includes("const INTERNAL_CLIENT_ID = 'internal'") && appJs.includes("mode=internal") && appJs.includes('function customerClientId') && appJs.includes('isInternalDataScope() ? INTERNAL_CLIENT_ID'), 'internal page should use stable internal client_id and request internal cloud seed state from the route data scope');
 assert(appJs.includes('const VIEW_PROFILES = {') && appJs.includes('internal_admin') && appJs.includes('client_viewer') && appJs.includes('selfserve_client') && appJs.includes('outsourced_worker') && appJs.includes('const getProfile ='), 'app should define role-based VIEW_PROFILES for one-system rendering');
 assert(appJs.includes("delivery: 'qa_passed_only'") && appJs.includes('profileDeliveryView') && appJs.includes('&view=${profileDeliveryView(profile)}'), 'profile delivery settings should map customer views to server-side filtered data requests');
@@ -637,7 +641,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.87') && indexHtml.includes('/styles.css?v=1.6.87') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.87'), 'customer page should cache-bust the v1.6.87 inner-page design release while preserving the centered footer stylesheet');
+assert(indexHtml.includes('/app.js?v=1.6.88') && indexHtml.includes('/styles.css?v=1.6.88') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.88'), 'customer page should cache-bust the v1.6.88 inner-page cleanup release while preserving the centered footer stylesheet');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');

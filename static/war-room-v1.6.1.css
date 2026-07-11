@@ -2105,7 +2105,7 @@ body.customer-mode :is(#customerCoCreationSection,#customerResultSection,#custom
 }
 body.customer-mode :is(#customerCoCreationSection,#customerResultSection,#customerEffectSection) .customer-section-head p{
   margin:0 0 8px!important;
-  color:#777b83!important;
+  color:#667085!important;
   font-family:Georgia,"Times New Roman",serif!important;
   font-size:12px!important;
   font-weight:500!important;
@@ -2339,7 +2339,7 @@ body.customer-mode .customer-plan-head{
 }
 body.customer-mode .customer-plan-head p{
   margin:0 0 6px!important;
-  color:#777b83!important;
+  color:#667085!important;
   font-family:Georgia,"Times New Roman",serif!important;
   font-size:12px!important;
   font-weight:500!important;
@@ -2512,13 +2512,18 @@ body.customer-mode .customer-result-actions .customer-secondary{
 }
 body.customer-mode .customer-inline-link{
   padding:9px 14px!important;
-  border:1px solid #111827!important;
+  border:.5px solid rgba(17,24,39,.20)!important;
   border-radius:999px!important;
-  background:#111827!important;
-  color:#fff!important;
+  background:#fff!important;
+  color:#1f2937!important;
   box-shadow:none!important;
   font-size:12px!important;
   font-weight:500!important;
+}
+body.customer-mode .customer-inline-link:hover{
+  border-color:rgba(17,24,39,.36)!important;
+  background:#f9fafb!important;
+  color:#111827!important;
 }
 body.customer-mode .customer-why,
 body.customer-mode .customer-record-help{
@@ -2720,4 +2725,18 @@ body.customer-mode .customer-record em{
     width:100%!important;
     text-align:center!important;
   }
+}
+
+/* v1.6.88 customer inner-page cleanup */
+body.customer-mode .customer-preview-kicker{
+  color:#1f2937!important;
+}
+body.customer-mode .customer-section-head p,
+body.customer-mode .customer-plan-head p{
+  color:#667085!important;
+}
+body.customer-mode .customer-plan-item.is-selected{
+  border:1.5px solid #111827!important;
+  background:#fff!important;
+  box-shadow:none!important;
 }
