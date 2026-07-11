@@ -661,6 +661,7 @@ assert(apiSource.includes('planJobClientIdFrom') && apiSource.includes('读取�
 assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCustomerPlanJob') && appJs.includes('&fallback=1'), 'customer plan generation should submit, poll with a limit, and request a safe fallback when polling expires');
 assert(apiSource.includes("const COMMERCIAL_METERING_PREFIX = 'metering/v1'") && apiSource.includes("const COMMERCIAL_ANALYTICS_PREFIX = 'analytics/v1'") && apiSource.includes('reserveGenerationRequest') && apiSource.includes('RATE_LIMIT_ENFORCE'), 'P0 should keep metering and analytics in independent blob namespaces with a shadow/enforced switch');
 assert(apiSource.includes('maxTokens: 1400'), 'Ark should have enough output budget to return seven structured content-plan rows without truncation fallback');
+assert(apiSource.includes("purpose: 'initial_7_day_plan_repair'") && apiSource.includes('provider_attempt_count: 2'), 'structured plan parse failures should get one bounded Ark repair attempt and expose the real provider attempt count');
 assert(apiSource.includes('reservationKeyFor') && apiSource.includes('existingJob') && apiSource.includes("job_id: `planjob_${sha256Hex(`${client_id}:${requestId}`).slice(0, 24)}`"), 'request_id should key both reservation and deterministic plan job identity');
 assert(apiSource.includes("error: '生成太频繁，稍等片刻再试'") && appJs.includes("生成太频繁，稍等片刻再试。"), 'enforced rate limiting should use the approved friendly customer message');
 assert(apiSource.includes("if (!paidGenerationSafeToRun())") && apiSource.includes("fallbackReason: 'safe_to_run_disabled'") && apiSource.includes('MOCK_SAFE_TO_RUN_REQUIRED'), 'SAFE_TO_RUN should guard Ark and internal paid provider adapters without breaking local fallbacks');
@@ -1539,6 +1540,37 @@ for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效
 for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效果', '立减', '折扣', '优惠', '赠送', '返现']) {
   assert(claimGuardRequestBody.includes(claim), `Ark plan prompt should explicitly forbid unsupported claim: ${claim}`);
 }
+let repairFetchCount = 0;
+globalThis.fetch = async () => {
+  repairFetchCount += 1;
+  const content = repairFetchCount === 1
+    ? '{"plans":[{"topic":"被截断的内容"'
+    : JSON.stringify({
+      plans: Array.from({ length: 7 }, (_, index) => ({
+        topic: `结构修复选题${index + 1}`,
+        angle: `结合真实客户顾虑说明${index + 1}`,
+        content_type: '图文',
+        cta: '咨询到店预约安排',
+      })),
+    });
+  return new Response(JSON.stringify({
+    model: 'doubao-timeout-plan',
+    choices: [{ message: { content } }],
+    usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+const repairResponse = await claimGuardHandler(internalRequest('POST', 'assessments', {
+  ...payload,
+  client_id: 'structured-repair-smoke',
+  company_name: '结构修复验证客户',
+  industry: '本地美容美甲门店',
+  main_goal: '获得附近客户咨询和到店预约',
+  target_customer: '附近三公里通勤女性',
+}));
+const repairData = await repairResponse.json();
+assert(repairResponse.status === 201 && repairData.plans?.length === 7, 'one Ark repair attempt should recover seven plans after a truncated JSON response');
+assert(repairData.generation_meta?.provider === 'volcengine_ark' && repairData.generation_meta?.fallback === false, 'successful Ark repair must not be marked as a local fallback');
+assert(repairData.generation_meta?.provider_attempt_count === 2 && repairData.generation_meta?.repair_attempted === true && repairData.generation_meta?.repair_succeeded === true, 'Ark repair metadata should expose two provider attempts and a successful repair');
 process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = '600';
 globalThis.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
   const abort = () => {

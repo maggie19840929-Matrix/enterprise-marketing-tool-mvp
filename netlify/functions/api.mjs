@@ -105,6 +105,9 @@ const CUSTOMER_HIDDEN_MODEL_FIELDS = new Set([
   'provider_job_id',
   'content_safety_adjusted',
   'safety_adjustment_count',
+  'provider_attempt_count',
+  'repair_attempted',
+  'repair_succeeded',
   'transparent_note',
   'debug',
 ]);
@@ -200,6 +203,9 @@ const normalizeModelMeta = (meta = {}) => ({
   raw_usage: meta.raw_usage || meta.usage || null,
   content_safety_adjusted: Boolean(meta.content_safety_adjusted),
   safety_adjustment_count: Number(meta.safety_adjustment_count || 0),
+  provider_attempt_count: Number(meta.provider_attempt_count ?? ((meta.requested_model && meta.requested_model !== 'rule_template') ? 1 : 0)),
+  repair_attempted: Boolean(meta.repair_attempted),
+  repair_succeeded: Boolean(meta.repair_succeeded),
 });
 const logModelCall = ({ route, purpose, meta, status = null } = {}) => {
   const safeMeta = normalizeModelMeta(meta);
@@ -1700,7 +1706,37 @@ const sanitizeUnsupportedPlanClaims = (rows = [], assessment = {}) => {
   return { rows: sanitizedRows, adjustmentCount };
 };
 
+const parseArkPlanCall = (call = {}, assessment = {}) => {
+  const rows = rowsFromModelJson(extractModelJson(call.content));
+  if (rows.length < 7) throw new Error(`ark_returned_${rows.length}_plans`);
+  const sanitized = sanitizeUnsupportedPlanClaims(rows, assessment);
+  if (hasUnsupportedPlanClaim(sanitized.rows, assessment)) throw new Error('unsupported_claim');
+  return sanitized;
+};
+
+const mergeModelUsage = (...values) => {
+  const usages = values.filter((value) => value && typeof value === 'object');
+  if (!usages.length) return null;
+  return {
+    prompt_tokens: usages.reduce((sum, value) => sum + Number(value.prompt_tokens || 0), 0),
+    completion_tokens: usages.reduce((sum, value) => sum + Number(value.completion_tokens || 0), 0),
+    total_tokens: usages.reduce((sum, value) => sum + Number(value.total_tokens || 0), 0),
+  };
+};
+
 const callArkPlanRows = async (assessment, diagnosis) => {
+  const messages = [
+    {
+      role: 'system',
+      content: [
+        '你是企业增长内容策略顾问，服务对象是门店老板、企业主和商家。',
+        '你必须根据客户真实行业、目标客户、平台、痛点和产品服务生成内容选题。',
+        '禁止评论区/留言关键词引导，禁止输出无关行业，禁止照抄客户字段长句。',
+        '只返回 JSON，不要解释。',
+      ].join('\n'),
+    },
+    { role: 'user', content: arkContentPlanPrompt(assessment, diagnosis) },
+  ];
   const call = await callArkChatCompletion({
     route: '/api/assessments',
     purpose: 'initial_7_day_plan',
@@ -1710,25 +1746,11 @@ const callArkPlanRows = async (assessment, diagnosis) => {
     model: arkPlanModel(),
     thinking: { type: 'disabled' },
     responseFormat: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '你是企业增长内容策略顾问，服务对象是门店老板、企业主和商家。',
-          '你必须根据客户真实行业、目标客户、平台、痛点和产品服务生成内容选题。',
-          '禁止评论区/留言关键词引导，禁止输出无关行业，禁止照抄客户字段长句。',
-          '只返回 JSON，不要解释。',
-        ].join('\n'),
-      },
-      { role: 'user', content: arkContentPlanPrompt(assessment, diagnosis) },
-    ],
+    messages,
   });
   if (!call.ok) return { rows: null, meta: normalizeModelMeta(call) };
   try {
-    const rows = rowsFromModelJson(extractModelJson(call.content));
-    if (rows.length < 7) throw new Error(`ark_returned_${rows.length}_plans`);
-    const sanitized = sanitizeUnsupportedPlanClaims(rows, assessment);
-    if (hasUnsupportedPlanClaim(sanitized.rows, assessment)) throw new Error('unsupported_claim');
+    const sanitized = parseArkPlanCall(call, assessment);
     return {
       rows: sanitized.rows,
       meta: normalizeModelMeta({
@@ -1737,15 +1759,66 @@ const callArkPlanRows = async (assessment, diagnosis) => {
         safety_adjustment_count: sanitized.adjustmentCount,
       }),
     };
-  } catch (error) {
-    return {
-      rows: null,
-      meta: modelFailureMeta({
-        requestedModel: call.requested_model,
-        fallbackReason: ['invalid_json', 'unsupported_claim'].includes(error.message) ? error.message : 'partial_parse',
-        latencyMs: call.latency_ms,
-      }),
-    };
+  } catch (firstError) {
+    const retry = await callArkChatCompletion({
+      route: '/api/assessments',
+      purpose: 'initial_7_day_plan_repair',
+      temperature: 0.2,
+      maxTokens: 1400,
+      timeoutMs: Math.min(9000, CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS),
+      model: arkPlanModel(),
+      thinking: { type: 'disabled' },
+      responseFormat: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: '上一次输出未形成完整的 7 条 JSON。这次必须严格返回一个可解析 JSON 对象，plans 数组必须正好 7 条，不要任何额外文字。' },
+        ...messages,
+      ],
+    });
+    if (!retry.ok) {
+      return {
+        rows: null,
+        meta: normalizeModelMeta({
+          ...retry,
+          latency_ms: Number(call.latency_ms || 0) + Number(retry.latency_ms || 0),
+          usage: mergeModelUsage(call.usage || call.raw_usage, retry.usage || retry.raw_usage),
+          provider_attempt_count: 2,
+          repair_attempted: true,
+          repair_succeeded: false,
+        }),
+      };
+    }
+    try {
+      const repaired = parseArkPlanCall(retry, assessment);
+      return {
+        rows: repaired.rows,
+        meta: normalizeModelMeta({
+          ...retry,
+          latency_ms: Number(call.latency_ms || 0) + Number(retry.latency_ms || 0),
+          usage: mergeModelUsage(call.usage || call.raw_usage, retry.usage || retry.raw_usage),
+          content_safety_adjusted: repaired.adjustmentCount > 0,
+          safety_adjustment_count: repaired.adjustmentCount,
+          provider_attempt_count: 2,
+          repair_attempted: true,
+          repair_succeeded: true,
+        }),
+      };
+    } catch (retryError) {
+      const fallbackReason = [firstError.message, retryError.message].includes('unsupported_claim') ? 'unsupported_claim' : 'partial_parse';
+      return {
+        rows: null,
+        meta: normalizeModelMeta({
+          ...modelFailureMeta({
+            requestedModel: retry.requested_model || call.requested_model,
+            fallbackReason,
+            latencyMs: Number(call.latency_ms || 0) + Number(retry.latency_ms || 0),
+          }),
+          usage: mergeModelUsage(call.usage || call.raw_usage, retry.usage || retry.raw_usage),
+          provider_attempt_count: 2,
+          repair_attempted: true,
+          repair_succeeded: false,
+        }),
+      };
+    }
   }
 };
 
@@ -3510,6 +3583,7 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
       delivered: true,
       fallback: Boolean(meta.fallback),
       content_safety_adjusted: Boolean(meta.content_safety_adjusted),
+      provider_attempt_count: Number(meta.provider_attempt_count || 0),
       created_at: nowIso(),
     });
   }
@@ -3521,6 +3595,9 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
     fallback: Boolean(meta.fallback),
     content_safety_adjusted: Boolean(meta.content_safety_adjusted),
     safety_adjustment_count: Number(meta.safety_adjustment_count || 0),
+    provider_attempt_count: Number(meta.provider_attempt_count || 0),
+    repair_attempted: Boolean(meta.repair_attempted),
+    repair_succeeded: Boolean(meta.repair_succeeded),
     reason_code: meta.fallback_reason || error || '',
     created_at: nowIso(),
   });
@@ -3607,8 +3684,8 @@ const funnelSummary = async ({ from = '', to = '' } = {}) => {
     rate_limit_shadow_hits: rateLimitShadowHits,
     metering: {
       product_usage: productKeys.filter(inRange).length,
-      provider_attempts: providerRecords.length,
-      paid_provider_attempts: providerRecords.filter((record) => record.paid_attempt).length,
+      provider_attempts: providerRecords.reduce((sum, record) => sum + Number(record.provider_attempt_count || 1), 0),
+      paid_provider_attempts: providerRecords.reduce((sum, record) => sum + (record.paid_attempt ? Number(record.provider_attempt_count || 1) : 0), 0),
     },
   };
 };

@@ -28,6 +28,7 @@
 5. `/api/assessments` 改为 `INTERNAL_ACCESS_TOKEN` 专用；客户主流程继续使用异步 `/api/plan-jobs`，匿名内测、项目数据、多轮和持久化保持不变。
 6. 模型输出若夹带客户未提供的优惠/效果承诺，先做可审计的局部安全清理，不因单个词把整批 Ark 内容降级为模板。
 7. Ark 7 条结构化计划的输出预算提升到 1400 tokens，避免 JSON 截断造成 `partial_parse` 回退。
+8. 若 Ark 首次 JSON 仍无法解析，只进行 1 次低温度、9 秒上限的结构修复；两次真实 provider attempt 均进入成本计量，产品额度仍只在最终交付时计 1 次。
 
 部署护栏：生产环境必须同时配置 `SAFE_TO_RUN=true`；`RATE_LIMIT_ENFORCE=false` 保持影子模式，观察数据后再人工切换强制拦截。
 
