@@ -662,6 +662,7 @@ assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCu
 assert(apiSource.includes("const COMMERCIAL_METERING_PREFIX = 'metering/v1'") && apiSource.includes("const COMMERCIAL_ANALYTICS_PREFIX = 'analytics/v1'") && apiSource.includes('reserveGenerationRequest') && apiSource.includes('RATE_LIMIT_ENFORCE'), 'P0 should keep metering and analytics in independent blob namespaces with a shadow/enforced switch');
 assert(apiSource.includes('maxTokens: 1400'), 'Ark should have enough output budget to return seven structured content-plan rows without truncation fallback');
 assert(apiSource.includes("purpose: 'initial_7_day_plan_repair'") && apiSource.includes('provider_attempt_count: 2'), 'structured plan parse failures should get one bounded Ark repair attempt and expose the real provider attempt count');
+assert(apiSource.includes("purpose: 'initial_7_day_plan_retry'") && apiSource.includes('isRetryableArkFailure'), 'transient Ark network, timeout, 429, and 5xx failures should get one bounded retry');
 assert(apiSource.includes('reservationKeyFor') && apiSource.includes('existingJob') && apiSource.includes("job_id: `planjob_${sha256Hex(`${client_id}:${requestId}`).slice(0, 24)}`"), 'request_id should key both reservation and deterministic plan job identity');
 assert(apiSource.includes("error: '生成太频繁，稍等片刻再试'") && appJs.includes("生成太频繁，稍等片刻再试。"), 'enforced rate limiting should use the approved friendly customer message');
 assert(apiSource.includes("if (!paidGenerationSafeToRun())") && apiSource.includes("fallbackReason: 'safe_to_run_disabled'") && apiSource.includes('MOCK_SAFE_TO_RUN_REQUIRED'), 'SAFE_TO_RUN should guard Ark and internal paid provider adapters without breaking local fallbacks');
@@ -1575,6 +1576,32 @@ assert(repairData.generation_meta?.provider === 'volcengine_ark' && repairData.g
 assert(repairData.generation_meta?.provider_attempt_count === 2 && repairData.generation_meta?.repair_attempted === true && repairData.generation_meta?.repair_succeeded === true, 'Ark repair metadata should expose two provider attempts and a successful repair');
 assert(repairData.generation_meta?.repair_recovered_count === 1 && repairData.plans[0]?.topic === '已保留的真实选题', 'repair should preserve complete Ark rows from the first response');
 assert(repairRequestBody.includes('只补充正好 6 条'), 'repair prompt should request only the missing rows instead of regenerating the whole batch');
+let transientFetchCount = 0;
+globalThis.fetch = async () => {
+  transientFetchCount += 1;
+  if (transientFetchCount === 1) throw new Error('simulated transient network failure');
+  return new Response(JSON.stringify({
+    model: 'doubao-timeout-plan',
+    choices: [{ message: { content: JSON.stringify({
+      plans: Array.from({ length: 7 }, (_, index) => ({
+        topic: `网络重试选题${index + 1}`,
+        angle: `结合真实客户顾虑说明${index + 1}`,
+        content_type: '图文',
+        cta: '咨询到店预约安排',
+      })),
+    }) } }],
+    usage: { prompt_tokens: 12, completion_tokens: 22, total_tokens: 34 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+const transientRetryResponse = await claimGuardHandler(internalRequest('POST', 'assessments', {
+  ...payload,
+  client_id: 'transient-retry-smoke',
+  company_name: '瞬时网络重试验证客户',
+}));
+const transientRetryData = await transientRetryResponse.json();
+assert(transientRetryResponse.status === 201 && transientRetryData.plans?.length === 7, 'one transient Ark network retry should recover seven plans');
+assert(transientRetryData.generation_meta?.provider === 'volcengine_ark' && transientRetryData.generation_meta?.fallback === false, 'successful transient retry must remain a real Ark result');
+assert(transientRetryData.generation_meta?.provider_attempt_count === 2 && transientRetryData.generation_meta?.repair_succeeded === true, 'transient retry should record both paid provider attempts');
 process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = '600';
 globalThis.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
   const abort = () => {

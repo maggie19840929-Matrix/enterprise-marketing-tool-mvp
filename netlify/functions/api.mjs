@@ -1769,6 +1769,11 @@ const mergeModelUsage = (...values) => {
   };
 };
 
+const isRetryableArkFailure = (call = {}) => {
+  const reason = String(call.fallback_reason || call.failure_reason || '');
+  return ['ark_timeout', 'ark_api_error'].includes(reason) || /^ark_api_error_(?:429|5\d\d)$/.test(reason);
+};
+
 const callArkPlanRows = async (assessment, diagnosis) => {
   const messages = [
     {
@@ -1793,7 +1798,65 @@ const callArkPlanRows = async (assessment, diagnosis) => {
     responseFormat: { type: 'json_object' },
     messages,
   });
-  if (!call.ok) return { rows: null, meta: normalizeModelMeta(call) };
+  if (!call.ok) {
+    if (!isRetryableArkFailure(call)) return { rows: null, meta: normalizeModelMeta(call) };
+    const retry = await callArkChatCompletion({
+      route: '/api/assessments',
+      purpose: 'initial_7_day_plan_retry',
+      temperature: 0.4,
+      maxTokens: 1400,
+      timeoutMs: Math.min(15000, CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS),
+      model: arkPlanModel(),
+      thinking: { type: 'disabled' },
+      responseFormat: { type: 'json_object' },
+      messages,
+    });
+    if (!retry.ok) {
+      return {
+        rows: null,
+        meta: normalizeModelMeta({
+          ...retry,
+          latency_ms: Number(call.latency_ms || 0) + Number(retry.latency_ms || 0),
+          usage: mergeModelUsage(call.usage || call.raw_usage, retry.usage || retry.raw_usage),
+          provider_attempt_count: 2,
+          repair_attempted: true,
+          repair_succeeded: false,
+        }),
+      };
+    }
+    try {
+      const recovered = parseArkPlanCall(retry, assessment);
+      return {
+        rows: recovered.rows,
+        meta: normalizeModelMeta({
+          ...retry,
+          latency_ms: Number(call.latency_ms || 0) + Number(retry.latency_ms || 0),
+          usage: mergeModelUsage(call.usage || call.raw_usage, retry.usage || retry.raw_usage),
+          content_safety_adjusted: recovered.adjustmentCount > 0,
+          safety_adjustment_count: recovered.adjustmentCount,
+          provider_attempt_count: 2,
+          repair_attempted: true,
+          repair_succeeded: true,
+        }),
+      };
+    } catch (error) {
+      const fallbackReason = error.message === 'unsupported_claim' ? 'unsupported_claim' : 'partial_parse';
+      return {
+        rows: null,
+        meta: normalizeModelMeta({
+          ...modelFailureMeta({
+            requestedModel: retry.requested_model || call.requested_model,
+            fallbackReason,
+            latencyMs: Number(call.latency_ms || 0) + Number(retry.latency_ms || 0),
+          }),
+          usage: mergeModelUsage(call.usage || call.raw_usage, retry.usage || retry.raw_usage),
+          provider_attempt_count: 2,
+          repair_attempted: true,
+          repair_succeeded: false,
+        }),
+      };
+    }
+  }
   try {
     const sanitized = parseArkPlanCall(call, assessment);
     return {
