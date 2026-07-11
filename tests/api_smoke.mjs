@@ -1541,10 +1541,11 @@ for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效
   assert(claimGuardRequestBody.includes(claim), `Ark plan prompt should explicitly forbid unsupported claim: ${claim}`);
 }
 let repairFetchCount = 0;
-globalThis.fetch = async () => {
+let repairRequestBody = '';
+globalThis.fetch = async (_url, options = {}) => {
   repairFetchCount += 1;
   const content = repairFetchCount === 1
-    ? '{"plans":[{"topic":"被截断的内容"'
+    ? '{"plans":[{"topic":"已保留的真实选题","angle":"结合真实客户顾虑","content_type":"图文","cta":"咨询到店预约"},{"topic":"被截断的内容"'
     : JSON.stringify({
       plans: Array.from({ length: 7 }, (_, index) => ({
         topic: `结构修复选题${index + 1}`,
@@ -1553,6 +1554,7 @@ globalThis.fetch = async () => {
         cta: '咨询到店预约安排',
       })),
     });
+  if (repairFetchCount === 2) repairRequestBody = String(options.body || '');
   return new Response(JSON.stringify({
     model: 'doubao-timeout-plan',
     choices: [{ message: { content } }],
@@ -1571,6 +1573,8 @@ const repairData = await repairResponse.json();
 assert(repairResponse.status === 201 && repairData.plans?.length === 7, 'one Ark repair attempt should recover seven plans after a truncated JSON response');
 assert(repairData.generation_meta?.provider === 'volcengine_ark' && repairData.generation_meta?.fallback === false, 'successful Ark repair must not be marked as a local fallback');
 assert(repairData.generation_meta?.provider_attempt_count === 2 && repairData.generation_meta?.repair_attempted === true && repairData.generation_meta?.repair_succeeded === true, 'Ark repair metadata should expose two provider attempts and a successful repair');
+assert(repairData.generation_meta?.repair_recovered_count === 1 && repairData.plans[0]?.topic === '已保留的真实选题', 'repair should preserve complete Ark rows from the first response');
+assert(repairRequestBody.includes('只补充正好 6 条'), 'repair prompt should request only the missing rows instead of regenerating the whole batch');
 process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = '600';
 globalThis.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
   const abort = () => {

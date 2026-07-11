@@ -108,6 +108,7 @@ const CUSTOMER_HIDDEN_MODEL_FIELDS = new Set([
   'provider_attempt_count',
   'repair_attempted',
   'repair_succeeded',
+  'repair_recovered_count',
   'transparent_note',
   'debug',
 ]);
@@ -206,6 +207,7 @@ const normalizeModelMeta = (meta = {}) => ({
   provider_attempt_count: Number(meta.provider_attempt_count ?? ((meta.requested_model && meta.requested_model !== 'rule_template') ? 1 : 0)),
   repair_attempted: Boolean(meta.repair_attempted),
   repair_succeeded: Boolean(meta.repair_succeeded),
+  repair_recovered_count: Number(meta.repair_recovered_count || 0),
 });
 const logModelCall = ({ route, purpose, meta, status = null } = {}) => {
   const safeMeta = normalizeModelMeta(meta);
@@ -1706,12 +1708,55 @@ const sanitizeUnsupportedPlanClaims = (rows = [], assessment = {}) => {
   return { rows: sanitizedRows, adjustmentCount };
 };
 
-const parseArkPlanCall = (call = {}, assessment = {}) => {
-  const rows = rowsFromModelJson(extractModelJson(call.content));
-  if (rows.length < 7) throw new Error(`ark_returned_${rows.length}_plans`);
+const recoverCompletePlanRows = (text = '') => {
+  const source = String(text || '');
+  const starts = [];
+  const objects = [];
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') starts.push(index);
+    if (char !== '}' || !starts.length) continue;
+    const start = starts.pop();
+    try {
+      const candidate = JSON.parse(source.slice(start, index + 1));
+      if (candidate?.topic && candidate?.angle) objects.push(candidate);
+    } catch {}
+  }
+  return normalizeLlmPlanRows(objects);
+};
+
+const parseArkPlanCall = (call = {}, assessment = {}, expectedCount = 7) => {
+  let rows = [];
+  let parseError = null;
+  try {
+    rows = rowsFromModelJson(extractModelJson(call.content));
+  } catch (error) {
+    parseError = error;
+    rows = recoverCompletePlanRows(call.content);
+  }
   const sanitized = sanitizeUnsupportedPlanClaims(rows, assessment);
   if (hasUnsupportedPlanClaim(sanitized.rows, assessment)) throw new Error('unsupported_claim');
-  return sanitized;
+  if (sanitized.rows.length < expectedCount) {
+    const error = new Error(parseError?.message === 'invalid_json' && !sanitized.rows.length
+      ? 'invalid_json'
+      : `ark_returned_${sanitized.rows.length}_plans`);
+    error.recoveredRows = sanitized.rows;
+    error.safetyAdjustmentCount = sanitized.adjustmentCount;
+    throw error;
+  }
+  return { rows: sanitized.rows.slice(0, expectedCount), adjustmentCount: sanitized.adjustmentCount };
 };
 
 const mergeModelUsage = (...values) => {
@@ -1760,18 +1805,28 @@ const callArkPlanRows = async (assessment, diagnosis) => {
       }),
     };
   } catch (firstError) {
+    const recoveredRows = Array.isArray(firstError.recoveredRows) ? firstError.recoveredRows.slice(0, 6) : [];
+    const missingCount = Math.max(1, 7 - recoveredRows.length);
+    const repairPrompt = recoveredRows.length
+      ? [
+          `已完整保留 ${recoveredRows.length} 条选题：${JSON.stringify(recoveredRows.map((row) => row[0]))}`,
+          `只补充正好 ${missingCount} 条不重复的选题。`,
+          '返回格式必须为 {"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，不要额外文字。',
+          `上下文:${JSON.stringify(planPromptContext(assessment, diagnosis))}`,
+        ].join('\n')
+      : arkContentPlanPrompt(assessment, diagnosis);
     const retry = await callArkChatCompletion({
       route: '/api/assessments',
       purpose: 'initial_7_day_plan_repair',
       temperature: 0.2,
-      maxTokens: 1400,
-      timeoutMs: Math.min(9000, CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS),
+      maxTokens: recoveredRows.length ? Math.max(450, missingCount * 220) : 1400,
+      timeoutMs: Math.min(recoveredRows.length ? 9000 : 15000, CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS),
       model: arkPlanModel(),
       thinking: { type: 'disabled' },
       responseFormat: { type: 'json_object' },
       messages: [
-        { role: 'system', content: '上一次输出未形成完整的 7 条 JSON。这次必须严格返回一个可解析 JSON 对象，plans 数组必须正好 7 条，不要任何额外文字。' },
-        ...messages,
+        { role: 'system', content: '上一次输出未形成完整 JSON。这次只做结构修复：plans 数量必须与要求完全一致，不要额外文字。' },
+        { role: 'user', content: repairPrompt },
       ],
     });
     if (!retry.ok) {
@@ -1784,22 +1839,26 @@ const callArkPlanRows = async (assessment, diagnosis) => {
           provider_attempt_count: 2,
           repair_attempted: true,
           repair_succeeded: false,
+          repair_recovered_count: recoveredRows.length,
         }),
       };
     }
     try {
-      const repaired = parseArkPlanCall(retry, assessment);
+      const repaired = parseArkPlanCall(retry, assessment, missingCount);
+      const combinedRows = [...recoveredRows, ...repaired.rows].slice(0, 7);
+      if (combinedRows.length < 7) throw new Error(`ark_returned_${combinedRows.length}_plans`);
       return {
-        rows: repaired.rows,
+        rows: combinedRows,
         meta: normalizeModelMeta({
           ...retry,
           latency_ms: Number(call.latency_ms || 0) + Number(retry.latency_ms || 0),
           usage: mergeModelUsage(call.usage || call.raw_usage, retry.usage || retry.raw_usage),
-          content_safety_adjusted: repaired.adjustmentCount > 0,
-          safety_adjustment_count: repaired.adjustmentCount,
+          content_safety_adjusted: Number(firstError.safetyAdjustmentCount || 0) + repaired.adjustmentCount > 0,
+          safety_adjustment_count: Number(firstError.safetyAdjustmentCount || 0) + repaired.adjustmentCount,
           provider_attempt_count: 2,
           repair_attempted: true,
           repair_succeeded: true,
+          repair_recovered_count: recoveredRows.length,
         }),
       };
     } catch (retryError) {
@@ -1816,6 +1875,7 @@ const callArkPlanRows = async (assessment, diagnosis) => {
           provider_attempt_count: 2,
           repair_attempted: true,
           repair_succeeded: false,
+          repair_recovered_count: recoveredRows.length,
         }),
       };
     }
@@ -3598,6 +3658,7 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
     provider_attempt_count: Number(meta.provider_attempt_count || 0),
     repair_attempted: Boolean(meta.repair_attempted),
     repair_succeeded: Boolean(meta.repair_succeeded),
+    repair_recovered_count: Number(meta.repair_recovered_count || 0),
     reason_code: meta.fallback_reason || error || '',
     created_at: nowIso(),
   });
