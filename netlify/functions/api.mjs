@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.90';
-const VERSION_LABEL = 'v1.6.90 · 小红书语感与 CTA 精修版';
+const APP_VERSION = '1.6.91';
+const VERSION_LABEL = 'v1.6.91 · 视频号语感增强版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -721,7 +721,7 @@ const addPlatform = (bucket, platform, reason) => {
 const platformStyleRulesFor = (platform) => {
   const rules = {
     '小红书': '标题要像目标客户真实会说的话，可用“原来、后悔没早知道、谁懂啊”等轻情绪钩子或数字清单感；保持真实、不夸大、不堆 emoji，不要写成工具说明书。',
-    '视频号': '更适合负责人/老板口播、案例复盘和信任建立，表达要稳，不追求过度网感。',
+    '视频号': '更适合负责人/老板口播、真实案例复盘和信任建立，表达要稳、实在可信，不追求过度网感、不标题党；受众偏成熟，吃干货和情感共鸣。视频号在微信生态内，好内容可被转发到群/朋友圈并经好友社交推荐，可适度做“值得收藏/转发”的实用或共鸣选题；转化承接可引导到公众号/社群/企业微信/私信等私域入口。',
     '朋友圈/私域': '适合承接信任和轻咨询，少用营销腔，多用真实案例、过程和客户问题。',
     '公众号': '适合深度方案、案例沉淀和长期搜索资料，少用 emoji，结构要清楚。',
     '抖音': '适合短视频曝光验证，需要更强开头钩子和持续素材能力，不宜第一天就重投入。',
