@@ -1705,7 +1705,7 @@ const callArkPlanRows = async (assessment, diagnosis) => {
     route: '/api/assessments',
     purpose: 'initial_7_day_plan',
     temperature: 0.55,
-    maxTokens: 450,
+    maxTokens: 900,
     timeoutMs: CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS,
     model: arkPlanModel(),
     thinking: { type: 'disabled' },
