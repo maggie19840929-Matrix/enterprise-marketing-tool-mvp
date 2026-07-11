@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.89';
-const VERSION_LABEL = 'v1.6.89 · 成本保护与漏斗埋点版';
+const APP_VERSION = '1.6.90';
+const VERSION_LABEL = 'v1.6.90 · 小红书语感与 CTA 精修版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -720,7 +720,7 @@ const addPlatform = (bucket, platform, reason) => {
 
 const platformStyleRulesFor = (platform) => {
   const rules = {
-    '小红书': '可适量使用 emoji、封面要有精致感，标题要像真实问题，不要像工具说明书。',
+    '小红书': '标题要像目标客户真实会说的话，可用“原来、后悔没早知道、谁懂啊”等轻情绪钩子或数字清单感；保持真实、不夸大、不堆 emoji，不要写成工具说明书。',
     '视频号': '更适合负责人/老板口播、案例复盘和信任建立，表达要稳，不追求过度网感。',
     '朋友圈/私域': '适合承接信任和轻咨询，少用营销腔，多用真实案例、过程和客户问题。',
     '公众号': '适合深度方案、案例沉淀和长期搜索资料，少用 emoji，结构要清楚。',
@@ -757,7 +757,7 @@ const platformStrategyFor = (platform = '', ctx = {}) => {
     return {
       content_type: '图文/短视频',
       why: '适合承接搜索和收藏决策，把' + audience + '关心的避坑、清单、效果边界讲清楚。',
-      expression: '标题像真实问题，正文用清单/对比/案例分段，封面突出一个可保存判断点。',
+      expression: '标题用目标客户会说的话，可带轻情绪钩子或数字清单感；正文用清单/对比/案例分段，封面突出一个可保存判断点，不夸大、不堆 emoji。',
       observe_metrics: ['曝光', '收藏', '评论提问', '咨询'],
       next_adjustment: '收藏高但咨询低时，下一条把案例、流程、价格区间或适合人群写得更具体。',
     };
@@ -901,7 +901,7 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
   const title = row[0];
   const angle = row[1];
   const contentType = row[2] || strategy.content_type;
-  const cta = row[3] || '引导' + (ctx.conversion_action || '咨询具体情况');
+  const cta = row[3] || '主页咨询具体情况';
   const targetMetric = row[4] || strategy.observe_metrics.join(' / ');
   const merchantProfile = merchantProfileFor(assessment || {}, ctx);
   const customerReasoning = customerReasoningFor({
@@ -1617,8 +1617,10 @@ const planPromptContext = (assessment = {}, diagnosis = {}) => ({
 
 const contentPlanPrompt = (assessment, diagnosis) => [
   '请生成正好7条可直接进入内容草稿的选题，只返回JSON对象，不要Markdown。',
-  '格式固定为{"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，每条仅含这4个核心字段。topic<=20字，angle<=24字，content_type<=8字，cta<=20字。',
+  '格式固定为{"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，每条仅含这4个核心字段。topic<=20字，angle<=24字，content_type<=8字，cta<=14字。',
   '内容写给目标客户，必须贴合行业、目标、痛点和平台；7条角度不得重复；禁止评论区或留言关键词引导；禁止照抄输入长句；禁止编造未提供的优惠、接送、价格或效果承诺。',
+  '每条cta必须是完整、自然、口语化的一句话，不得出现“咨询咨询”“预约预约”等叠词，不得以“引导客户/引导家长”开头，也不要与topic重复。7条cta动作要多样，按场景轮换保存清单、主页咨询、预约体验、到店确认、截图问款、了解详情等安全动作，不能全部以“咨询”开头。',
+  '按上下文platforms的顺序轮换平台语感：小红书标题更口语，可用“原来、后悔没早知道、谁懂啊”等轻情绪钩子或数字清单感，但必须真实、不夸大、不堆emoji；抖音保持短视频开头钩子；视频号保持稳健口播/科普，不要把小红书语气套到其他平台。',
   '除非上下文明确提供，topic、angle、content_type和cta中严禁出现：免费、接送、无隐形消费、包会、保证效果、立减、折扣、优惠、赠送、返现。',
   '根据 variation_direction 改变本批次的选题切口；不要机械复用同一行业的固定标题顺序。',
   `上下文:${JSON.stringify(planPromptContext(assessment, diagnosis))}`,
@@ -1660,6 +1662,124 @@ const normalizeLlmPlanRows = (rows) => Array.isArray(rows) ? rows.slice(0, 7).ma
   const [targetMetric, publishQuality, qualityNote] = planRuleFields({ contentType, cta });
   return [topic, angle, contentType, cta, targetMetric, publishQuality, qualityNote];
 }).filter((row) => row[0] && row[1]) : [];
+
+const PLAN_CTA_MAX_LENGTH = 14;
+const PLAN_CTA_ACTIONS = [
+  ['保存', /保存|收藏|存下|存起来/],
+  ['主页', /主页/],
+  ['预约', /预约/],
+  ['到店', /到店/],
+  ['截图', /截图/],
+  ['了解', /了解|查看/],
+  ['对照', /对照|核对/],
+  ['咨询', /咨询|问问|问款/],
+];
+const planTextLength = (value = '') => Array.from(String(value || '')).length;
+const trimPlanNoise = (value = '') => String(value || '')
+  .replace(/\s+/g, ' ')
+  .replace(/([，。！？、；：,.!?;:])\1+/g, '$1')
+  .replace(/^[，。！？、；：,.!?;:\s]+|[，。！？、；：,.!?;:\s]+$/g, '')
+  .trim();
+const planCtaActionKey = (value = '') => {
+  const text = String(value || '');
+  const found = PLAN_CTA_ACTIONS.find(([, pattern]) => pattern.test(text));
+  return found?.[0] || Array.from(text).slice(0, 2).join('') || '其他';
+};
+const cleanPlanCtaText = (value = '') => {
+  const original = String(value || '').trim();
+  if (!original) return '';
+  try {
+    let cleaned = trimPlanNoise(original)
+      .replace(/^(?:请|现在|立即)?(?:点击|点开)(?=咨询|预约|查看|了解|保存|到店)/, '')
+      .replace(/^(?:请|建议|可以)?引导(?:客户|家长|用户|学员|消费者)?(?:去|来|进行)?/, '')
+      .replace(/^(?:客户|家长|用户|学员|消费者)(?:可|可以|去|来)?/, '')
+      .replace(/(咨询|预约|到店|了解|保存|收藏|截图)\1+/g, '$1')
+      .replace(/^咨询问(?:你的|一下)?/, '带上情况咨询')
+      .replace(/^咨询获取/, '了解')
+      .replace(/(?:或者|或是|以及|并且)$/g, '');
+    cleaned = trimPlanNoise(cleaned);
+    if (!cleaned) return '';
+    if (planTextLength(cleaned) > PLAN_CTA_MAX_LENGTH) {
+      const firstClause = cleaned.split(/[，。；、]/).map((item) => trimPlanNoise(item)).find((item) => item && planTextLength(item) <= PLAN_CTA_MAX_LENGTH);
+      return firstClause || '';
+    }
+    return cleaned;
+  } catch {
+    return planTextLength(original) <= PLAN_CTA_MAX_LENGTH ? original : '';
+  }
+};
+const planCtaCandidatesFor = (platform = '', assessment = {}) => {
+  const business = [assessment.industry, assessment.offer, assessment.main_goal, assessment.target_customer].filter(Boolean).join(' ');
+  const service = serviceTopicFor(business, assessment.offer || '');
+  if (/财税|代账|税务|工商|审计|企业服务/.test(business)) {
+    return ['保存这份自查清单', '主页咨询财税情况', '预约一次需求沟通', '对照清单核对资料', '了解服务适用范围', '带上情况咨询方案', '查看主页服务说明'];
+  }
+  if (service.type === 'youth_basketball' || service.type === 'martial_arts' || service.type === 'education') {
+    return ['保存体验观察清单', '主页咨询课程安排', '预约一次体验课', '到店前确认课表', '了解孩子适合班型', '带上年龄咨询班型', '对照清单观察课堂'];
+  }
+  if (['nail', 'lash', 'beauty', 'photo', 'dental', 'postpartum'].includes(service.type) || /推拿|按摩|养生|理疗/.test(business)) {
+    const screenshotCta = service.type === 'nail' || service.type === 'lash' ? '截图咨询适合款式' : '截图咨询适合方案';
+    return ['保存这份到店清单', '主页咨询具体情况', '预约一次到店体验', '到店前确认时间', screenshotCta, '了解服务适合范围', '带上情况咨询方案'];
+  }
+  if (['fashion_accessory', 'aesthetic_retail', 'basketball_goods'].includes(service.type)) {
+    return ['保存这份选购清单', '主页查看产品详情', '截图咨询适合款式', '对照清单选规格', '了解产品适用场景', '带上需求咨询选择', '收藏后慢慢对照'];
+  }
+  const platformSpecific = String(platform).includes('朋友圈')
+    ? '看完案例再咨询'
+    : String(platform).includes('视频号')
+      ? '转发给需要的人'
+      : '保存这份清单';
+  return [platformSpecific, '主页咨询具体情况', '预约进一步沟通', '对照清单先自查', '了解服务适用范围', '带上情况咨询方案', '查看主页服务说明'];
+};
+const selectDiversePlanCta = ({ value = '', platform = '', assessment = {}, usedActions = new Set() } = {}) => {
+  const original = String(value || '');
+  const cleaned = cleanPlanCtaText(original);
+  const business = [assessment.industry, assessment.offer, assessment.main_goal, assessment.target_customer].filter(Boolean).join(' ');
+  const hasSourceNoise = /(?:点击咨询|私信|咨询咨询|咨询问|咨询获取|引导(?:客户|家长|用户)?|评论区|留言|关键词|暗号|扣\d|回复|(?:或者|或是|以及|并且)[，。！？、；：,.!?;:]*$)/.test(original);
+  const hasExplicitAction = /保存|收藏|存下|存起来|主页|咨询|预约|到店|截图|了解|查看|对照|核对|转发|问我|问问|体验|确认/.test(cleaned);
+  const looksIncomplete = /^(?:如果|假如|要是|不确定|拿不准|想知道|想了解|想看|还有)|第一次.+后$/.test(cleaned);
+  const mismatchedServiceWord = /推拿|按摩|理疗|肩颈/.test(business) && /款式|同款|问款/.test(cleaned);
+  const sourceAcceptable = Boolean(cleaned && !hasSourceNoise && hasExplicitAction && !looksIncomplete && !mismatchedServiceWord);
+  const cleanedKey = planCtaActionKey(cleaned);
+  if (sourceAcceptable && !usedActions.has(cleanedKey)) {
+    usedActions.add(cleanedKey);
+    return cleaned;
+  }
+  const candidates = planCtaCandidatesFor(platform, assessment)
+    .map(cleanPlanCtaText)
+    .filter((item) => item && planTextLength(item) <= PLAN_CTA_MAX_LENGTH);
+  const replacement = candidates.find((item) => !usedActions.has(planCtaActionKey(item)))
+    || (sourceAcceptable ? cleaned : candidates[usedActions.size % Math.max(candidates.length, 1)])
+    || candidates[0]
+    || '主页咨询具体情况';
+  usedActions.add(planCtaActionKey(replacement));
+  return replacement;
+};
+const cleanPlanTopicForPlatform = (value = '', platform = '', assessment = {}, index = 0) => {
+  const original = trimPlanNoise(value);
+  if (!original || !String(platform).includes('小红书')) return original;
+  try {
+    const textbookPattern = /^(?:一文讲清(?:楚)?(?:真相)?|干货整理|全面解析|深度解析|知识科普)[：:]?/;
+    if (!textbookPattern.test(original)) return original;
+    const core = trimPlanNoise(original.replace(textbookPattern, '')) || original;
+    const business = [assessment.industry, assessment.offer, assessment.target_customer].filter(Boolean).join(' ');
+    const consumer = /美甲|美睫|美容|推拿|按摩|养生|篮球|武术|搏击|家长|孩子|摄影|口腔|餐饮|门店|附近/.test(business);
+    const hooks = consumer ? ['原来', '后悔没早知道：', '谁懂啊：'] : ['原来', '先收藏：', '别急着决定：'];
+    return limitPlanText(`${hooks[index % hooks.length]}${core}`, 24);
+  } catch {
+    return original;
+  }
+};
+const postProcessPlanRows = (rows = [], platforms = [], assessment = {}) => {
+  const usedActions = new Set();
+  return rows.map((row, index) => {
+    const source = Array.isArray(row) ? [...row] : [];
+    const platform = platforms[index % Math.max(platforms.length, 1)] || '当前平台';
+    source[0] = cleanPlanTopicForPlatform(source[0], platform, assessment, index) || source[0];
+    source[3] = selectDiversePlanCta({ value: source[3], platform, assessment, usedActions });
+    return source;
+  });
+};
 
 const rowsFromModelJson = (parsed) => normalizeLlmPlanRows(
   Array.isArray(parsed)
@@ -2003,10 +2123,10 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
   const variedFallbackRows = fallbackShift > 0
     ? [...fallbackRows.slice(fallbackShift % fallbackRows.length), ...fallbackRows.slice(0, fallbackShift % fallbackRows.length)]
     : fallbackRows;
-  const sourceRows = applyCoCreationToPlanRows(
+  const sourceRows = postProcessPlanRows(applyCoCreationToPlanRows(
     modelRows?.length ? modelRows : variedFallbackRows,
     assessment || {}
-  );
+  ), platforms, assessment || {});
   const generation = normalizeModelMeta(modelMeta || { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, fallback_reason: 'model_not_requested', failure_reason: 'model_not_requested' });
   diagnosis.content_generation = generation;
   diagnosis.generation_meta = generation;
@@ -2347,7 +2467,7 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
   const serviceType = serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '').type;
   const ctxForRows = inferBusinessContext(assessment);
   const merchantProfile = merchantProfileFor(assessment, ctxForRows);
-  const planCta = serviceType === 'youth_basketball'
+  const basePlanCta = serviceType === 'youth_basketball'
     ? '引导家长咨询孩子年龄和体验课时间'
     : serviceType === 'martial_arts'
       ? '引导家长咨询孩子年龄、基础和体验课时间'
@@ -2359,9 +2479,11 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
       : judgmentType === '平台不匹配'
         ? ['同题换平台测试', '优化标题钩子', '缩短开头', '改同城/搜索表达', '复用有效素材', '记录平台差异', '保留高信号平台']
         : ['重写标题', '强化第一句话', '换客户视角', '减少服务堆叠', '加入具体问题', '增加证据', '复盘点击原因'];
+  const usedCtaActions = new Set();
   const plan = Array.from({ length: 7 }, (_, index) => {
-    const topic = seedTopics[index] || (audience + '关心的' + offer + '问题');
     const platform = platformSeeds[index % Math.max(platformSeeds.length, 1)] || selected_plan.platform || '小红书/视频号';
+    const topic = cleanPlanTopicForPlatform(seedTopics[index] || (audience + '关心的' + offer + '问题'), platform, assessment, index);
+    const planCta = selectDiversePlanCta({ value: basePlanCta, platform, assessment, usedActions: usedCtaActions });
     const platformStrategy = platformStrategyFor(platform, {
       category: offer,
       primary_offer: offer,

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.89';
-const VERSION_LABEL = 'v1.6.89 · 成本保护与漏斗埋点版';
+const APP_VERSION = '1.6.90';
+const VERSION_LABEL = 'v1.6.90 · 小红书语感与 CTA 精修版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';

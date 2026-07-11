@@ -4,9 +4,9 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.89';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.90';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.89-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.90-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -72,6 +72,30 @@ const assertCustomerFacingPlans = (label, value) => {
   });
 };
 
+const testCtaActionKey = (value = '') => {
+  const text = String(value || '');
+  const actions = [
+    ['保存', /保存|收藏|存下|存起来/], ['主页', /主页/], ['预约', /预约/], ['到店', /到店/],
+    ['截图', /截图/], ['了解', /了解|查看/], ['对照', /对照|核对/], ['咨询', /咨询|问问|问款/],
+  ];
+  return actions.find(([, pattern]) => pattern.test(text))?.[0] || text.slice(0, 2);
+};
+
+const assertPlanCtaQuality = (label, value) => {
+  const ctas = (value.plans || []).map((plan) => String(plan.cta || ''));
+  assert(ctas.length === 7, `${label} should return seven CTAs`);
+  ctas.forEach((cta) => {
+    assert(Array.from(cta).length <= 14, `${label} CTA must stay within 14 characters: ${cta}`);
+    assert(!/(咨询咨询|预约预约|到店到店|了解了解|咨询问|咨询获取|点击咨询|引导客户|引导家长)/.test(cta), `${label} CTA should be grammatical and deduplicated: ${cta}`);
+    assert(!/(?:或者|或是|以及|并且)$/.test(cta), `${label} CTA should not end as a broken clause: ${cta}`);
+    assert(!/私信|评论区|留言|关键词|暗号|扣\d|回复/.test(cta), `${label} CTA should not use risky interaction inducement: ${cta}`);
+    assert(!/^(?:如果|假如|要是|不确定|拿不准|想知道|想了解|想看|还有)|第一次.+后$/.test(cta), `${label} CTA should not be an unfinished thought: ${cta}`);
+    assert(/保存|收藏|存下|存起来|主页|咨询|预约|到店|截图|了解|查看|对照|核对|转发|问我|问问|体验|确认/.test(cta), `${label} CTA should contain a clear customer action: ${cta}`);
+  });
+  assert(new Set(ctas.map(testCtaActionKey)).size >= 5, `${label} should use at least five distinct CTA actions: ${ctas.join(' / ')}`);
+  assertNoUnsafeCommentCta(label, value.plans);
+};
+
 const assertRetailAccessoryPlans = (label, value) => {
   const text = JSON.stringify(value.plans.map((plan) => [plan.topic, plan.angle, plan.cta, plan.qa_note, plan.platform]));
   ['相关服务', '服务前', '服务流程', '到店前', '预约服务', '到店服务', '真实案例/过程内容'].forEach((word) => {
@@ -111,7 +135,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.89', `expected app_version 1.6.89, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.90', `expected app_version 1.6.90, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -645,7 +669,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.89'"), 'app should expose v1.6.89 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.90'"), 'app should expose v1.6.90 internally/API-side');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
 assert(appJs.includes('cryptoApi?.randomUUID') && appJs.includes('cryptoApi?.getRandomValues') && !appJs.includes("Math.random().toString(36).slice(2, 8)"), 'new anonymous client ids should use cryptographic randomness');
@@ -793,7 +817,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.89') && indexHtml.includes('/styles.css?v=1.6.89') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.89'), 'customer page should cache-bust the v1.6.89 cost-protection release while preserving the centered footer stylesheet');
+assert(indexHtml.includes('/app.js?v=1.6.90') && indexHtml.includes('/styles.css?v=1.6.90') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.90'), 'customer page should cache-bust the v1.6.90 content-quality release while preserving the centered footer stylesheet');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
 assert(indexHtml.includes('id="customerResumeBanner"') && indexHtml.includes('继续上次项目') && indexHtml.includes('新建空白项目') && appJs.includes('function renderCustomerResumeBanner') && appJs.includes('function startBlankCustomerProject'), 'customer page should distinguish saved local projects from a blank first-customer start');
@@ -1541,6 +1565,133 @@ for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效
 for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效果', '立减', '折扣', '优惠', '赠送', '返现']) {
   assert(claimGuardRequestBody.includes(claim), `Ark plan prompt should explicitly forbid unsupported claim: ${claim}`);
 }
+assert(claimGuardRequestBody.includes('cta<=14字') && claimGuardRequestBody.includes('咨询咨询') && claimGuardRequestBody.includes('7条cta动作要多样'), 'Ark plan prompt should constrain CTA length, grammar, and action diversity');
+assert(claimGuardRequestBody.includes('小红书标题更口语') && claimGuardRequestBody.includes('不要把小红书语气套到其他平台'), 'Ark plan prompt should strengthen XHS tone without leaking it into other platforms');
+
+const noisyCtas = [
+  '点击咨询咨询详细方案',
+  '咨询问你的具体情况',
+  '咨询获取服务详情',
+  '如果孩子还不确定',
+  '第一次体验后',
+  '点击私信预约到店体验',
+  '有问题可以评论区问我',
+];
+const qualityCases = [
+  {
+    id: 'tax',
+    industry: '财税代理与代理记账服务',
+    main_goal: '获得中小企业老板的代账和税务咨询',
+    target_customer: '刚成立公司或准备更换代账服务的企业负责人',
+    offer: '代理记账、纳税申报和工商财税咨询',
+    customer_pain: '担心漏报、资料交接混乱和收费不透明',
+    content_assets: '申报节点清单、票据整理示例和服务流程说明',
+    topics: ['一文讲清真相：代理记账怎么选', '干货整理：报税前要准备什么', '公司刚成立先办哪3项财税', '票据总对不上问题在哪', '代账报价差很多看哪几点', '老板最容易漏掉的申报节点', '财税资料怎么交接更省心'],
+    expected: /财税|代理记账|报税|票据|申报/,
+  },
+  {
+    id: 'nail',
+    industry: '本地美容美甲门店',
+    main_goal: '获得附近客户的小红书咨询和到店预约',
+    target_customer: '附近3公里想做通勤款和节日款的女性',
+    offer: '显白美甲、短甲通勤款和节日款到店服务',
+    customer_pain: '担心款式显手黑、客照与到店效果不一致',
+    content_assets: '真实客照、手型肤色对比和款式细节图',
+    topics: ['一文讲清真相：显白美甲怎么选', '干货整理：短甲适合哪几款', '通勤女生做美甲先看这3点', '美甲客照怎么看出细节', '节日前换款要提前多久', '怕翻车先看手型和肤色', '到店前怎么选参考款'],
+    expected: /美甲|短甲|手型|肤色|款式/,
+  },
+  {
+    id: 'massage',
+    industry: '本地中医推拿与肩颈调理门店',
+    main_goal: '获得附近上班族咨询和到店体验',
+    target_customer: '附近久坐、肩颈紧张的通勤上班族',
+    offer: '肩颈推拿和久坐人群到店调理体验',
+    customer_pain: '担心手法不适合、不知道第一次体验怎么判断',
+    content_assets: '门店环境、服务流程和常见问题说明',
+    topics: ['一文讲清真相：肩颈推拿怎么选', '干货整理：久坐酸痛先看哪3点', '第一次推拿要说清哪些感受', '上班族肩颈紧先别硬扛', '推拿前后要注意什么', '哪些情况要先问清是否适合', '到店体验怎么判断手法'],
+    expected: /推拿|肩颈|久坐|到店|手法/,
+  },
+  {
+    id: 'basketball',
+    industry: '少儿篮球培训机构',
+    main_goal: '获得附近家长咨询和体验课预约',
+    target_customer: '附近三公里有6-12岁孩子的家长',
+    offer: '篮球启蒙、体能训练和周末体验课',
+    customer_pain: '担心孩子零基础跟不上、课堂安全和训练效果',
+    content_assets: '课堂实拍、教练讲解和体能训练过程',
+    topics: ['一文讲清真相：孩子篮球课怎么选', '干货整理：体验课先看哪3点', '6-12岁零基础怎么开始', '练运球也在练哪些体能', '家长旁听先观察这4点', '孩子怕跟不上怎么办', '周末体验课怎么选班型'],
+    expected: /篮球|体验课|孩子|家长|体能/,
+  },
+];
+
+for (const qualityCase of qualityCases) {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    model: 'doubao-timeout-plan',
+    choices: [{ message: { content: JSON.stringify({
+      plans: qualityCase.topics.map((topic, index) => ({
+        topic,
+        angle: `围绕真实客户顾虑给出第${index + 1}个具体判断`,
+        content_type: '图文',
+        cta: noisyCtas[index],
+      })),
+    }) } }],
+    usage: { prompt_tokens: 20, completion_tokens: 40, total_tokens: 60 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const response = await claimGuardHandler(internalRequest('POST', 'assessments', {
+    ...payload,
+    client_id: `content-quality-${qualityCase.id}`,
+    company_name: `内容质量验证-${qualityCase.id}`,
+    industry: qualityCase.industry,
+    main_goal: qualityCase.main_goal,
+    target_customer: qualityCase.target_customer,
+    offer: qualityCase.offer,
+    customer_pain: qualityCase.customer_pain,
+    content_assets: qualityCase.content_assets,
+    current_channels: '小红书',
+    biggest_problem: '有浏览没咨询',
+  }));
+  assert(response.status === 201, `${qualityCase.id} content-quality assessment should return 201, got ${response.status}`);
+  const result = await response.json();
+  assert(result.generation_meta?.provider === 'volcengine_ark' && result.generation_meta?.fallback === false, `${qualityCase.id} quality cleanup should preserve real model evidence`);
+  assert(result.plans.every((plan) => plan.platform === '小红书'), `${qualityCase.id} selected XHS platform should not be replaced`);
+  assertPlanCtaQuality(`${qualityCase.id} content quality`, result);
+  const topicText = result.plans.map((plan) => plan.topic).join('｜');
+  assert(!/一文讲清|干货整理|全面解析|深度解析|知识科普/.test(topicText), `${qualityCase.id} XHS titles should remove textbook phrasing: ${topicText}`);
+  assert(/原来|后悔没早知道|谁懂啊|先收藏|别急着决定/.test(topicText), `${qualityCase.id} XHS titles should contain a restrained conversational hook: ${topicText}`);
+  assert(qualityCase.expected.test(topicText), `${qualityCase.id} titles should stay specific to the customer business: ${topicText}`);
+}
+
+globalThis.fetch = async () => new Response(JSON.stringify({
+  model: 'doubao-timeout-plan',
+  choices: [{ message: { content: JSON.stringify({
+    plans: Array.from({ length: 7 }, (_, index) => ({
+      topic: `一文讲清真相：视频号财税问题${index + 1}`,
+      angle: `稳健口播解释企业财税问题${index + 1}`,
+      content_type: '口播',
+      cta: noisyCtas[index],
+    })),
+  }) } }],
+  usage: { prompt_tokens: 20, completion_tokens: 40, total_tokens: 60 },
+}), { status: 200, headers: { 'content-type': 'application/json' } });
+const videoToneResponse = await claimGuardHandler(internalRequest('POST', 'assessments', {
+  ...payload,
+  client_id: 'content-quality-video-account',
+  company_name: '视频号语感隔离验证',
+  industry: '财税代理与代理记账服务',
+  main_goal: '通过视频号建立企业客户信任',
+  target_customer: '需要财税服务的中小企业负责人',
+  offer: '代理记账与税务咨询',
+  customer_pain: '担心申报遗漏和服务流程不透明',
+  content_assets: '财税流程说明与常见问题',
+  current_channels: '视频号',
+  biggest_problem: '不知道发什么',
+}));
+const videoToneData = await videoToneResponse.json();
+assert(videoToneResponse.status === 201 && videoToneData.plans.every((plan) => plan.platform === '视频号'), 'video-account quality case should preserve the selected platform');
+assert(videoToneData.plans.some((plan) => plan.topic.includes('一文讲清真相')), 'non-XHS title cleanup should not rewrite textbook phrasing with XHS hooks');
+assert(!/谁懂啊|后悔没早知道|别急着决定/.test(videoToneData.plans.map((plan) => plan.topic).join('|')), 'XHS emotional hooks must not spill into Video Account titles');
+assertPlanCtaQuality('video-account content quality', videoToneData);
+
 let repairFetchCount = 0;
 let repairRequestBody = '';
 globalThis.fetch = async (_url, options = {}) => {
