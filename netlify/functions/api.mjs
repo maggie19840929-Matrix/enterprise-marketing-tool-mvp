@@ -1607,6 +1607,7 @@ const contentPlanPrompt = (assessment, diagnosis) => [
   '请生成正好7条可直接进入内容草稿的选题，只返回JSON对象，不要Markdown。',
   '格式固定为{"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，每条仅含这4个核心字段。topic<=20字，angle<=24字，content_type<=8字，cta<=20字。',
   '内容写给目标客户，必须贴合行业、目标、痛点和平台；7条角度不得重复；禁止评论区或留言关键词引导；禁止照抄输入长句；禁止编造未提供的优惠、接送、价格或效果承诺。',
+  '除非上下文明确提供，topic、angle、content_type和cta中严禁出现：免费、接送、无隐形消费、包会、保证效果、立减、折扣、优惠、赠送、返现。',
   '根据 variation_direction 改变本批次的选题切口；不要机械复用同一行业的固定标题顺序。',
   `上下文:${JSON.stringify(planPromptContext(assessment, diagnosis))}`,
 ].join('\n');

@@ -1501,7 +1501,10 @@ const publicTimeoutResponse = await timeoutHandler(request('POST', 'assessments'
   company_name: '公开超时兜底验证客户',
 }));
 assert(publicTimeoutResponse.status === 401, `public POST /assessments must stay behind the internal token during provider timeout, got ${publicTimeoutResponse.status}`);
-globalThis.fetch = async () => new Response(JSON.stringify({
+let claimGuardRequestBody = '';
+globalThis.fetch = async (_url, options = {}) => {
+  claimGuardRequestBody = String(options.body || '');
+  return new Response(JSON.stringify({
   model: 'doubao-timeout-plan',
   choices: [{ message: { content: JSON.stringify({
     plans: Array.from({ length: 7 }, (_, index) => ({
@@ -1512,7 +1515,8 @@ globalThis.fetch = async () => new Response(JSON.stringify({
     })),
   }) } }],
   usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-}), { status: 200, headers: { 'content-type': 'application/json' } });
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
 const { default: claimGuardHandler } = await import(`../netlify/functions/api.mjs?claim-smoke=${Date.now()}`);
 const claimGuardResponse = await claimGuardHandler(internalRequest('POST', 'assessments', {
   ...payload,
@@ -1527,6 +1531,9 @@ assert(claimGuardResponse.status === 201, `unsupported model claim should still 
 const claimGuardData = await claimGuardResponse.json();
 assert(claimGuardData.generation_meta?.fallback_reason === 'unsupported_claim', `expected unsupported_claim fallback, got ${claimGuardData.generation_meta?.fallback_reason}`);
 assert(!JSON.stringify(claimGuardData.plans).includes('免费接送'), 'unsupported model claim must not reach the returned content plans');
+for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效果', '立减', '折扣', '优惠', '赠送', '返现']) {
+  assert(claimGuardRequestBody.includes(claim), `Ark plan prompt should explicitly forbid unsupported claim: ${claim}`);
+}
 process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = '600';
 globalThis.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
   const abort = () => {
