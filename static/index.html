@@ -5,10 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘 · 内容增长循环工具</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="/styles.css?v=1.6.91" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.91" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.92" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.92" />
 </head>
-<body>
+<body class="customer-mode">
+  <script>
+    (() => {
+      const path = String(window.location.pathname || '').replace(/\/+$/, '');
+      const internal = path === '/internal' || path.startsWith('/internal/');
+      document.body.classList.toggle('customer-mode', !internal);
+      document.body.classList.toggle('internal-mode', internal);
+    })();
+  </script>
   <div id="customerApp" class="customer-trial-app">
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="获客罗盘首页">
@@ -863,6 +871,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.91"></script>
+  <script src="/app.js?v=1.6.92"></script>
 </body>
 </html>
