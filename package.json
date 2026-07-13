@@ -1,6 +1,6 @@
 {
   "name": "enterprise-marketing-tool-mvp",
-  "version": "1.6.92",
+  "version": "1.6.93",
   "private": true,
   "type": "module",
   "scripts": {

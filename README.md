@@ -176,7 +176,46 @@ ARK_API_KEY=火山方舟 API Key，用于 Seedance 2.0 视频
 ANTHROPIC_API_KEY=Anthropic API Key，用于 Claude Opus 文案/脚本
 ```
 
-飞书回写 V1 只提供 adapter mock：`POST /api/feishu/sync` 返回 A 客户资料 / B 内容计划 / C 外包制作 / D 内部验收 / E 客户交付 / F 数据回流 六类 payload，不真连飞书。
+### 飞书双向同步阶段 A
+
+阶段 A 先打通门店数据回流，并保留半自动出站能力：
+
+- `POST /api/feishu/inbound`：接收飞书多维表格自动化推送；必须携带 `x-feishu-inbound-token`（也兼容 Bearer token），否则返回 `401`。
+- 每条自动化建议同时携带 `x-feishu-client-id`，且必须与 body 的 `client_id` 一致；服务端只读取并写回该客户自己的 `global-project-store.<client_id>`，不会跨客户搜索项目。
+- 效果数据会幂等写入项目的 `feedback` 与 `records`；每日打卡、口碑任务分别写入 `daily_checkins`、`reputation_tasks`，并统一留下 `feishu_inbound_records` 审计记录。
+- `POST /api/feishu/sync`：配置群机器人 webhook 后真实推送任务摘要；未配置时返回可人工导入的 A-F 六段 payload，不伪装同步成功。
+
+Netlify 环境变量：
+
+```bash
+FEISHU_INBOUND_TOKEN=至少32字节的强随机回流令牌
+FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
+```
+
+飞书自动化回推示例（字段也兼容对应中文列名）：
+
+```json
+{
+  "client_id": "basketball",
+  "project_id": "project-basketball",
+  "event_type": "效果回填",
+  "record_id": "recxxxxxxxx",
+  "fields": {
+    "内容计划ID": "plan-1",
+    "发布链接": "https://example.com/post",
+    "反馈时间点": "T+72",
+    "曝光": 1800,
+    "点赞": 42,
+    "评论": 8,
+    "收藏": 26,
+    "转发": 4,
+    "咨询人数": 6,
+    "观察": "客户更关注体验流程"
+  }
+}
+```
+
+阶段 B 的飞书自建应用、`tenant_access_token` 缓存和 Bitable API 自动读写需要另行提供 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 及各表 `app_token/table_id`，不会在缺凭据时冒充已接通。
 
 ### 豆包 / 火山方舟文本模型
 

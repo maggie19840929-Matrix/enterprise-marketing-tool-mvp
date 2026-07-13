@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.92';
-const VERSION_LABEL = 'v1.6.92 · 首屏无闪烁修复版';
+const APP_VERSION = '1.6.93';
+const VERSION_LABEL = 'v1.6.93 · 飞书回流阶段A版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -39,6 +39,8 @@ const clientIdFrom = (payload = {}, url = null, request = null) =>
   normalizeClientId(payload.client_id || payload.customer_key || url?.searchParams?.get('client_id') || url?.searchParams?.get('customer') || request?.headers?.get('x-client-id') || 'anonymous');
 const clientScopedCloudStateKey = (clientId = 'anonymous') => `${CLOUD_STATE_KEY}.${normalizeClientId(clientId) || 'anonymous'}`;
 const internalAccessToken = () => envValue('INTERNAL_ACCESS_TOKEN');
+const feishuInboundToken = () => envValue('FEISHU_INBOUND_TOKEN');
+const feishuWebhookUrl = () => envValue('FEISHU_WEBHOOK_URL');
 const requestInternalToken = (request = null) => {
   const auth = String(request?.headers?.get('authorization') || '').trim();
   const bearer = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
@@ -51,6 +53,13 @@ const constantTimeTokenMatch = (provided = '', expected = '') => {
   return timingSafeEqual(providedDigest, expectedDigest);
 };
 const hasValidInternalAuth = (request = null) => constantTimeTokenMatch(requestInternalToken(request), internalAccessToken());
+const requestFeishuInboundToken = (request = null) => {
+  const auth = String(request?.headers?.get('authorization') || '').trim();
+  const bearer = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
+  return String(request?.headers?.get('x-feishu-inbound-token') || '').trim() || bearer;
+};
+const hasValidFeishuInboundAuth = (request = null) =>
+  constantTimeTokenMatch(requestFeishuInboundToken(request), feishuInboundToken());
 const INTERNAL_AUTH_MARKER = Symbol('internal-authorized');
 const markInternalAuthorized = (payload, authorized = false) => {
   if (authorized && payload && typeof payload === 'object') {
@@ -4537,9 +4546,265 @@ const clientVisibleTask = (task = {}) => sanitizeCustomerPayload({
   updated_at: task.updated_at,
 });
 
+const feishuInboundSources = (payload = {}) => {
+  const record = payload.record || payload.data?.record || payload.event?.record || {};
+  return [
+    payload,
+    payload.fields,
+    payload.data,
+    payload.data?.fields,
+    record,
+    record.fields,
+  ].filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+};
+
+const feishuScalarValue = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    const values = value.map(feishuScalarValue).filter((item) => String(item ?? '').trim() !== '');
+    return values.length <= 1 ? (values[0] ?? '') : values.join('，');
+  }
+  if (typeof value === 'object') {
+    for (const key of ['value', 'text', 'link', 'url', 'name', 'id', 'record_id']) {
+      if (value[key] !== undefined && value[key] !== null) return feishuScalarValue(value[key]);
+    }
+  }
+  return '';
+};
+
+const pickFeishuInboundValue = (payload = {}, aliases = []) => {
+  for (const source of feishuInboundSources(payload)) {
+    for (const alias of aliases) {
+      if (Object.prototype.hasOwnProperty.call(source, alias)) {
+        const value = feishuScalarValue(source[alias]);
+        if (String(value ?? '').trim() !== '') return value;
+      }
+      const actualKey = Object.keys(source).find((key) => String(key).trim().toLowerCase() === String(alias).trim().toLowerCase());
+      if (actualKey) {
+        const value = feishuScalarValue(source[actualKey]);
+        if (String(value ?? '').trim() !== '') return value;
+      }
+    }
+  }
+  return '';
+};
+
+const feishuInboundText = (payload, aliases, fallback = '') => {
+  const picked = String(pickFeishuInboundValue(payload, aliases) ?? '').trim();
+  return String(picked || fallback || '').trim().slice(0, 2000);
+};
+const feishuInboundNumber = (payload, aliases) => {
+  const raw = String(pickFeishuInboundValue(payload, aliases) ?? '').replace(/,/g, '').trim();
+  const parsed = Number(raw.replace(/[^\d.-]/g, ''));
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+const feishuInboundBoolean = (payload, aliases) => {
+  const value = String(pickFeishuInboundValue(payload, aliases) ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'done', 'completed', '完成', '已完成', '是'].includes(value);
+};
+const normalizeFeishuInboundType = (value = '', payload = {}) => {
+  const text = String(value || '').trim().toLowerCase();
+  if (/daily|check.?in|打卡|执行/.test(text)) return 'daily_checkin';
+  if (/reputation|review|口碑|评价|晒单/.test(text)) return 'reputation_task';
+  if (/feedback|effect|metric|发布|效果|数据|反馈|回收/.test(text)) return 'feedback';
+  const hasMetrics = feishuInboundNumber(payload, ['views', 'exposure', '浏览/曝光', '曝光', '播放量', '浏览量']) > 0
+    || feishuInboundText(payload, ['publish_link', '发布链接']);
+  return hasMetrics ? 'feedback' : 'daily_checkin';
+};
+const replaceFeishuRecord = (items = [], record = {}, matcher = () => false) =>
+  [record, ...ensureArray(items).filter((item) => !matcher(item))].slice(0, 500);
+
+const receiveFeishuInbound = async (payload = {}, request = null) => {
+  const rawClientId = feishuInboundText(payload, ['client_id', 'customer_key', '客户ID', '客户标识', '门店ID']);
+  const clientId = normalizeClientId(rawClientId);
+  const projectId = feishuInboundText(payload, ['project_id', '项目ID', '项目标识']);
+  const boundClientId = normalizeClientId(request?.headers?.get('x-feishu-client-id') || '');
+  if (!clientId || !projectId) {
+    return { status: 400, body: { ok: false, error: '飞书回流需要有效的 client_id 和 project_id' } };
+  }
+  if (boundClientId && boundClientId !== clientId) {
+    return { status: 403, body: { ok: false, error: '飞书回流客户标识不匹配' } };
+  }
+
+  const cloud = await readCloudState(clientId);
+  const projectStore = normalizeCloudProjectStore(cloud.project_store || {});
+  const project = ensureArray(projectStore.projects).find((item) => String(item.id || '') === projectId);
+  if (!project) {
+    return { status: 404, body: { ok: false, error: '指定客户下未找到对应项目，未写入任何数据' } };
+  }
+
+  const eventType = normalizeFeishuInboundType(feishuInboundText(payload, ['event_type', 'record_type', 'type', '数据类型', '回流类型']), payload);
+  const planReference = feishuInboundText(payload, ['content_plan_id', 'content_plan_record_id', '发布计划ID', '内容计划ID', '计划ID']);
+  const plans = ensureArray(project.state?.plans);
+  const matchedPlan = planReference
+    ? plans.find((item) => [item.id, item.content_plan_id, item.content_plan_record_id].some((value) => String(value ?? '') === planReference))
+    : null;
+  if (eventType === 'feedback' && !matchedPlan) {
+    return { status: 422, body: { ok: false, error: planReference ? '发布计划不属于该客户项目，未写入' : '效果回流需要 content_plan_id' } };
+  }
+
+  const receivedAt = nowIso();
+  const occurredAt = feishuInboundText(payload, ['occurred_at', 'created_at', 'updated_at', '发布时间', '打卡时间', '日期'], receivedAt) || receivedAt;
+  const explicitRecordId = feishuInboundText(payload, ['record_id', 'feishu_record_id', '记录ID', 'recordId']);
+  const recordFingerprint = JSON.stringify({ clientId, projectId, eventType, planReference, occurredAt, payload: feishuInboundSources(payload).slice(0, 2) });
+  const feishuRecordId = explicitRecordId || `derived_${sha256Hex(recordFingerprint).slice(0, 20)}`;
+  const publishLink = normalizeExternalUrl(feishuInboundText(payload, ['publish_link', '发布链接', '内容链接', '作品链接']));
+  const metrics = {
+    views: feishuInboundNumber(payload, ['views', 'exposure', '浏览/曝光', '曝光', '播放量', '浏览量']),
+    likes: feishuInboundNumber(payload, ['likes', '点赞', '点赞数']),
+    comments: feishuInboundNumber(payload, ['comments', '评论', '评论数']),
+    favorites: feishuInboundNumber(payload, ['favorites', '收藏', '收藏数']),
+    shares: feishuInboundNumber(payload, ['shares', '转发', '分享', '转发数']),
+    consultations: feishuInboundNumber(payload, ['consultations', 'inquiries', '咨询人数', '私信/咨询', '咨询']),
+    appointments: feishuInboundNumber(payload, ['appointments', '预约人数', '到店预约', '预约']),
+  };
+  const suppliedEngagement = feishuInboundNumber(payload, ['engagement', 'interactions', '互动', '互动数']);
+  const engagement = suppliedEngagement || metrics.likes + metrics.comments + metrics.favorites + metrics.shares;
+  const notes = feishuInboundText(payload, ['notes', 'observation', '备注', '观察', '执行说明', '打卡内容']);
+  const observationTags = feishuInboundText(payload, ['observation_tags', '观察标签', '效果标签']);
+  const taskName = feishuInboundText(payload, ['task_name', '任务名称', '打卡项', '口碑任务']);
+  const eventStatus = feishuInboundText(payload, ['status', '完成状态', '执行状态'], feishuInboundBoolean(payload, ['completed', '是否完成']) ? '已完成' : '已记录');
+  const auditRecord = sanitizeCustomerPayload({
+    inbound_id: `feishu-inbound-${sha256Hex(`${clientId}:${projectId}:${feishuRecordId}`).slice(0, 20)}`,
+    feishu_record_id: feishuRecordId,
+    client_id: clientId,
+    project_id: projectId,
+    content_plan_id: matchedPlan?.id ?? '',
+    content_plan_record_id: matchedPlan?.content_plan_record_id || planReference || '',
+    event_type: eventType,
+    task_name: taskName,
+    status: eventStatus,
+    completed: feishuInboundBoolean(payload, ['completed', '是否完成']) || /完成/.test(eventStatus),
+    publish_link: publishLink,
+    metrics: { ...metrics, engagement },
+    observation_tags: observationTags,
+    notes,
+    occurred_at: occurredAt,
+    received_at: receivedAt,
+    source: 'feishu_inbound',
+  });
+
+  const previousAudit = ensureArray(project.state?.feishu_inbound_records).find((item) => item.feishu_record_id === feishuRecordId);
+  const nextState = {
+    ...project.state,
+    project_stage: '运营中',
+    saved_at: receivedAt,
+    feishu_inbound_records: replaceFeishuRecord(project.state?.feishu_inbound_records, auditRecord, (item) => item.feishu_record_id === feishuRecordId),
+    feishu_sync: {
+      ...(project.state?.feishu_sync || {}),
+      last_inbound_at: receivedAt,
+      last_record_id: feishuRecordId,
+      inbound_record_count: new Set([
+        ...ensureArray(project.state?.feishu_inbound_records).map((item) => item.feishu_record_id),
+        feishuRecordId,
+      ].filter(Boolean)).size,
+    },
+  };
+
+  if (eventType === 'feedback') {
+    const existingFeedback = ensureArray(project.state?.feedback).find((item) => item.feishu_record_id === feishuRecordId);
+    const existingRecord = ensureArray(project.state?.records).find((item) => item.feishu_record_id === feishuRecordId);
+    const feedback = sanitizeCustomerPayload({
+      ...(existingFeedback || {}),
+      id: existingFeedback?.id || `feishu-feedback-${sha256Hex(`${clientId}:${projectId}:${feishuRecordId}`).slice(0, 16)}`,
+      client_id: clientId,
+      project_id: projectId,
+      cycle_id: matchedPlan?.cycle_id || project.state?.current_cycle_id || 'cycle-1',
+      content_plan_id: matchedPlan.id,
+      content_plan_record_id: matchedPlan.content_plan_record_id || planReference || '',
+      plan_topic: matchedPlan.topic || feishuInboundText(payload, ['plan_topic', '内容主题', '选题']),
+      publish_link: publishLink || existingFeedback?.publish_link || matchedPlan.publish_link || '',
+      feedback_stage: feishuInboundText(payload, ['feedback_stage', '反馈时间点', '记录阶段'], existingFeedback?.feedback_stage || 'T+24'),
+      views: metrics.views,
+      backend_views: metrics.views,
+      backend_play_count: metrics.views,
+      likes: metrics.likes,
+      comments: metrics.comments,
+      favorites: metrics.favorites,
+      shares: metrics.shares,
+      engagement,
+      consultations: metrics.consultations,
+      appointments: metrics.appointments,
+      observation_tags: observationTags,
+      notes,
+      source: 'feishu_inbound',
+      plan_binding_source: 'feishu_record_and_client_project',
+      feishu_record_id: feishuRecordId,
+      created_at: existingFeedback?.created_at || occurredAt,
+      updated_at: receivedAt,
+    });
+    const customerRecord = sanitizeCustomerPayload({
+      ...(existingRecord || {}),
+      feedback_id: feedback.id,
+      feishu_record_id: feishuRecordId,
+      client_id: clientId,
+      project_id: projectId,
+      content_plan_id: matchedPlan.id,
+      plan_topic: feedback.plan_topic,
+      publish_link: feedback.publish_link,
+      feedback_stage: feedback.feedback_stage,
+      ...metrics,
+      engagement,
+      observation_tags: observationTags,
+      notes,
+      source: 'feishu_inbound',
+      created_at: existingRecord?.created_at || occurredAt,
+      updated_at: receivedAt,
+    });
+    nextState.feedback = replaceFeishuRecord(project.state?.feedback, feedback, (item) => item.feishu_record_id === feishuRecordId);
+    nextState.records = replaceFeishuRecord(project.state?.records, customerRecord, (item) => item.feishu_record_id === feishuRecordId);
+    nextState.plans = plans.map((item) => String(item.id ?? '') === String(matchedPlan.id ?? '')
+      ? { ...item, status: '已发布', ...(feedback.publish_link ? { publish_link: feedback.publish_link } : {}) }
+      : item);
+  } else if (eventType === 'reputation_task') {
+    nextState.reputation_tasks = replaceFeishuRecord(project.state?.reputation_tasks, auditRecord, (item) => item.feishu_record_id === feishuRecordId);
+  } else {
+    nextState.daily_checkins = replaceFeishuRecord(project.state?.daily_checkins, auditRecord, (item) => item.feishu_record_id === feishuRecordId);
+  }
+
+  const updatedProject = {
+    ...project,
+    stage: '运营中',
+    updated_at: receivedAt,
+    state: nextState,
+  };
+  const written = await writeCloudState({
+    project_store: {
+      activeProjectId: projectStore.activeProjectId || projectId,
+      lastActiveProjectId: projectStore.lastActiveProjectId || null,
+      projects: [updatedProject],
+    },
+  }, clientId);
+  console.log(JSON.stringify({
+    event: 'feishu_inbound',
+    client_id: clientId,
+    project_id: projectId,
+    event_type: eventType,
+    feishu_record_id: feishuRecordId,
+    idempotent_update: Boolean(previousAudit),
+    storage: written.storage,
+  }));
+  return {
+    status: previousAudit ? 200 : 201,
+    body: {
+      ok: true,
+      accepted: true,
+      idempotent_update: Boolean(previousAudit),
+      client_id: clientId,
+      project_id: projectId,
+      event_type: eventType,
+      feishu_record_id: feishuRecordId,
+      content_plan_id: matchedPlan?.id ?? null,
+      storage: written.storage,
+      updated_at: receivedAt,
+    },
+  };
+};
+
 const buildFeishuPayload = (item = {}) => ({
   synced: false,
-  mode: 'mock',
+  mode: 'manual_payload',
   payload: {
     A_customer_profile: {
       client_id: item.client_id || '',
@@ -4570,6 +4835,53 @@ const buildFeishuPayload = (item = {}) => ({
     },
   },
 });
+
+const sendFeishuWebhook = async (item = {}) => {
+  const envelope = buildFeishuPayload(item);
+  const webhookUrl = feishuWebhookUrl();
+  if (!webhookUrl) return { ...envelope, fallback_reason: 'missing_feishu_webhook_url' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const summary = [
+      `客户：${item.client_name || item.client_id || '未标注'}`,
+      `项目：${item.project_id || '未标注'}`,
+      `内容计划：${item.content_plan_record_id || '未标注'}`,
+      `平台/类型：${item.platform || '未标注'} / ${item.content_type || item.generation_type || '未标注'}`,
+      `任务状态：${item.status || '未标注'}`,
+    ].join('\n');
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ msg_type: 'text', content: { text: `获客罗盘｜内容任务同步\n${summary}` } }),
+      signal: controller.signal,
+    });
+    const result = await response.json().catch(() => ({}));
+    const code = Number(result.code ?? result.StatusCode ?? 0);
+    const ok = response.ok && code === 0;
+    console.log(JSON.stringify({ event: 'feishu_webhook', synced: ok, status: response.status, code }));
+    return {
+      ...envelope,
+      synced: ok,
+      mode: 'webhook',
+      fallback_reason: ok ? null : `feishu_webhook_error_${response.status || code || 'unknown'}`,
+      webhook_result: {
+        status: response.status,
+        code,
+        message: String(result.msg || result.StatusMessage || '').slice(0, 160),
+      },
+    };
+  } catch (error) {
+    return {
+      ...envelope,
+      synced: false,
+      mode: 'webhook',
+      fallback_reason: error?.name === 'AbortError' ? 'feishu_webhook_timeout' : 'feishu_webhook_request_failed',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 const modelPayloadForRequest = (payload = {}, internalAuthorized = false) => {
   if (internalAuthorized) return markInternalAuthorized(payload, true);
@@ -4806,7 +5118,7 @@ export default async (request, context = {}) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_mock', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking'],
       });
       if (path === '/customers') {
         if (!internalAuthorized) return unauthorized();
@@ -4885,6 +5197,11 @@ export default async (request, context = {}) => {
     const payload = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     const payloadClientId = clientIdFrom(payload, url, request);
     const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
+    if (request.method === 'POST' && path === '/feishu/inbound') {
+      if (!hasValidFeishuInboundAuth(request)) return json({ ok: false, error: '飞书回流鉴权失败' }, 401, { internal: true });
+      const result = await receiveFeishuInbound(payload, request);
+      return json(result.body, result.status, { internal: true });
+    }
     if (request.method === 'POST' && path === '/plan-jobs') {
       const clientId = planJobClientIdFrom(payload, url, request);
       if (!clientId) return json({ error: '创建计划任务需要 client_id' }, 400);
@@ -4940,7 +5257,7 @@ export default async (request, context = {}) => {
       if (!internalAuthorized) return unauthorized();
       const task = payload.task_id ? await getTask(payloadClientId, payload.task_id) : payload.task;
       if (!task) throw new Error('飞书同步缺少 task 或 task_id');
-      return json(buildFeishuPayload(task), 200, { internal: true });
+      return json(await sendFeishuWebhook(task), 200, { internal: true });
     }
     if (request.method === 'POST' && path === '/customer-growth-advice') {
       const clientId = planJobClientIdFrom(payload, url, request);

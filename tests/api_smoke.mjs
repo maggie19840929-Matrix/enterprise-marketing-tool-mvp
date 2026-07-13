@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.92';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.93';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.93';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.92-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.93-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -135,7 +136,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.92', `expected app_version 1.6.92, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.93', `expected app_version 1.6.93, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -669,7 +670,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.92'"), 'app should expose v1.6.92 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.93'"), 'app should expose v1.6.93 internally/API-side');
 assert(apiSource.includes("'视频号': '更适合负责人/老板口播、真实案例复盘和信任建立") && apiSource.includes('好内容可被转发到群/朋友圈并经好友社交推荐') && apiSource.includes('公众号/社群/企业微信/私信等私域入口'), 'Video Account platform rule should cover mature-audience trust, social forwarding, and private-domain conversion');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
@@ -818,7 +819,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.92') && indexHtml.includes('/styles.css?v=1.6.92') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.92'), 'customer page should cache-bust the v1.6.92 first-paint fix while preserving the centered footer stylesheet');
+assert(indexHtml.includes('/app.js?v=1.6.93') && indexHtml.includes('/styles.css?v=1.6.93') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.93'), 'customer page should cache-bust the v1.6.93 Feishu stage-A release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
@@ -1350,6 +1351,109 @@ const health = await healthRes.json();
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
+assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound and webhook capabilities');
+
+const feishuProjectEnvelope = (clientId, projectId, planId) => ({
+  client_id: clientId,
+  project_store: {
+    activeProjectId: projectId,
+    projects: [{
+      id: projectId,
+      name: `${clientId}门店`,
+      stage: '待启动',
+      updated_at: '2026-07-13 09:00:00',
+      state: {
+        project: { id: projectId, client_id: clientId, name: `${clientId}门店` },
+        client_id: clientId,
+        project_stage: '待启动',
+        current_cycle_id: 'cycle-feishu-a',
+        assessment: { id: `assessment-${clientId}`, client_id: clientId, industry: '本地服务门店' },
+        diagnosis: { id: `diagnosis-${clientId}`, client_id: clientId, summary: '飞书回流隔离验证' },
+        plans: [{ id: planId, content_plan_record_id: `${planId}-record`, topic: '门店真实案例', status: '待发布' }],
+        feedback: [],
+        records: [],
+        saved_at: '2026-07-13 09:00:00',
+      },
+    }],
+  },
+});
+const feishuClientA = 'feishu-client-a';
+const feishuClientB = 'feishu-client-b';
+const feishuProjectA = 'project-feishu-a';
+const feishuProjectB = 'project-feishu-b';
+const feishuPlanA = 'plan-feishu-a-1';
+const feishuPlanB = 'plan-feishu-b-1';
+for (const seedPayload of [
+  feishuProjectEnvelope(feishuClientA, feishuProjectA, feishuPlanA),
+  feishuProjectEnvelope(feishuClientB, feishuProjectB, feishuPlanB),
+]) {
+  const seeded = await handler(request('POST', 'state', seedPayload));
+  assert(seeded.status === 201, `Feishu inbound smoke state should seed, got ${seeded.status}`);
+}
+const feishuInboundPayload = {
+  client_id: feishuClientA,
+  project_id: feishuProjectA,
+  event_type: '效果回填',
+  record_id: 'rec-feishu-effect-a-001',
+  fields: {
+    内容计划ID: feishuPlanA,
+    发布链接: 'https://example.com/feishu-effect-a',
+    反馈时间点: 'T+72',
+    曝光: 1800,
+    点赞: 42,
+    评论: 8,
+    收藏: 26,
+    转发: 4,
+    咨询人数: 6,
+    观察: '家长更关注到店体验流程',
+  },
+};
+const feishuInboundWithoutToken = await handler(request('POST', 'feishu/inbound', feishuInboundPayload));
+assert(feishuInboundWithoutToken.status === 401, 'Feishu inbound without configured/provided token must return 401');
+process.env.FEISHU_INBOUND_TOKEN = FEISHU_INBOUND_TOKEN;
+const feishuInboundWrongToken = await handler(request('POST', 'feishu/inbound', feishuInboundPayload, {
+  headers: { 'x-feishu-inbound-token': 'wrong-token', 'x-feishu-client-id': feishuClientA },
+}));
+assert(feishuInboundWrongToken.status === 401, 'Feishu inbound with wrong token must return 401');
+const feishuInboundWrongClient = await handler(request('POST', 'feishu/inbound', feishuInboundPayload, {
+  headers: { 'x-feishu-inbound-token': FEISHU_INBOUND_TOKEN, 'x-feishu-client-id': feishuClientB },
+}));
+assert(feishuInboundWrongClient.status === 403, 'Feishu inbound bound to another client must return 403');
+const feishuInboundWrongProject = await handler(request('POST', 'feishu/inbound', { ...feishuInboundPayload, project_id: feishuProjectB }, {
+  headers: { 'x-feishu-inbound-token': FEISHU_INBOUND_TOKEN, 'x-feishu-client-id': feishuClientA },
+}));
+assert(feishuInboundWrongProject.status === 404, 'Feishu inbound must not search or write a project from another client bucket');
+const feishuInboundCreated = await handler(request('POST', 'feishu/inbound', feishuInboundPayload, {
+  headers: { 'x-feishu-inbound-token': FEISHU_INBOUND_TOKEN, 'x-feishu-client-id': feishuClientA },
+}));
+if (feishuInboundCreated.status !== 201) throw new Error(`first Feishu effect inbound should create, got ${feishuInboundCreated.status}: ${await feishuInboundCreated.text()}`);
+const feishuInboundCreatedBody = await feishuInboundCreated.json();
+assert(feishuInboundCreatedBody.client_id === feishuClientA && feishuInboundCreatedBody.content_plan_id === feishuPlanA, 'Feishu inbound should preserve client/project/plan ownership');
+const feishuInboundRetry = await handler(request('POST', 'feishu/inbound', {
+  ...feishuInboundPayload,
+  fields: { ...feishuInboundPayload.fields, 曝光: 2400, 咨询人数: 9 },
+}, {
+  headers: { 'x-feishu-inbound-token': FEISHU_INBOUND_TOKEN, 'x-feishu-client-id': feishuClientA },
+}));
+assert(feishuInboundRetry.status === 200, 'same Feishu record retry should be an idempotent update');
+const feishuInboundRetryBody = await feishuInboundRetry.json();
+assert(feishuInboundRetryBody.idempotent_update === true, 'same Feishu record retry should report idempotent_update');
+const feishuDailyCheckin = await handler(request('POST', 'feishu/inbound', {
+  client_id: feishuClientA,
+  project_id: feishuProjectA,
+  event_type: '每日打卡',
+  record_id: 'rec-feishu-checkin-a-001',
+  fields: { 任务名称: '发布门店案例', 是否完成: '已完成', 打卡内容: '已按计划发布并记录链接' },
+}, { headers: { authorization: `Bearer ${FEISHU_INBOUND_TOKEN}`, 'x-feishu-client-id': feishuClientA } }));
+assert(feishuDailyCheckin.status === 201, 'Feishu daily check-in should write through the authenticated inbound endpoint');
+const feishuAState = await (await handler(request('GET', `state?client_id=${feishuClientA}`))).json();
+const feishuBState = await (await handler(request('GET', `state?client_id=${feishuClientB}`))).json();
+const feishuAProjectState = feishuAState.project_store.projects.find((item) => item.id === feishuProjectA)?.state;
+const feishuBProjectState = feishuBState.project_store.projects.find((item) => item.id === feishuProjectB)?.state;
+assert(feishuAProjectState.feedback.length === 1 && feishuAProjectState.records.length === 1, 'Feishu retry must not duplicate feedback or customer records');
+assert(feishuAProjectState.feedback[0].views === 2400 && feishuAProjectState.feedback[0].consultations === 9, 'Feishu retry should update existing metrics');
+assert(feishuAProjectState.daily_checkins.length === 1 && feishuAProjectState.feishu_inbound_records.length === 2, 'Feishu inbound should persist auditable effect and daily check-in records');
+assert(feishuBProjectState.feedback.length === 0 && feishuBProjectState.records.length === 0, 'Feishu client A inbound must not mutate client B state');
 
 const qaProjectId = 'qa_generation_project';
 const qaClientId = 'internal';
@@ -1449,11 +1553,23 @@ const visibleText = JSON.stringify(visibleVideoTask);
 
 const deliveredVideo = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/deliver`, { client_id: qaClientId }))).json();
 assert(deliveredVideo.task.status === 'delivered', 'client_ready task should be deliverable');
-const feishuMock = await (await handler(internalRequest('POST', 'feishu/sync', { client_id: qaClientId, task_id: videoTask.task_id }))).json();
-assert(feishuMock.synced === false && feishuMock.mode === 'mock', 'feishu sync should be mock in V1');
+const feishuManual = await (await handler(internalRequest('POST', 'feishu/sync', { client_id: qaClientId, task_id: videoTask.task_id }))).json();
+assert(feishuManual.synced === false && feishuManual.mode === 'manual_payload' && feishuManual.fallback_reason === 'missing_feishu_webhook_url', 'Feishu stage A should return an importable payload when webhook is not configured');
 ['A_customer_profile', 'B_content_plan', 'C_outsourced_production', 'D_internal_qa', 'E_client_delivery', 'F_data_return'].forEach((key) => {
-  assert(feishuMock.payload[key], `feishu payload should include ${key}`);
+  assert(feishuManual.payload[key], `feishu payload should include ${key}`);
 });
+const fetchBeforeFeishuWebhook = globalThis.fetch;
+let feishuWebhookRequest = null;
+process.env.FEISHU_WEBHOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/smoke-only';
+globalThis.fetch = async (url, options = {}) => {
+  feishuWebhookRequest = { url: String(url), body: JSON.parse(String(options.body || '{}')) };
+  return new Response(JSON.stringify({ code: 0, msg: 'success' }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+const feishuWebhook = await (await handler(internalRequest('POST', 'feishu/sync', { client_id: qaClientId, task_id: videoTask.task_id }))).json();
+assert(feishuWebhook.synced === true && feishuWebhook.mode === 'webhook', 'configured Feishu webhook should receive the outbound task message');
+assert(feishuWebhookRequest?.url === process.env.FEISHU_WEBHOOK_URL && feishuWebhookRequest?.body?.msg_type === 'text', 'Feishu webhook request should use the configured URL and bot text payload');
+globalThis.fetch = fetchBeforeFeishuWebhook;
+delete process.env.FEISHU_WEBHOOK_URL;
 
 const coverTask = await (await handler(internalRequest('POST', 'generation-tasks', {
   project_id: qaProjectId,
@@ -1844,6 +1960,7 @@ console.log(JSON.stringify({
     cover_actual_model: submittedCover.task.actual_model,
     cover_provider: submittedCover.task.provider,
     cover_qa_status: coverPassed.task.qa.qa_status,
-    feishu_mock_mode: feishuMock.mode,
+    feishu_inbound_mode: 'authenticated_client_scoped',
+    feishu_outbound_mode: feishuManual.mode,
   },
 }, null, 2));
