@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.93';
-const VERSION_LABEL = 'v1.6.93 · 飞书回流阶段A版';
+const APP_VERSION = '1.6.94';
+const VERSION_LABEL = 'v1.6.94 · 时间戳一致性修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -333,6 +333,42 @@ const nowIso = () => {
   const date = shanghaiClock();
   return `${utcDateIso(date)} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`;
 };
+const BUSINESS_TIMESTAMP_WITHOUT_ZONE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)$/;
+const timestampToEpoch = (value) => {
+  if (value instanceof Date) {
+    const epoch = value.getTime();
+    return Number.isFinite(epoch) ? epoch : Number.NaN;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.abs(value) < 1e12 ? value * 1000 : value;
+  }
+  const text = String(value || '').trim();
+  if (!text) return Number.NaN;
+  if (/^\d{10,13}$/.test(text)) {
+    const epoch = Number(text);
+    return text.length <= 10 ? epoch * 1000 : epoch;
+  }
+  const businessTime = text.match(BUSINESS_TIMESTAMP_WITHOUT_ZONE);
+  const parsed = Date.parse(businessTime ? `${businessTime[1]}T${businessTime[2]}+08:00` : text);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
+const preferIncomingTimestamp = (incoming, existing) => {
+  const incomingEpoch = timestampToEpoch(incoming);
+  const existingEpoch = timestampToEpoch(existing);
+  if (!Number.isFinite(incomingEpoch) || !Number.isFinite(existingEpoch)) return true;
+  return incomingEpoch >= existingEpoch;
+};
+const compareTimestampDesc = (left, right) => {
+  const leftEpoch = timestampToEpoch(left);
+  const rightEpoch = timestampToEpoch(right);
+  if (Number.isFinite(leftEpoch) && Number.isFinite(rightEpoch)) return rightEpoch - leftEpoch;
+  if (Number.isFinite(leftEpoch)) return -1;
+  if (Number.isFinite(rightEpoch)) return 1;
+  return 0;
+};
+const latestTimestampValue = (values = []) => [...values]
+  .filter((value) => String(value || '').trim())
+  .sort(compareTimestampDesc)[0] || '';
 const shanghaiWeekRange = (base = new Date()) => {
   const day = shanghaiClock(base);
   const monday = new Date(day);
@@ -407,7 +443,7 @@ const latestFeedbackRows = (planIds = null) => {
     const key = Number(item.content_plan_id);
     if (allowed && !allowed.has(key)) return;
     const existing = byPlan.get(key);
-    if (!existing || stageRank(item.feedback_stage) > stageRank(existing.feedback_stage) || (stageRank(item.feedback_stage) === stageRank(existing.feedback_stage) && String(item.created_at || '') > String(existing.created_at || ''))) {
+    if (!existing || stageRank(item.feedback_stage) > stageRank(existing.feedback_stage) || (stageRank(item.feedback_stage) === stageRank(existing.feedback_stage) && preferIncomingTimestamp(item.created_at, existing.created_at))) {
       byPlan.set(key, item);
     }
   });
@@ -3012,11 +3048,11 @@ const normalizeCloudProjectStore = (payload = {}) => {
       const preferIncoming = !existing
         || cloudProjectCompleteness(item) > cloudProjectCompleteness(existing)
         || (cloudProjectCompleteness(item) === cloudProjectCompleteness(existing)
-          && String(item.updated_at || '') >= String(existing.updated_at || ''));
+          && preferIncomingTimestamp(item.updated_at, existing.updated_at));
       if (preferIncoming) byName.set(key, item);
     });
   const normalizedProjects = [...byName.values()]
-    .sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+    .sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at))
     .slice(0, 80);
   const activeExists = normalizedProjects.some((item) => item.id === raw?.activeProjectId);
   const lastExists = normalizedProjects.some((item) => item.id === raw?.lastActiveProjectId);
@@ -3364,7 +3400,7 @@ const customerDisplayNameFromNames = (names = [], clientId = '') => {
 };
 
 const sortCustomerRecords = (records = []) => [...records].sort((a, b) =>
-  String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
+  compareTimestampDesc(a.updated_at, b.updated_at)
   || String(a.client_id || '').localeCompare(String(b.client_id || ''))
 );
 
@@ -3384,7 +3420,7 @@ const groupCustomerRecords = (records = []) => {
     const group = groups.get(key);
     group.records.push(record);
     group.is_test = group.is_test || Boolean(record.is_test);
-    if (String(record.updated_at || '') > String(group.updated_at || '')) {
+    if (preferIncomingTimestamp(record.updated_at, group.updated_at)) {
       group.display_name = displayName;
       group.updated_at = record.updated_at || '';
     }
@@ -3417,7 +3453,7 @@ const groupCustomerRecords = (records = []) => {
     };
   }).sort((a, b) =>
     Number(a.is_test) - Number(b.is_test)
-    || String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
+    || compareTimestampDesc(a.updated_at, b.updated_at)
     || String(a.display_name || '').localeCompare(String(b.display_name || ''), 'zh-Hans-CN')
   );
 };
@@ -3441,7 +3477,7 @@ const listCustomersFromCloudState = async () => {
       const projects = normalized.projects || [];
       if (!projects.length) continue;
       const names = [...new Set(projects.map(projectDisplayName).filter(Boolean))];
-      const updatedAt = projects.map(projectUpdatedAt).filter(Boolean).sort().pop()
+      const updatedAt = latestTimestampValue(projects.map(projectUpdatedAt))
         || normalized.cloud_saved_at
         || data.saved_at
         || keyMeta.updated_at
@@ -3526,7 +3562,7 @@ const previewCustomerMerge = async ({ clientIds = [], displayName = '', canonica
           resolution: 'dry_run_only_keep_newer_updated_at',
         });
       }
-      if (!existing || String(projectUpdatedAt(project) || '') >= String(projectUpdatedAt(existing.project) || '')) {
+      if (!existing || preferIncomingTimestamp(projectUpdatedAt(project), projectUpdatedAt(existing.project))) {
         projectById.set(id, { client_id: record.client_id, project });
       }
     });
@@ -3566,12 +3602,12 @@ const writeCloudState = async (payload = {}, clientId = clientIdFrom(payload)) =
   (current.project_store?.projects || []).forEach((item) => byId.set(String(item.id), item));
   incoming.projects.forEach((item) => {
     const existing = byId.get(String(item.id));
-    if (!existing || String(item.updated_at || '') >= String(existing.updated_at || '')) byId.set(String(item.id), item);
+    if (!existing || preferIncomingTimestamp(item.updated_at, existing.updated_at)) byId.set(String(item.id), item);
   });
   const merged = sanitizeCustomerPayload(cloudEnvelope({
     activeProjectId: incoming.activeProjectId || current.project_store?.activeProjectId || incoming.projects[0]?.id || null,
     lastActiveProjectId: incoming.lastActiveProjectId || current.project_store?.lastActiveProjectId || null,
-    projects: [...byId.values()].sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || ''))),
+    projects: [...byId.values()].sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at)),
   }, {client_id: clientId, storage_key: key}));
   const store = await cloudStore();
   if (store) {

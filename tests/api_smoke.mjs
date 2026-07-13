@@ -4,10 +4,10 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.93';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.93';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.94';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.94';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.93-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.94-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -136,7 +136,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.93', `expected app_version 1.6.93, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.94', `expected app_version 1.6.94, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -670,7 +670,9 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.93'"), 'app should expose v1.6.93 internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.94'"), 'app should expose v1.6.94 internally/API-side');
+assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
+assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
 assert(apiSource.includes("'视频号': '更适合负责人/老板口播、真实案例复盘和信任建立") && apiSource.includes('好内容可被转发到群/朋友圈并经好友社交推荐') && apiSource.includes('公众号/社群/企业微信/私信等私域入口'), 'Video Account platform rule should cover mature-audience trust, social forwarding, and private-domain conversion');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
 assert(indexHtml.includes('id="internalAccessGate"') && indexHtml.includes('id="internalAccessForm"') && indexHtml.includes('id="internalAccessToken"'), 'internal shell should render a password gate before the admin app');
@@ -819,7 +821,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘 · 内容增长循环工具</title>'), 'default title should be customer-facing product title without version text');
-assert(indexHtml.includes('/app.js?v=1.6.93') && indexHtml.includes('/styles.css?v=1.6.93') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.93'), 'customer page should cache-bust the v1.6.93 Feishu stage-A release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.94') && indexHtml.includes('/styles.css?v=1.6.94') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.94'), 'customer page should cache-bust the v1.6.94 timestamp consistency release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes('customer-brand-mark') && warRoomCss.includes('.customer-brand-mark::after') && indexHtml.includes('获客罗盘'), 'customer page should expose the renamed product with a compass-style brand mark');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
@@ -1353,6 +1355,80 @@ assert(health.module_version === 'generation-workbench-v1', 'health should expos
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
 assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound and webhook capabilities');
 
+const timestampProject = ({ id, name, updatedAt, marker }) => ({
+  id,
+  name,
+  stage: '待启动',
+  updated_at: updatedAt,
+  state: {
+    project: { id, name },
+    project_stage: '待启动',
+    assessment: { id: `assessment-${id}`, industry: name },
+    diagnosis: { id: `diagnosis-${id}`, summary: `时间戳回归：${marker}` },
+    plans: [{ id: `plan-${id}`, topic: '时间戳回归内容', status: '待发布' }],
+    feedback: [],
+    records: [],
+    merge_marker: marker,
+    saved_at: updatedAt,
+  },
+});
+const writeTimestampState = async (clientId, activeProjectId, projects) => handler(request('POST', 'state', {
+  client_id: clientId,
+  project_store: { activeProjectId, projects },
+}));
+
+const mixedTimestampClient = 'timestamp-mixed-format';
+const mixedTimestampProjectId = 'project-timestamp-mixed';
+const mixedTimestampName = '混合时间格式门店';
+const mixedIsoSeed = timestampProject({
+  id: mixedTimestampProjectId,
+  name: mixedTimestampName,
+  updatedAt: '2026-07-13T10:00:00Z',
+  marker: 'iso-seed',
+});
+const mixedSeedResponse = await writeTimestampState(mixedTimestampClient, mixedTimestampProjectId, [mixedIsoSeed]);
+assert(mixedSeedResponse.status === 201, 'mixed timestamp ISO seed should persist');
+const mixedSpaceNewer = timestampProject({
+  id: mixedTimestampProjectId,
+  name: mixedTimestampName,
+  updatedAt: '2026-07-13 23:21:07',
+  marker: 'space-newer',
+});
+const mixedNewerResponse = await writeTimestampState(mixedTimestampClient, mixedTimestampProjectId, [mixedSpaceNewer]);
+assert(mixedNewerResponse.status === 201, 'later Shanghai business timestamp should persist over ISO seed');
+let mixedTimestampState = await (await handler(request('GET', `state?client_id=${mixedTimestampClient}`))).json();
+let mixedTimestampProject = mixedTimestampState.project_store.projects.find((item) => item.id === mixedTimestampProjectId);
+assert(mixedTimestampProject?.state?.merge_marker === 'space-newer', 'later YYYY-MM-DD HH:mm:ss write must not be silently dropped behind an ISO timestamp');
+
+const mixedActuallyOlder = timestampProject({
+  id: mixedTimestampProjectId,
+  name: mixedTimestampName,
+  updatedAt: '2026-07-13T14:00:00Z',
+  marker: 'iso-actually-older',
+});
+const mixedOlderResponse = await writeTimestampState(mixedTimestampClient, mixedTimestampProjectId, [mixedActuallyOlder]);
+assert(mixedOlderResponse.status === 201, 'older mixed-format write should return a stable state response');
+mixedTimestampState = await (await handler(request('GET', `state?client_id=${mixedTimestampClient}`))).json();
+mixedTimestampProject = mixedTimestampState.project_store.projects.find((item) => item.id === mixedTimestampProjectId);
+assert(mixedTimestampProject?.state?.merge_marker === 'space-newer', 'a truly older ISO write must not overwrite the newer Shanghai business timestamp');
+
+const sameNameClient = 'timestamp-same-name-normalization';
+const sameNameIso = timestampProject({ id: 'same-name-iso', name: '同名项目作战台', updatedAt: '2026-07-13T10:00:00Z', marker: 'same-name-iso' });
+const sameNameSpace = timestampProject({ id: 'same-name-space', name: '同名项目作战台', updatedAt: '2026-07-13 23:21:07', marker: 'same-name-space-newer' });
+const sameNameResponse = await writeTimestampState(sameNameClient, sameNameSpace.id, [sameNameIso, sameNameSpace]);
+assert(sameNameResponse.status === 201, 'same-name mixed timestamp projects should normalize successfully');
+const sameNameState = await (await handler(request('GET', `state?client_id=${sameNameClient}`))).json();
+assert(sameNameState.project_store.projects.length === 1 && sameNameState.project_store.projects[0].id === sameNameSpace.id, 'same-name normalization must retain the truly newer mixed-format project');
+
+const invalidTimestampClient = 'timestamp-invalid-incoming';
+const invalidTimestampProjectId = 'project-invalid-timestamp';
+const invalidSeed = timestampProject({ id: invalidTimestampProjectId, name: '异常时间兜底门店', updatedAt: '2026-07-13T10:00:00Z', marker: 'valid-seed' });
+const invalidIncoming = timestampProject({ id: invalidTimestampProjectId, name: '异常时间兜底门店', updatedAt: 'invalid-incoming-timestamp', marker: 'invalid-incoming-preferred' });
+assert((await writeTimestampState(invalidTimestampClient, invalidTimestampProjectId, [invalidSeed])).status === 201, 'invalid timestamp fallback seed should persist');
+assert((await writeTimestampState(invalidTimestampClient, invalidTimestampProjectId, [invalidIncoming])).status === 201, 'unparseable incoming timestamp should still produce a stable write response');
+const invalidTimestampState = await (await handler(request('GET', `state?client_id=${invalidTimestampClient}`))).json();
+assert(invalidTimestampState.project_store.projects[0]?.state?.merge_marker === 'invalid-incoming-preferred', 'when either timestamp is invalid, the incoming write should be preferred instead of silently dropped');
+
 const feishuProjectEnvelope = (clientId, projectId, planId) => ({
   client_id: clientId,
   project_store: {
@@ -1453,6 +1529,7 @@ const feishuBProjectState = feishuBState.project_store.projects.find((item) => i
 assert(feishuAProjectState.feedback.length === 1 && feishuAProjectState.records.length === 1, 'Feishu retry must not duplicate feedback or customer records');
 assert(feishuAProjectState.feedback[0].views === 2400 && feishuAProjectState.feedback[0].consultations === 9, 'Feishu retry should update existing metrics');
 assert(feishuAProjectState.daily_checkins.length === 1 && feishuAProjectState.feishu_inbound_records.length === 2, 'Feishu inbound should persist auditable effect and daily check-in records');
+assert(feishuAProjectState.feedback[0].feishu_record_id === 'rec-feishu-effect-a-001' && feishuAProjectState.daily_checkins[0].feishu_record_id === 'rec-feishu-checkin-a-001', 'Feishu effect and check-in data must be readable from persisted project state, not only acknowledged by the inbound response');
 assert(feishuBProjectState.feedback.length === 0 && feishuBProjectState.records.length === 0, 'Feishu client A inbound must not mutate client B state');
 
 const qaProjectId = 'qa_generation_project';

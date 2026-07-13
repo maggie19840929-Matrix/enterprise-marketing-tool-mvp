@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.93';
-const VERSION_LABEL = 'v1.6.93 · 飞书回流阶段A版';
+const APP_VERSION = '1.6.94';
+const VERSION_LABEL = 'v1.6.94 · 时间戳一致性修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -510,6 +510,39 @@ function normalizeProjectItem(item = {}){
     updated_at: item.updated_at || state.saved_at || localTimestamp(),
   };
 }
+const BUSINESS_TIMESTAMP_WITHOUT_ZONE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)$/;
+function timestampToEpoch(value){
+  if (value instanceof Date) {
+    const epoch = value.getTime();
+    return Number.isFinite(epoch) ? epoch : Number.NaN;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.abs(value) < 1e12 ? value * 1000 : value;
+  }
+  const text = String(value || '').trim();
+  if (!text) return Number.NaN;
+  if (/^\d{10,13}$/.test(text)) {
+    const epoch = Number(text);
+    return text.length <= 10 ? epoch * 1000 : epoch;
+  }
+  const businessTime = text.match(BUSINESS_TIMESTAMP_WITHOUT_ZONE);
+  const parsed = Date.parse(businessTime ? `${businessTime[1]}T${businessTime[2]}+08:00` : text);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+function preferIncomingTimestamp(incoming, existing){
+  const incomingEpoch = timestampToEpoch(incoming);
+  const existingEpoch = timestampToEpoch(existing);
+  if (!Number.isFinite(incomingEpoch) || !Number.isFinite(existingEpoch)) return true;
+  return incomingEpoch >= existingEpoch;
+}
+function compareTimestampDesc(left, right){
+  const leftEpoch = timestampToEpoch(left);
+  const rightEpoch = timestampToEpoch(right);
+  if (Number.isFinite(leftEpoch) && Number.isFinite(rightEpoch)) return rightEpoch - leftEpoch;
+  if (Number.isFinite(leftEpoch)) return -1;
+  if (Number.isFinite(rightEpoch)) return 1;
+  return 0;
+}
 function preferProjectItem(candidate, existing){
   if (!existing) return candidate;
   const candidateWeight = stateWeight(candidate.state);
@@ -521,7 +554,7 @@ function preferProjectItem(candidate, existing){
     if (candidateStage === '运营中') return candidate;
     if (existingStage === '运营中') return existing;
   }
-  return String(candidate.updated_at || '') >= String(existing.updated_at || '') ? candidate : existing;
+  return preferIncomingTimestamp(candidate.updated_at, existing.updated_at) ? candidate : existing;
 }
 function loadProjectStore(){
   try {
@@ -563,7 +596,7 @@ function mergeProjectStores(localStore = projectStore, cloudStore = {}){
     const key = canonicalProjectName(item) || String(item.id);
     byName.set(key, preferProjectItem(item, byName.get(key)));
   });
-  const projects = [...byName.values()].sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+  const projects = [...byName.values()].sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at));
   const resolveProjectId = (wantedId) => {
     if (!wantedId) return null;
     const direct = projects.find((item)=>String(item.id) === String(wantedId));
@@ -619,7 +652,7 @@ function upsertCurrentProjectState(){
   const index = projectStore.projects.findIndex((item)=>String(item.id) === String(summary.id));
   if (index >= 0) projectStore.projects[index] = summary;
   else projectStore.projects.unshift(summary);
-  projectStore.projects.sort((a,b)=>String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+  projectStore.projects.sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at));
   saveProjectStore();
   return true;
 }
@@ -1335,7 +1368,7 @@ function latestFeedbackRows(){
   clientState.feedback.forEach((item) => {
     const key = Number(item.content_plan_id);
     const existing = byPlan.get(key);
-    if (!existing || stageRank(item.feedback_stage) > stageRank(existing.feedback_stage) || (stageRank(item.feedback_stage) === stageRank(existing.feedback_stage) && String(item.created_at || '') > String(existing.created_at || ''))) {
+    if (!existing || stageRank(item.feedback_stage) > stageRank(existing.feedback_stage) || (stageRank(item.feedback_stage) === stageRank(existing.feedback_stage) && preferIncomingTimestamp(item.created_at, existing.created_at))) {
       byPlan.set(key, item);
     }
   });
@@ -4170,7 +4203,7 @@ function renderRefillCockpit(){
 }
 
 function renderFeedbackEvidenceRows(){
-  const rows = latestFeedbackRows().slice().sort((a,b)=>(stageRank(b.feedback_stage)-stageRank(a.feedback_stage)) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  const rows = latestFeedbackRows().slice().sort((a, b) => (stageRank(b.feedback_stage) - stageRank(a.feedback_stage)) || compareTimestampDesc(a.created_at, b.created_at));
   const visibleRows = rows.slice(0, 5);
   const review = latestReviewEvidence();
   if (!rows.length && !review) return '<div class="empty">暂无内容复盘依据。发布后从计划卡片进入回填，系统会把最新反馈用于今日动作和下一步判断。</div>';
@@ -4425,7 +4458,7 @@ function renderPlans(plans){
 }
 
 function renderFeedback(items){
-  const sorted = (items || []).slice().sort((a,b)=>String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  const sorted = (items || []).slice().sort((a, b) => compareTimestampDesc(a.created_at, b.created_at));
   $('#feedbackList').innerHTML = sorted.map(f=>{
     const plan = internalPlanById(f.content_plan_id) || {};
     const link = normalizeExternalUrl(f.publish_link || plan.publish_link || '');
@@ -4468,7 +4501,7 @@ function internalPublishedLinkOptions(){
     const plan = internalPlanById(feedback.content_plan_id) || {};
     add(feedback, plan, 'feedback');
   });
-  return options.sort((a, b) => String(b.publishedAt || '').localeCompare(String(a.publishedAt || '')));
+  return options.sort((a, b) => compareTimestampDesc(a.publishedAt, b.publishedAt));
 }
 
 function renderPublishedLinkPicker(){
