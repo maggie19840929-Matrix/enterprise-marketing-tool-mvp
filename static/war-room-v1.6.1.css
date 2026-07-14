@@ -2827,3 +2827,17 @@ body.customer-mode .fp-matrix-lockup-footer .fp-matrix-wordmark{
     font-size:9px;
   }
 }
+
+/* v1.6.97 customer information-page spacing and text rhythm */
+body.customer-mode.customer-info-mode .customer-info-pages{
+  margin:24px auto!important;
+}
+body.customer-mode.customer-info-mode .customer-info-page>p:not(.customer-kicker){
+  width:100%!important;
+  max-width:none!important;
+}
+@media(max-width:620px){
+  body.customer-mode.customer-info-mode .customer-info-pages{
+    margin:16px auto 24px!important;
+  }
+}
