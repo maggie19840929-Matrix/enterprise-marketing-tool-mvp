@@ -2740,3 +2740,90 @@ body.customer-mode .customer-plan-item.is-selected{
   background:#fff!important;
   box-shadow:none!important;
 }
+
+/* v1.6.95 FP Matrix brand lockup: existing editorial system, new identity only */
+.fp-matrix-lockup{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.fp-matrix-elephant-mark{
+  display:block;
+  width:62px;
+  height:auto;
+  flex:0 0 auto;
+}
+.fp-matrix-type{
+  display:grid;
+  gap:4px;
+  min-width:0;
+}
+.fp-matrix-wordmark{
+  display:flex;
+  align-items:baseline;
+  gap:7px;
+  color:#20232a;
+  font-size:20px;
+  line-height:1;
+  letter-spacing:0;
+  white-space:nowrap;
+}
+.fp-matrix-wordmark strong{
+  font-weight:800;
+}
+.fp-matrix-wordmark em{
+  font-style:normal;
+  font-weight:500;
+}
+.fp-matrix-descriptor{
+  color:#737985;
+  font-size:10.5px;
+  font-weight:550;
+  line-height:1.15;
+  letter-spacing:0;
+  white-space:nowrap;
+}
+body.customer-mode .customer-site-brand{
+  gap:0!important;
+}
+body.customer-mode .customer-footer-brand{
+  align-items:center!important;
+}
+body.customer-mode .fp-matrix-lockup-footer .fp-matrix-elephant-mark{
+  width:52px;
+}
+body.customer-mode .fp-matrix-lockup-footer .fp-matrix-wordmark{
+  font-size:18px;
+}
+.internal-access-card .fp-matrix-elephant-mark-gate{
+  width:76px;
+  margin-bottom:4px;
+}
+@media(min-width:981px){
+  body.customer-mode .customer-product-hero .customer-hero-copy{
+    width:min(100%,880px)!important;
+    max-width:880px!important;
+  }
+  body.customer-mode .customer-product-hero h1{
+    max-width:880px!important;
+  }
+}
+@media(max-width:520px){
+  body.customer-mode .customer-site-nav{
+    gap:10px!important;
+  }
+  body.customer-mode .fp-matrix-lockup{
+    gap:7px;
+  }
+  body.customer-mode .fp-matrix-elephant-mark{
+    width:48px;
+  }
+  body.customer-mode .fp-matrix-wordmark{
+    gap:5px;
+    font-size:17px;
+  }
+  body.customer-mode .fp-matrix-descriptor{
+    font-size:9px;
+  }
+}

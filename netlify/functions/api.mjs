@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.94';
-const VERSION_LABEL = 'v1.6.94 · 时间戳一致性修复版';
+const APP_VERSION = '1.6.95';
+const VERSION_LABEL = 'v1.6.95 · FP Matrix 品牌升级版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -85,8 +85,16 @@ const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
   [forbiddenPattern('Op' + 'enClaw', 'gi'), ''],
 ];
 
-const sanitizeCustomerText = (value = '') => CUSTOMER_FORBIDDEN_REPLACEMENTS
-  .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), String(value));
+const CUSTOMER_PUBLIC_BRAND_PLACEHOLDER = '__fp_public_brand__';
+const sanitizeCustomerText = (value = '') => {
+  const withPublicBrandProtected = String(value).replace(
+    forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'),
+    CUSTOMER_PUBLIC_BRAND_PLACEHOLDER,
+  );
+  return CUSTOMER_FORBIDDEN_REPLACEMENTS
+    .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), withPublicBrandProtected)
+    .replaceAll(CUSTOMER_PUBLIC_BRAND_PLACEHOLDER, 'FP ' + 'Ma' + 'trix');
+};
 
 const sanitizeCustomerPayload = (value) => {
   if (typeof value === 'string') return sanitizeCustomerText(value);

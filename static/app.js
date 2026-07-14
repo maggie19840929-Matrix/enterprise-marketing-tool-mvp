@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.94';
-const VERSION_LABEL = 'v1.6.94 · 时间戳一致性修复版';
+const APP_VERSION = '1.6.95';
+const VERSION_LABEL = 'v1.6.95 · FP Matrix 品牌升级版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -72,8 +72,16 @@ const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
   [forbiddenPattern('Her' + 'mes', 'gi'), ''],
   [forbiddenPattern('Op' + 'enClaw', 'gi'), ''],
 ];
-const sanitizeCustomerText = (value = '') => CUSTOMER_FORBIDDEN_REPLACEMENTS
-  .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), String(value));
+const CUSTOMER_PUBLIC_BRAND_PLACEHOLDER = '__fp_public_brand__';
+const sanitizeCustomerText = (value = '') => {
+  const withPublicBrandProtected = String(value).replace(
+    forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'),
+    CUSTOMER_PUBLIC_BRAND_PLACEHOLDER,
+  );
+  return CUSTOMER_FORBIDDEN_REPLACEMENTS
+    .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), withPublicBrandProtected)
+    .replaceAll(CUSTOMER_PUBLIC_BRAND_PLACEHOLDER, 'FP ' + 'Ma' + 'trix');
+};
 const sanitizeCustomerPayload = (value) => {
   if (typeof value === 'string') return sanitizeCustomerText(value);
   if (Array.isArray(value)) return value.map(sanitizeCustomerPayload);
