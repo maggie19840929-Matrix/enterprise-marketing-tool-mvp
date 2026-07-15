@@ -215,7 +215,43 @@ FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
 }
 ```
 
-阶段 B 的飞书自建应用、`tenant_access_token` 缓存和 Bitable API 自动读写需要另行提供 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 及各表 `app_token/table_id`，不会在缺凭据时冒充已接通。
+### 飞书主动读取阶段 B
+
+阶段 B 不替换阶段 A。系统通过飞书开放平台 Bitable API 主动读取多维表格，并继续复用阶段 A 的中文字段归一化、项目归属校验和记录 ID 幂等写入：
+
+- `POST /api/feishu/pull`：仅接受 `INTERNAL_ACCESS_TOKEN`，可在 body 传单张 `table_id + event_type`，也可不传 body 直接使用环境变量配置的三张表。
+- `feishu-pull-scheduled`：Netlify Scheduled Function，每 15 分钟执行一次；Scheduled Function 使用 UTC cron，但本任务按固定间隔同步，不受时区影响。
+- 文本数组会拼成纯文本，毫秒时间戳转为北京时间业务时间，超链接取真实 link。
+- 每条记录必须包含客户 ID 和项目 ID；效果表还必须包含属于该项目的内容计划 ID。项目不存在或计划不匹配时只跳过该条，不跨客户搜索。
+- 重复拉取相同 `record_id` 会更新原记录，不重复累计。
+
+Netlify 环境变量：
+
+```bash
+FEISHU_APP_ID=飞书自建应用 App ID
+FEISHU_APP_SECRET=飞书自建应用 App Secret
+FEISHU_BASE_TOKEN=多维表格 Base 的 app_token
+FEISHU_TABLE_EFFECT=效果表 table_id
+FEISHU_TABLE_CHECKIN=打卡表 table_id
+FEISHU_TABLE_REPUTATION=口碑表 table_id
+
+# 可选，以下为默认值
+FEISHU_PULL_PAGE_SIZE=100
+FEISHU_PULL_MAX_RECORDS=500
+FEISHU_PULL_TIMEOUT_MS=8000
+FEISHU_PULL_DEADLINE_MS=23000
+```
+
+手动触发示例：
+
+```bash
+curl -X POST https://sales-improve.netlify.app/api/feishu/pull \
+  -H "Authorization: Bearer $INTERNAL_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+飞书侧需给自建应用开通多维表格读取权限，并将应用添加为目标多维表格协作者。任何凭据都只配置在 Netlify 环境变量中，不写入前端或 Git。
 
 ### 豆包 / 火山方舟文本模型
 

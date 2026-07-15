@@ -1,20 +1,21 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.101';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.101';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.102';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.102';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.101-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.102-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
 process.env.GENERATION_RATE_IP_MAX = '100';
 process.env.GENERATION_DAILY_CLIENT_MAX = '100';
 process.env.TRACKING_ENABLED = 'true';
-const { default: handler, shanghaiDateIso } = await import('../netlify/functions/api.mjs');
+const { default: handler, shanghaiDateIso, extractBitableFieldValue } = await import('../netlify/functions/api.mjs');
+const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
 
 const request = (method, path, body, options = {}) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
   method,
@@ -136,7 +137,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.101', `expected app_version 1.6.101, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.102', `expected app_version 1.6.102, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -678,7 +679,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.101'") && appJs.includes("v1.6.101 · 客户证据策略框架版"), 'app should expose the v1.6.101 customer-evidence strategy release internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.102'") && appJs.includes("v1.6.102 · 飞书多维表格主动同步版"), 'app should expose the v1.6.102 Feishu Bitable pull release internally/API-side');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
@@ -835,10 +836,10 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.101') && indexHtml.includes('/styles.css?v=1.6.101') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.101'), 'customer page should cache-bust the v1.6.101 strategy-framework release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.102') && indexHtml.includes('/styles.css?v=1.6.102') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.102'), 'customer page should cache-bust the v1.6.102 Feishu pull release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.101') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.101') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.101') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.102') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.102') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.102') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1374,11 +1375,11 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.101' && health.version_label === 'v1.6.101 · 客户证据策略框架版', 'health should expose the v1.6.101 customer-evidence strategy release');
+assert(health.version === '1.6.102' && health.version_label === 'v1.6.102 · 飞书多维表格主动同步版', 'health should expose the v1.6.102 Feishu Bitable pull release');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
-assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound and webhook capabilities');
+assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_bitable_pull_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound, stage-B Bitable pull and webhook capabilities');
 
 const timestampProject = ({ id, name, updatedAt, marker }) => ({
   id,
@@ -1556,6 +1557,140 @@ assert(feishuAProjectState.feedback[0].views === 2400 && feishuAProjectState.fee
 assert(feishuAProjectState.daily_checkins.length === 1 && feishuAProjectState.feishu_inbound_records.length === 2, 'Feishu inbound should persist auditable effect and daily check-in records');
 assert(feishuAProjectState.feedback[0].feishu_record_id === 'rec-feishu-effect-a-001' && feishuAProjectState.daily_checkins[0].feishu_record_id === 'rec-feishu-checkin-a-001', 'Feishu effect and check-in data must be readable from persisted project state, not only acknowledged by the inbound response');
 assert(feishuBProjectState.feedback.length === 0 && feishuBProjectState.records.length === 0, 'Feishu client A inbound must not mutate client B state');
+
+assert(extractBitableFieldValue([{ type: 'text', text: '附近家长' }, { type: 'text', text: '关注体验课' }]) === '附近家长，关注体验课', 'Bitable rich text arrays should flatten into readable text');
+assert(extractBitableFieldValue({ text: '展示文字', link: 'https://example.com/bitable-link' }) === 'https://example.com/bitable-link', 'Bitable hyperlinks should prefer the actual link');
+assert(extractBitableFieldValue(Date.parse('2026-07-15T04:00:00Z')) === '2026-07-15 12:00:00', 'Bitable millisecond timestamps should convert to Shanghai business time');
+assert(scheduledFeishuConfig.schedule === '*/15 * * * *', 'Feishu scheduled pull should run every 15 minutes');
+
+const anonymousFeishuPull = await handler(request('POST', 'feishu/pull', { app_token: 'base-smoke', table_id: 'tbl-effect-smoke' }));
+assert(anonymousFeishuPull.status === 401, 'anonymous POST /feishu/pull must be rejected');
+const missingFeishuPull = await handler(internalRequest('POST', 'feishu/pull', { app_token: 'base-smoke', table_id: 'tbl-effect-smoke' }));
+assert(missingFeishuPull.status === 200, 'missing Feishu credentials should fail closed without crashing');
+const missingFeishuPullBody = await missingFeishuPull.json();
+assert(missingFeishuPullBody.skipped === true && missingFeishuPullBody.reason === 'missing_feishu_app_credentials', 'missing Feishu credentials should report an explicit skip reason');
+
+process.env.FEISHU_APP_ID = 'cli_smoke_app';
+process.env.FEISHU_APP_SECRET = 'smoke-app-secret-not-production';
+process.env.FEISHU_BASE_TOKEN = 'base-smoke';
+process.env.FEISHU_TABLE_EFFECT = 'tbl-effect-smoke';
+process.env.FEISHU_TABLE_CHECKIN = 'tbl-checkin-smoke';
+process.env.FEISHU_TABLE_REPUTATION = 'tbl-reputation-smoke';
+process.env.FEISHU_PULL_PAGE_SIZE = '2';
+process.env.FEISHU_PULL_MAX_RECORDS = '20';
+let bitableEffectViews = 3100;
+let bitableAuthCalls = 0;
+let bitableRecordCalls = 0;
+const fetchBeforeFeishuBitable = globalThis.fetch;
+globalThis.fetch = async (url, options = {}) => {
+  const requestUrl = new URL(String(url));
+  if (requestUrl.pathname.endsWith('/auth/v3/tenant_access_token/internal')) {
+    bitableAuthCalls += 1;
+    const credentials = JSON.parse(String(options.body || '{}'));
+    assert(credentials.app_id === process.env.FEISHU_APP_ID && credentials.app_secret === process.env.FEISHU_APP_SECRET, 'Feishu auth should read credentials from server env');
+    return new Response(JSON.stringify({ code: 0, tenant_access_token: 'tenant-smoke-token', expire: 7200 }), { status: 200 });
+  }
+  assert(String(options.headers?.authorization || '') === 'Bearer tenant-smoke-token', 'Bitable records should use the cached tenant token');
+  bitableRecordCalls += 1;
+  const tableMatch = requestUrl.pathname.match(/\/tables\/([^/]+)\/records$/);
+  const tableId = decodeURIComponent(tableMatch?.[1] || '');
+  const pageToken = requestUrl.searchParams.get('page_token') || '';
+  if (tableId === process.env.FEISHU_TABLE_EFFECT && !pageToken) {
+    return new Response(JSON.stringify({ code: 0, data: {
+      items: [{
+        record_id: 'rec-feishu-bitable-effect-001',
+        fields: {
+          客户ID: [{ type: 'text', text: feishuClientA }],
+          项目ID: [{ type: 'text', text: feishuProjectA }],
+          内容计划ID: [{ type: 'text', text: feishuPlanA }],
+          发布链接: { text: '查看作品', link: 'https://example.com/feishu-bitable-effect' },
+          反馈时间点: 'T+72',
+          曝光: bitableEffectViews,
+          点赞: 55,
+          收藏: 31,
+          咨询人数: 8,
+          发布时间: Date.parse('2026-07-15T04:00:00Z'),
+          观察: [{ type: 'text', text: '家长关注体验课' }, { type: 'text', text: '也会问教练资质' }],
+        },
+      }],
+      has_more: true,
+      page_token: 'effect-page-2',
+    } }), { status: 200 });
+  }
+  if (tableId === process.env.FEISHU_TABLE_EFFECT && pageToken === 'effect-page-2') {
+    return new Response(JSON.stringify({ code: 0, data: {
+      items: [
+        {
+          record_id: 'rec-feishu-bitable-effect-002',
+          fields: { 客户ID: feishuClientA, 项目ID: feishuProjectA, 内容计划ID: feishuPlanA, 曝光: 1600, 咨询人数: 4 },
+        },
+        {
+          record_id: 'rec-feishu-bitable-missing-project',
+          fields: { 客户ID: feishuClientA, 项目ID: 'project-does-not-exist', 内容计划ID: feishuPlanA, 曝光: 9999 },
+        },
+      ],
+      has_more: false,
+      page_token: '',
+    } }), { status: 200 });
+  }
+  if (tableId === process.env.FEISHU_TABLE_CHECKIN) {
+    return new Response(JSON.stringify({ code: 0, data: {
+      items: [{
+        record_id: 'rec-feishu-bitable-checkin-001',
+        fields: { 客户ID: feishuClientA, 项目ID: feishuProjectA, 任务名称: [{ type: 'text', text: '发布训练日常' }], 是否完成: '已完成' },
+      }],
+      has_more: false,
+    } }), { status: 200 });
+  }
+  if (tableId === process.env.FEISHU_TABLE_REPUTATION) {
+    return new Response(JSON.stringify({ code: 0, data: {
+      items: [{
+        record_id: 'rec-feishu-bitable-reputation-001',
+        fields: { 客户ID: feishuClientA, 项目ID: feishuProjectA, 口碑任务: '邀请家长记录真实体验', 完成状态: '已记录' },
+      }],
+      has_more: false,
+    } }), { status: 200 });
+  }
+  return new Response(JSON.stringify({ code: 1254040, msg: 'table not found' }), { status: 404 });
+};
+
+const firstFeishuPull = await handler(internalRequest('POST', 'feishu/pull', {}));
+if (firstFeishuPull.status !== 200) throw new Error(`Feishu Bitable pull should succeed, got ${firstFeishuPull.status}: ${await firstFeishuPull.text()}`);
+const firstFeishuPullBody = await firstFeishuPull.json();
+assert(firstFeishuPullBody.ok === true && firstFeishuPullBody.summary.fetched === 5, 'Feishu pull should page through all configured tables');
+assert(firstFeishuPullBody.summary.created === 4 && firstFeishuPullBody.summary.skipped === 1, 'Feishu pull should ingest valid records and skip a missing project without cross-bucket writes');
+assert(bitableAuthCalls === 1 && bitableRecordCalls === 4, 'Feishu pull should authenticate once and fetch two effect pages plus two single-page tables');
+
+let feishuPulledState = await (await handler(request('GET', `state?client_id=${feishuClientA}`))).json();
+let feishuPulledProjectState = feishuPulledState.project_store.projects.find((item) => item.id === feishuProjectA)?.state;
+const pulledEffect = feishuPulledProjectState.feedback.find((item) => item.feishu_record_id === 'rec-feishu-bitable-effect-001');
+assert(pulledEffect.views === 3100 && pulledEffect.publish_link === 'https://example.com/feishu-bitable-effect', 'Bitable rich metrics and hyperlink should persist as clean scalar values');
+assert(pulledEffect.created_at === '2026-07-15 12:00:00' && pulledEffect.notes === '家长关注体验课，也会问教练资质', 'Bitable timestamp and rich text should persist in normalized form');
+assert(feishuPulledProjectState.daily_checkins.some((item) => item.feishu_record_id === 'rec-feishu-bitable-checkin-001'), 'check-in table should map to daily_checkins');
+assert(feishuPulledProjectState.reputation_tasks.some((item) => item.feishu_record_id === 'rec-feishu-bitable-reputation-001'), 'reputation table should map to reputation_tasks');
+
+const pulledFeedbackCount = feishuPulledProjectState.feedback.length;
+const pulledAuditCount = feishuPulledProjectState.feishu_inbound_records.length;
+bitableEffectViews = 4200;
+const secondFeishuPull = await handler(internalRequest('POST', 'feishu/pull', {}));
+assert(secondFeishuPull.status === 200, 'repeating a Feishu full pull should remain safe');
+const secondFeishuPullBody = await secondFeishuPull.json();
+assert(secondFeishuPullBody.summary.created === 0 && secondFeishuPullBody.summary.updated === 4, 'repeating the same record ids should be reported as idempotent updates');
+feishuPulledState = await (await handler(request('GET', `state?client_id=${feishuClientA}`))).json();
+feishuPulledProjectState = feishuPulledState.project_store.projects.find((item) => item.id === feishuProjectA)?.state;
+assert(feishuPulledProjectState.feedback.length === pulledFeedbackCount && feishuPulledProjectState.feishu_inbound_records.length === pulledAuditCount, 'repeated Bitable pulls must not duplicate feedback or audit records');
+assert(feishuPulledProjectState.feedback.find((item) => item.feishu_record_id === 'rec-feishu-bitable-effect-001')?.views === 4200, 'repeated Bitable pulls should update the existing record in place');
+assert(bitableAuthCalls === 1, 'tenant access token should be reused from the in-memory cache');
+
+const scheduledFeishuResponse = await scheduledFeishuPull(new Request('http://localhost/.netlify/functions/feishu-pull-scheduled', {
+  method: 'POST',
+  body: JSON.stringify({ next_run: '2026-07-15T12:15:00Z' }),
+}));
+assert(scheduledFeishuResponse.status === 200, 'scheduled Feishu pull should finish without throwing');
+const scheduledFeishuBody = await scheduledFeishuResponse.json();
+assert(scheduledFeishuBody.trigger === 'scheduled' && scheduledFeishuBody.ok === true, 'scheduled function should run the same Bitable pull path');
+globalThis.fetch = fetchBeforeFeishuBitable;
+['FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS'].forEach((key) => delete process.env[key]);
 
 const qaProjectId = 'qa_generation_project';
 const qaClientId = 'internal';
@@ -2108,6 +2243,13 @@ console.log(JSON.stringify({
     slow_submit_status: slowPlanJobCreateResponse.status,
     slow_submit_latency_ms: slowPlanJobSubmitLatencyMs,
     slow_completed_status: slowPlanJob.status,
+  },
+  feishu_bitable_pull: {
+    first_pull: firstFeishuPullBody.summary,
+    repeated_pull: secondFeishuPullBody.summary,
+    scheduled_trigger: scheduledFeishuBody.trigger,
+    token_requests: bitableAuthCalls,
+    record_requests: bitableRecordCalls,
   },
   generation_workbench: {
     asset_sha256: assetData.asset.sha256,
