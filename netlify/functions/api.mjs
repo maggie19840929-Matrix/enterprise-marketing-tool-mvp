@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.100';
-const VERSION_LABEL = 'v1.6.100 · 2.1 Turbo 模型切换版';
+const APP_VERSION = '1.6.101';
+const VERSION_LABEL = 'v1.6.101 · 客户证据策略框架版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -128,6 +128,8 @@ const CUSTOMER_HIDDEN_MODEL_FIELDS = new Set([
   'repair_recovered_count',
   'transparent_note',
   'debug',
+  'strategy_quality_context',
+  'strategy_quality',
 ]);
 const stripCustomerModelMetadata = (value) => {
   if (Array.isArray(value)) return value.map(stripCustomerModelMetadata);
@@ -869,6 +871,101 @@ const merchantProfileFor = (assessment = {}, ctx = inferBusinessContext(assessme
   };
 };
 
+const compactStrategyItems = (values = [], maxItems = 4, maxLength = 100) => {
+  const seen = new Set();
+  return values
+    .flatMap((value) => Array.isArray(value) ? value : String(value || '').split(/[。！？!?；;\n\r]+/))
+    .map((value) => Array.from(String(value || '').trim()).slice(0, maxLength).join(''))
+    .filter((value) => {
+      const key = value.replace(/\s+/g, '').toLowerCase();
+      if (key.length < 2 || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, maxItems);
+};
+
+const strategyQualityContextFor = (assessment = {}, ctx = inferBusinessContext(assessment), merchantProfile = merchantProfileFor(assessment, ctx)) => {
+  const benchmark = assessment.benchmark && typeof assessment.benchmark === 'object' ? assessment.benchmark : {};
+  const coCreation = assessment.co_creation && typeof assessment.co_creation === 'object' ? assessment.co_creation : {};
+  const customerLanguage = compactStrategyItems([
+    assessment.customer_pain,
+    assessment.biggest_problem,
+    coCreation.customer_emphasis,
+  ]);
+  const buyerObjections = compactStrategyItems([
+    assessment.customer_pain,
+    assessment.biggest_problem,
+    coCreation.customer_emphasis,
+  ]);
+  const proofAssets = compactStrategyItems([
+    merchantProfile.proof_assets || [],
+    assessment.content_assets,
+    assessment.best_recent_content,
+    assessment.coach_credentials,
+  ]);
+  const marketCalibration = compactStrategyItems([
+    benchmark.notes,
+    benchmark.sample_content,
+  ], 2, 120);
+  const platformJobs = (merchantProfile.platform_focus || [])
+    .slice(0, 4)
+    .map((platform) => ({
+      platform,
+      purpose: platformStrategyFor(platform, {
+        category: merchantProfile.service_name,
+        target_customer: merchantProfile.audience,
+        conversion_action: merchantProfile.conversion_action,
+      }).why,
+    }));
+  return {
+    framework_version: 'customer-evidence-p0',
+    service: merchantProfile.service_name,
+    audience: merchantProfile.audience,
+    business_goal: merchantProfile.goal,
+    bottleneck: merchantProfile.bottleneck,
+    conversion_action: merchantProfile.conversion_action,
+    customer_language: customerLanguage,
+    buyer_objections: buyerObjections,
+    proof_assets: proofAssets,
+    market_calibration: marketCalibration,
+    platform_jobs: platformJobs,
+    evidence_strength: proofAssets.length >= 2 ? 'strong' : proofAssets.length ? 'partial' : 'weak',
+    quality_rules: [
+      '选题必须对应客户原话、购买顾虑或真实业务目标，不能只替换行业名。',
+      '没有真实证据时只讲过程、边界和判断标准，不编造案例、价格或效果。',
+      '每个平台承担明确任务，标题语感、内容形式和观察指标必须随平台变化。',
+      '每条内容都要有可验证假设，并说明数据一般时下一条如何调整。',
+    ],
+  };
+};
+
+const strategyQualityForPlan = ({ qualityContext = {}, index = 0, title = '', platform = '', experimentType = '', strategy = {} } = {}) => {
+  const choose = (items = []) => items.length ? items[index % items.length] : '';
+  const customerLanguage = choose(qualityContext.customer_language || []);
+  const buyerObjection = choose(qualityContext.buyer_objections || []);
+  const proofAsset = choose(qualityContext.proof_assets || []);
+  const marketSignal = choose(qualityContext.market_calibration || []);
+  return {
+    framework_version: qualityContext.framework_version || 'customer-evidence-p0',
+    evidence_strength: qualityContext.evidence_strength || 'weak',
+    customer_language_used: customerLanguage,
+    buyer_objection_used: buyerObjection,
+    proof_asset_used: proofAsset,
+    market_signal_used: marketSignal,
+    platform_role: strategy.why || `${platform || '当前平台'}用于验证目标客户是否关注这个问题。`,
+    conversion_action: qualityContext.conversion_action || '咨询具体情况',
+    hypothesis: `${experimentType || '内容'}测试：${title || '本条内容'}能否触发目标客户的真实反馈。`,
+    decision_rule: strategy.next_adjustment || '数据一般时先换标题或开头，再补真实证据。',
+    checks: {
+      customer_specific: Boolean(customerLanguage || buyerObjection),
+      evidence_grounded: Boolean(proofAsset),
+      platform_specific: Boolean(platform && strategy.why),
+      measurable: Array.isArray(strategy.observe_metrics) && strategy.observe_metrics.length > 0,
+    },
+  };
+};
+
 const auditChecksForPublish = ({ platform = '', topic = '', angle = '', cta = '', qualityNote = '', assessment = {} } = {}) => {
   const text = [topic, angle, cta, qualityNote].filter(Boolean).join(' ');
   const service = serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '');
@@ -916,16 +1013,23 @@ const publishAuditFor = (input = {}) => {
   };
 };
 
-const customerReasoningFor = ({ assessment = {}, ctx = {}, merchantProfile = {}, title = '', angle = '', platform = '', experimentType = '', strategy = {}, cta = '' } = {}) => {
+const customerReasoningFor = ({ assessment = {}, ctx = {}, merchantProfile = {}, strategyQuality = {}, title = '', angle = '', platform = '', experimentType = '', strategy = {}, cta = '' } = {}) => {
   const pain = assessment.customer_pain || assessment.biggest_problem || merchantProfile.bottleneck || '当前卡点';
   const service = merchantProfile.service_name || ctx.primary_offer || assessment.offer || '服务';
   const audience = shortAudience(assessment.target_customer || merchantProfile.audience || '目标客户');
   const proof = merchantProfile.proof_assets?.[0] || assessment.content_assets || assessment.best_recent_content || '真实案例、过程或客户问题';
   return {
+    customer_voice_basis: strategyQuality.customer_language_used
+      ? `优先回应客户真实表达「${strategyQuality.customer_language_used}」，不把行业标签当成客户洞察。`
+      : `当前客户原话较少，先围绕「${pain}」做小样本验证，发布后再用真实提问校准。`,
     pain_basis: `围绕「${audience}」的「${pain}」展开，不再套通用行业模板。`,
+    proof_basis: strategyQuality.proof_asset_used
+      ? `本条可使用「${strategyQuality.proof_asset_used}」作为证据，不额外编造案例或效果。`
+      : '当前可用证据不足，只讲真实过程、适合人群和判断边界，不虚构结果。',
     platform_basis: strategy.why || `${platform || '当前平台'}适合先验证客户是否愿意停下来看「${service}」相关问题。`,
     conversion_basis: `结尾动作指向「${cta || merchantProfile.conversion_action || '咨询具体情况'}」，目标是把浏览变成有效咨询。`,
     validation_goal: `本条重点验证「${title || service}」是否能带来${(strategy.observe_metrics || ['曝光','收藏','咨询']).slice(0, 3).join('、')}信号。`,
+    decision_rule: strategyQuality.decision_rule || strategy.next_adjustment || '数据一般时先调整标题和开头，再补真实证据。',
     publish_note: `发布前补充${proof}，并检查平台规则、封面和承诺用语。`,
     merchant_profile: {
       service_type: merchantProfile.service_type,
@@ -957,6 +1061,15 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
   const cta = row[3] || '主页咨询具体情况';
   const targetMetric = row[4] || strategy.observe_metrics.join(' / ');
   const merchantProfile = merchantProfileFor(assessment || {}, ctx);
+  const qualityContext = strategyQualityContextFor(assessment || {}, ctx, merchantProfile);
+  const strategyQuality = strategyQualityForPlan({
+    qualityContext,
+    index,
+    title,
+    platform,
+    experimentType,
+    strategy,
+  });
   const customerReasoning = customerReasoningFor({
     assessment,
     ctx,
@@ -966,6 +1079,7 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
     platform,
     experimentType,
     strategy,
+    strategyQuality,
     cta,
   });
   const publishAudit = publishAuditFor({
@@ -990,6 +1104,7 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
     content_type: contentType,
     target_metric: targetMetric,
     merchant_profile: merchantProfile,
+    strategy_quality: strategyQuality,
     customer_reasoning: customerReasoning,
     publish_audit: publishAudit,
   };
@@ -1557,6 +1672,7 @@ const generateDiagnosis = (assessmentId) => {
   const benchmarkReference = benchmarkReferenceFor(assessment);
   const businessContext = inferBusinessContext(assessment);
   const merchantProfile = merchantProfileFor(assessment, businessContext);
+  const strategyQualityContext = strategyQualityContextFor(assessment, businessContext, merchantProfile);
   const growthGaps = growthGapPromptsFor(assessment, businessContext);
   const diagnosis = {
     id: state.next.diagnosis++,
@@ -1575,6 +1691,7 @@ const generateDiagnosis = (assessmentId) => {
     next_step: '',
     platform_recommendations: platformRecommendations,
     merchant_profile: merchantProfile,
+    strategy_quality_context: strategyQualityContext,
     strategy_mvp: {
       target_customer: assessment.target_customer || businessContext.target_customer,
       growth_goal: goal,
@@ -1656,17 +1773,32 @@ const planGenerationVariant = (value = '') => {
   return PLAN_VARIATION_DIRECTIONS[hash % PLAN_VARIATION_DIRECTIONS.length];
 };
 
-const planPromptContext = (assessment = {}, diagnosis = {}) => ({
-  industry: String(assessment.industry || '').slice(0, 120),
-  main_goal: String(assessment.main_goal || '').slice(0, 100),
-  target_customer: String(assessment.target_customer || '').slice(0, 120),
-  platforms: planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).slice(0, 4),
-  pain: String(assessment.customer_pain || assessment.biggest_problem || '').slice(0, 120),
-  biggest_problem: String(assessment.biggest_problem || '').slice(0, 60),
-  priority_problem: String(diagnosis.priority_problem || '').slice(0, 60),
-  platform_recommendations: compactPlatformRecommendations(diagnosis.platform_recommendations),
-  variation_direction: String(assessment.plan_generation_variant || '').slice(0, 40),
-});
+const planPromptContext = (assessment = {}, diagnosis = {}) => {
+  const businessContext = diagnosis?.smart_context || inferBusinessContext(assessment);
+  const merchantProfile = diagnosis?.merchant_profile || merchantProfileFor(assessment, businessContext);
+  const strategyQuality = diagnosis?.strategy_quality_context || strategyQualityContextFor(assessment, businessContext, merchantProfile);
+  return {
+    industry: String(assessment.industry || '').slice(0, 120),
+    main_goal: String(assessment.main_goal || '').slice(0, 100),
+    target_customer: String(assessment.target_customer || '').slice(0, 120),
+    platforms: planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).slice(0, 4),
+    pain: String(assessment.customer_pain || assessment.biggest_problem || '').slice(0, 120),
+    biggest_problem: String(assessment.biggest_problem || '').slice(0, 60),
+    priority_problem: String(diagnosis.priority_problem || '').slice(0, 60),
+    platform_recommendations: compactPlatformRecommendations(diagnosis.platform_recommendations),
+    variation_direction: String(assessment.plan_generation_variant || '').slice(0, 40),
+    strategy_quality: {
+      service: strategyQuality.service,
+      business_goal: strategyQuality.business_goal,
+      conversion_action: strategyQuality.conversion_action,
+      customer_language: strategyQuality.customer_language,
+      buyer_objections: strategyQuality.buyer_objections,
+      proof_assets: strategyQuality.proof_assets,
+      market_calibration: strategyQuality.market_calibration,
+      evidence_strength: strategyQuality.evidence_strength,
+    },
+  };
+};
 
 const contentPlanPrompt = (assessment, diagnosis) => [
   '请生成正好7条可直接进入内容草稿的选题，只返回JSON对象，不要Markdown。',
@@ -1676,6 +1808,8 @@ const contentPlanPrompt = (assessment, diagnosis) => [
   '按上下文platforms的顺序轮换平台语感：小红书标题更口语，可用“原来、后悔没早知道、谁懂啊”等轻情绪钩子或数字清单感，但必须真实、不夸大、不堆emoji；抖音保持短视频开头钩子；视频号保持稳健口播/科普，不要把小红书语气套到其他平台。',
   '除非上下文明确提供，topic、angle、content_type和cta中严禁出现：免费、接送、无隐形消费、包会、保证效果、立减、折扣、优惠、赠送、返现。',
   '根据 variation_direction 改变本批次的选题切口；不要机械复用同一行业的固定标题顺序。',
+  '先读 strategy_quality：至少3条直接回应 customer_language/buyer_objections，至少2条使用 proof_assets 里的真实素材做案例、过程或信任内容；如果 proof_assets 为空，只能讲流程、边界和判断标准。',
+  'market_calibration 只用于识别已验证的主题和表达结构，禁止照抄标题、案例、素材或对标账号人设。每条都应是可验证内容实验，并能用曝光、互动、咨询或预约决定下一步。',
   `上下文:${JSON.stringify(planPromptContext(assessment, diagnosis))}`,
 ].join('\n');
 
@@ -2217,6 +2351,7 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
       next_adjustment: enriched.next_adjustment,
       content_brief: enriched.content_brief,
       merchant_profile: enriched.merchant_profile,
+      strategy_quality: enriched.strategy_quality,
       customer_reasoning: enriched.customer_reasoning,
       publish_audit: enriched.publish_audit,
       requested_model: generation.requested_model,
@@ -2520,6 +2655,7 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
   const serviceType = serviceTopicFor([assessment.industry, assessment.main_goal, assessment.offer].filter(Boolean).join(' '), assessment.offer || '').type;
   const ctxForRows = inferBusinessContext(assessment);
   const merchantProfile = merchantProfileFor(assessment, ctxForRows);
+  const qualityContext = strategyQualityContextFor(assessment, ctxForRows, merchantProfile);
   const basePlanCta = serviceType === 'youth_basketball'
     ? '引导家长咨询孩子年龄和体验课时间'
     : serviceType === 'martial_arts'
@@ -2544,6 +2680,14 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
       conversion_action: consultations > 0 || appointments > 0 ? '咨询/预约' : '咨询具体情况',
     });
     const experimentType = growthExperimentTypes[index % growthExperimentTypes.length];
+    const strategyQuality = strategyQualityForPlan({
+      qualityContext,
+      index,
+      title: topic,
+      platform,
+      experimentType,
+      strategy: platformStrategy,
+    });
     const reasoning = customerReasoningFor({
       assessment,
       ctx: ctxForRows,
@@ -2553,6 +2697,7 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
       platform,
       experimentType,
       strategy: platformStrategy,
+      strategyQuality,
       cta: planCta,
     });
     const audit = publishAuditFor({
@@ -2579,6 +2724,7 @@ const localNextRoundPlan = (ctx = {}, advice = {}, source = 'rule_template') => 
       observe_metrics: platformStrategy.observe_metrics,
       next_adjustment: platformStrategy.next_adjustment,
       merchant_profile: merchantProfile,
+      strategy_quality: strategyQuality,
       customer_reasoning: reasoning,
       publish_audit: audit,
     };
@@ -2692,27 +2838,41 @@ const callCustomerCopyModel = async (ctx, strategy = {}) => {
   }
 };
 
-const compactCustomerAdviceContext = (ctx = {}) => ({
-  biz: [ctx.assessment?.industry, ctx.assessment?.target_customer, ctx.assessment?.offer || ctx.assessment?.main_goal].filter(Boolean).join(' / '),
-  selected: [ctx.selected_plan?.topic, ctx.selected_plan?.platform].filter(Boolean).join(' / '),
-  metrics: {
-    views: ctx.daily_data?.views || 0,
-    engagement: ctx.daily_data?.engagement || 0,
-    consultations: ctx.daily_data?.consultations || 0,
-    appointments: ctx.daily_data?.appointments || 0,
-  },
-  notes: String([ctx.daily_data?.observation_tags, ctx.daily_data?.notes].filter(Boolean).join('；')).slice(0, 120),
-  co_creation: ctx.assessment?.co_creation || {},
-  history_count: ctx.history_feedback?.length || 0,
-  next_topics: (ctx.unpublished_plans || []).slice(0, 3).map((plan) => plan.topic).filter(Boolean),
-  used_topics: [
-    ctx.selected_plan?.topic,
-    ...(ctx.all_plan_topics || []),
-    ...(ctx.history_feedback || []).map((item) => item.plan_topic),
-  ].filter(Boolean).slice(0, 12),
-});
+const compactCustomerAdviceContext = (ctx = {}) => {
+  const assessment = ctx.assessment || {};
+  const businessContext = ctx.diagnosis?.smart_context || inferBusinessContext(assessment);
+  const merchantProfile = ctx.diagnosis?.merchant_profile || merchantProfileFor(assessment, businessContext);
+  const quality = ctx.diagnosis?.strategy_quality_context || strategyQualityContextFor(assessment, businessContext, merchantProfile);
+  return {
+    biz: [assessment.industry, assessment.target_customer, assessment.offer || assessment.main_goal].filter(Boolean).join(' / '),
+    selected: [ctx.selected_plan?.topic, ctx.selected_plan?.platform].filter(Boolean).join(' / '),
+    metrics: {
+      views: ctx.daily_data?.views || 0,
+      engagement: ctx.daily_data?.engagement || 0,
+      consultations: ctx.daily_data?.consultations || 0,
+      appointments: ctx.daily_data?.appointments || 0,
+    },
+    notes: String([ctx.daily_data?.observation_tags, ctx.daily_data?.notes].filter(Boolean).join('；')).slice(0, 120),
+    strategy_quality: {
+      customer_language: quality.customer_language,
+      buyer_objections: quality.buyer_objections,
+      proof_assets: quality.proof_assets,
+      market_calibration: quality.market_calibration,
+      conversion_action: quality.conversion_action,
+      evidence_strength: quality.evidence_strength,
+    },
+    co_creation: assessment.co_creation || {},
+    history_count: ctx.history_feedback?.length || 0,
+    next_topics: (ctx.unpublished_plans || []).slice(0, 3).map((plan) => plan.topic).filter(Boolean),
+    used_topics: [
+      ctx.selected_plan?.topic,
+      ...(ctx.all_plan_topics || []),
+      ...(ctx.history_feedback || []).map((item) => item.plan_topic),
+    ].filter(Boolean).slice(0, 12),
+  };
+};
 
-const customerAdvicePrompt = (ctx = {}) => `输出JSON对象。字段:title,nextTopic,judgment,action,copy_suggestion,review_judgment:{type,more,less,why},customer_summary,next_7_day_plan:[{day,topic,angle,platform,action,target_metric}]。next_7_day_plan必须7条,要基于本次反馈生成新选题,不得重复used_topics/selected/next_topics里的旧标题。所有字符串<=28字。规则:有咨询/预约=加码;有曝光互动无咨询=补信任;样本小=扩大样本;禁CRM/ERP/销售跟进/评论区关键词。上下文:${JSON.stringify(compactCustomerAdviceContext(ctx))}`;
+const customerAdvicePrompt = (ctx = {}) => `输出JSON对象。字段:title,nextTopic,judgment,action,copy_suggestion,review_judgment:{type,more,less,why},customer_summary,next_7_day_plan:[{day,topic,angle,platform,action,target_metric}]。next_7_day_plan必须7条,要基于本次反馈生成新选题,不得重复used_topics/selected/next_topics里的旧标题。优先沿用strategy_quality里的客户原话、购买异议和真实素材：至少3条回应customer_language/buyer_objections，至少2条能使用proof_assets；没有证据时只讲流程、边界和判断标准，不编造案例或效果。market_calibration只能迁移主题和表达结构，禁止照抄。所有字符串<=28字。规则:有咨询/预约=加码;有曝光互动无咨询=补信任;样本小=扩大样本;每条可用指标决定下一步;禁CRM/ERP/销售跟进/评论区关键词。上下文:${JSON.stringify(compactCustomerAdviceContext(ctx))}`;
 
 const callArkCustomerAdviceModel = async (ctx = {}) => {
   const call = await callArkChatCompletion({

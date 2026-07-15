@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.100';
-const VERSION_LABEL = 'v1.6.100 · 2.1 Turbo 模型切换版';
+const APP_VERSION = '1.6.101';
+const VERSION_LABEL = 'v1.6.101 · 客户证据策略框架版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -2346,10 +2346,13 @@ function customerReasoningForPlan(plan = {}, payload = {}, index = 0){
   const observe = Array.isArray(plan.observe_metrics) ? plan.observe_metrics.join('、') : customerText(plan.target_metric || '曝光、收藏、咨询');
   const experiment = customerText(plan.experiment_type || ['痛点型','效果型','信任型','场景型','转化型','异议处理型','复盘型'][index % 7]);
   return [
+    ['客户原话依据', r.customer_voice_basis],
     ['客户痛点依据', r.pain_basis || `围绕「${audience}」的「${pain}」展开，不套统一模板。`],
+    ['可用证据', r.proof_basis],
     ['平台表达依据', r.platform_basis || plan.why_platform_fit || customerPlatformAngle(platform, plan)],
     ['转化动作依据', r.conversion_basis || `这条内容要把浏览带到「${plan.cta || merchant.conversion_action || '咨询具体情况'}」。`],
     ['本条验证目标', r.validation_goal || `验证「${plan.topic || service}」这个${experiment}是否能带来${observe}信号。`],
+    ['数据一般时', r.decision_rule || plan.next_adjustment],
     ['发布前注意', r.publish_note || `发布前补充真实素材，并检查${platform}的敏感词、封面和联系方式规则。`],
   ].filter(([, value]) => customerText(value));
 }
@@ -4447,6 +4450,11 @@ function renderPlans(plans){
     const quality = [p.publish_quality, p.quality_note].filter(Boolean).join('：');
     const publishLink = normalizeExternalUrl(p.publish_link);
     const linkHtml = publishLink ? `<a href="${esc(publishLink)}" target="_blank">发布链接已回填</a>` : '发布后需回填链接';
+    const strategyQuality = p.strategy_quality && typeof p.strategy_quality === 'object' ? p.strategy_quality : {};
+    const qualityEvidence = [strategyQuality.customer_language_used, strategyQuality.buyer_objection_used, strategyQuality.proof_asset_used]
+      .filter(Boolean)
+      .join('｜');
+    const qualityDecision = strategyQuality.decision_rule || p.next_adjustment || '';
     return `<article class="full-plan-card ${meta.className}">
       <div class="full-plan-head">
         <div><span class="plan-index">#${planDisplayNumber(p)}</span><strong>${esc(p.topic)}</strong></div>
@@ -4459,6 +4467,7 @@ function renderPlans(plans){
         <section><span>观察与调整</span><p>${esc(Array.isArray(p.observe_metrics) ? p.observe_metrics.join(' / ') : (p.target_metric || ''))}</p><em>${esc(p.next_adjustment || '')}</em></section>
         <section><span>合规承接</span><p>${esc(p.cta || '')}</p>${quality ? `<em>${esc(quality)}</em>` : ''}</section>
         <section><span>观察目标</span><p>${esc(p.content_hypothesis || p.target_metric || '')}</p><em>${linkHtml}</em></section>
+        ${qualityEvidence || qualityDecision ? `<section><span>策略证据</span><p>${esc(qualityEvidence || '当前证据较少，先做小样本验证')}</p><em>${esc(qualityDecision)}</em></section>` : ''}
       </div>
       <div class="full-plan-actions"><button class="secondary js-prefill-feedback" type="button" data-plan-id="${esc(planIdValue(p))}">${esc(meta.action)}</button></div>
     </article>`;

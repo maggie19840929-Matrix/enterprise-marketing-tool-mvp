@@ -4,10 +4,10 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.100';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.100';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.101';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.101';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.100-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.101-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -136,7 +136,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.100', `expected app_version 1.6.100, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.101', `expected app_version 1.6.101, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -184,7 +184,7 @@ const firstPlanTopics = ownPlanJob.result.plans.map((plan) => plan.topic);
 const repeatedPlanTopics = repeatedPlanJob.result.plans.map((plan) => plan.topic);
 assert(JSON.stringify(firstPlanTopics) !== JSON.stringify(repeatedPlanTopics), 'same customer input submitted twice should rotate the creative direction instead of returning the identical seven-topic order');
 const ownPlanJobText = JSON.stringify(ownPlanJob);
-['requested_model', 'actual_model', 'provider', 'fallback_reason', 'generation_meta', 'model_info'].forEach((word) => {
+['requested_model', 'actual_model', 'provider', 'fallback_reason', 'generation_meta', 'model_info', 'strategy_quality_context', 'strategy_quality'].forEach((word) => {
   assert(!ownPlanJobText.includes(word), `customer plan job response must hide model field ${word}`);
 });
 const crossClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-other`));
@@ -306,7 +306,12 @@ process.env.GENERATION_DAILY_CLIENT_MAX = '100';
 assert(diagnosis.strategy_mvp && diagnosis.strategy_mvp.seven_day_flywheel.length === 7, 'diagnosis should expose platform strategy MVP and 7-day flywheel');
 assert(plans.every((plan) => plan.experiment_type && plan.why_platform_fit && Array.isArray(plan.observe_metrics) && plan.observe_metrics.length >= 3 && plan.next_adjustment && plan.content_hypothesis), 'plans should include experiment type, platform fit, metrics, next adjustment and hypothesis');
 assert(diagnosis.merchant_profile && diagnosis.merchant_profile.bottleneck && diagnosis.merchant_profile.conversion_action, 'diagnosis should expose merchant_profile for differentiated customer advice');
-assert(plans.every((plan) => plan.customer_reasoning?.pain_basis && plan.customer_reasoning?.platform_basis && plan.customer_reasoning?.conversion_basis && plan.customer_reasoning?.validation_goal && plan.customer_reasoning?.publish_note), 'plans should include concrete customer_reasoning fields for why-this-plan explanations');
+assert(diagnosis.strategy_quality_context?.framework_version === 'customer-evidence-p0', 'diagnosis should expose the P0 customer-evidence strategy framework internally');
+assert(diagnosis.strategy_quality_context.customer_language.some((item) => item.includes('不知道该发什么')), 'strategy framework should preserve customer language instead of reducing it to an industry label');
+assert(diagnosis.strategy_quality_context.proof_assets.some((item) => item.includes('企业真实服务案例')), 'strategy framework should preserve available proof assets');
+assert(diagnosis.strategy_quality_context.market_calibration.some((item) => item.includes('真实问题')), 'strategy framework should preserve benchmark market calibration without copying it');
+assert(plans.every((plan) => plan.strategy_quality?.framework_version === 'customer-evidence-p0' && plan.strategy_quality?.checks?.customer_specific && plan.strategy_quality?.checks?.platform_specific && plan.strategy_quality?.checks?.measurable), 'plans should retain an internal customer-specific, platform-specific and measurable strategy-quality record');
+assert(plans.every((plan) => plan.customer_reasoning?.customer_voice_basis && plan.customer_reasoning?.pain_basis && plan.customer_reasoning?.proof_basis && plan.customer_reasoning?.platform_basis && plan.customer_reasoning?.conversion_basis && plan.customer_reasoning?.validation_goal && plan.customer_reasoning?.decision_rule && plan.customer_reasoning?.publish_note), 'plans should include customer voice, evidence and decision rules in why-this-plan explanations');
 assert(plans.every((plan) => plan.publish_audit?.risk_level && Array.isArray(plan.publish_audit.checks) && plan.publish_audit.checks.length >= 1), 'plans should include publish_audit checks for platform-rule review');
 assert(plans.some((plan) => plan.platform === '小红书' && plan.publish_audit.checks.some((check) => String(check.label || '').includes('小红书'))), 'XHS plans should include a 小红书 publish pre-check');
 const publicAssessmentDenied = await handler(request('POST', 'assessments', payload));
@@ -673,7 +678,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.100'") && appJs.includes("v1.6.100 · 2.1 Turbo 模型切换版"), 'app should expose the v1.6.100 model-switch release internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.101'") && appJs.includes("v1.6.101 · 客户证据策略框架版"), 'app should expose the v1.6.101 customer-evidence strategy release internally/API-side');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
@@ -707,6 +712,10 @@ for (const event of ['home_view', 'intake_started', 'generation_submitted', 'eff
   assert(appJs.includes(`'${event}'`), `customer flow should emit ${event}`);
 }
 assert(apiSource.includes('PLAN_VARIATION_DIRECTIONS') && apiSource.includes('generation_variant: generationVariant') && apiSource.includes('temperature: 0.55') && apiSource.includes('variation_direction'), 'customer plan jobs should rotate a lightweight creative direction and use moderate temperature to reduce same-industry repetition');
+assert(apiSource.includes("framework_version: 'customer-evidence-p0'") && apiSource.includes('customer_language') && apiSource.includes('buyer_objections') && apiSource.includes('proof_assets') && apiSource.includes('market_calibration'), 'P0 strategy framework should carry customer language, objections, evidence and market calibration into both generation rounds');
+assert(apiSource.includes('至少3条直接回应 customer_language/buyer_objections') && apiSource.includes('至少2条使用 proof_assets') && apiSource.includes('market_calibration 只用于识别已验证的主题和表达结构'), 'initial plan prompt should require evidence-grounded customer-specific topics without copying benchmarks');
+assert(apiSource.includes('优先沿用strategy_quality里的客户原话、购买异议和真实素材') && apiSource.includes('每条可用指标决定下一步'), 'next-round prompt should use customer evidence and measurable feedback decisions');
+assert(appJs.includes('客户原话依据') && appJs.includes('可用证据') && appJs.includes('策略证据'), 'existing collapsed reasoning and internal plan QA should expose customer evidence without adding a new customer page');
 assert(indexHtml.includes('name="current_channels" value="还不确定"') && indexHtml.includes('name="biggest_problem" value="不知道发什么"'), 'customer intake should require only the three core text fields and carry safe defaults for platform and biggest problem');
 assert((customerAssessmentFormHtml.match(/\srequired(?:\s|\/?>)/g) || []).length === 3, 'customer intake should contain exactly three required fields');
 const customerOptionalStart = customerAssessmentFormHtml.indexOf('<details class="customer-more-fields customer-optional-fields">');
@@ -826,10 +835,10 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.100') && indexHtml.includes('/styles.css?v=1.6.100') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.100'), 'customer page should cache-bust the v1.6.100 model-switch release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.101') && indexHtml.includes('/styles.css?v=1.6.101') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.101'), 'customer page should cache-bust the v1.6.101 strategy-framework release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.100') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.100') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.100') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.101') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.101') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.101') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1019,6 +1028,8 @@ assert(dailyAdvice[2].next_round.review_judgment.type === '加码', `day 3 next-
 assert(dailyAdvice[2].next_round.review_judgment.decision === '加码', 'day 3 next-round judgment should explicitly decide to amplify after consultation data');
 assert(dailyAdvice[2].customer_summary.includes('多发') && dailyAdvice[2].customer_summary.includes('少发'), 'customer summary should say what to post more and less next week');
 assert(dailyAdvice[2].next_7_day_plan.every((row) => row.target_metric && row.based_on && row.experiment_type && row.why_platform_fit && Array.isArray(row.observe_metrics) && row.next_adjustment), 'next-round plan rows should include target_metric, based_on, experiment type, platform fit, metrics and adjustment');
+assert(dailyAdvice[2].next_7_day_plan.every((row) => row.customer_reasoning?.customer_voice_basis && row.customer_reasoning?.proof_basis && row.customer_reasoning?.decision_rule), 'next-round public plans should preserve customer voice, evidence guidance and a measurable adjustment rule');
+assert(!JSON.stringify(dailyAdvice[2]).includes('strategy_quality'), 'customer next-round response should hide the internal strategy-quality record');
 const firstRoundBasketballTopics = new Set(basketballAdviceCase.plans.map((plan) => plan.topic));
 dailyAdvice.forEach((item, index) => {
   const nextRoundTopics = item.next_7_day_plan.map((row) => row.topic);
@@ -1363,7 +1374,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.100' && health.version_label === 'v1.6.100 · 2.1 Turbo 模型切换版', 'health should expose the v1.6.100 model-switch release');
+assert(health.version === '1.6.101' && health.version_label === 'v1.6.101 · 客户证据策略框架版', 'health should expose the v1.6.101 customer-evidence strategy release');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
