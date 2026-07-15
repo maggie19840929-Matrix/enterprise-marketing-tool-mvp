@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.99';
-const VERSION_LABEL = 'v1.6.99 · 获客罗盘产品标识接入版';
+const APP_VERSION = '1.6.100';
+const VERSION_LABEL = 'v1.6.100 · 2.1 Turbo 模型切换版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -23,7 +23,7 @@ const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/p
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
 const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 19000), 1000), 20000);
 const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 19000), 500), 20000);
-const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 10000), 5000), 12000);
+const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 15000), 5000), 18000);
 const CLOUD_STATE_STORE = 'enterprise-marketing-tool-state';
 const CLOUD_STATE_KEY = 'global-project-store';
 const INTERNAL_CLIENT_ID = 'internal';
@@ -2719,8 +2719,10 @@ const callArkCustomerAdviceModel = async (ctx = {}) => {
     route: '/api/customer-growth-advice',
     purpose: 'customer_growth_advice',
     temperature: 0.45,
-    maxTokens: 360,
+    maxTokens: 1000,
     timeoutMs: CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS,
+    responseFormat: { type: 'json_object' },
+    thinking: { type: 'disabled' },
     messages: [
       { role: 'system', content: '你是企业增长内容策略顾问，只返回 JSON，不要输出 Markdown。' },
       { role: 'user', content: customerAdvicePrompt(ctx) },

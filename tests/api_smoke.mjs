@@ -4,10 +4,10 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.99';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.99';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.100';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.100';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.99-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.100-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -136,7 +136,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.99', `expected app_version 1.6.99, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.100', `expected app_version 1.6.100, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -673,7 +673,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.99'") && appJs.includes("v1.6.99 · 获客罗盘产品标识接入版"), 'app should expose the v1.6.99 product identity release internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.100'") && appJs.includes("v1.6.100 · 2.1 Turbo 模型切换版"), 'app should expose the v1.6.100 model-switch release internally/API-side');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
@@ -693,6 +693,7 @@ assert(apiSource.includes('planJobClientIdFrom') && apiSource.includes('读取�
 assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCustomerPlanJob') && appJs.includes('&fallback=1'), 'customer plan generation should submit, poll with a limit, and request a safe fallback when polling expires');
 assert(apiSource.includes("const COMMERCIAL_METERING_PREFIX = 'metering/v1'") && apiSource.includes("const COMMERCIAL_ANALYTICS_PREFIX = 'analytics/v1'") && apiSource.includes('reserveGenerationRequest') && apiSource.includes('RATE_LIMIT_ENFORCE'), 'P0 should keep metering and analytics in independent blob namespaces with a shadow/enforced switch');
 assert(apiSource.includes('maxTokens: 1400'), 'Ark should have enough output budget to return seven structured content-plan rows without truncation fallback');
+assert(apiSource.includes('CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 15000') && apiSource.includes('), 18000);'), 'next-round Ark generation should allow the measured 2.1 Turbo response window');
 assert(apiSource.includes("purpose: 'initial_7_day_plan_repair'") && apiSource.includes('provider_attempt_count: 2'), 'structured plan parse failures should get one bounded Ark repair attempt and expose the real provider attempt count');
 assert(apiSource.includes("purpose: 'initial_7_day_plan_retry'") && apiSource.includes('isRetryableArkFailure'), 'transient Ark network, timeout, 429, and 5xx failures should get one bounded retry');
 assert(apiSource.includes('reservationKeyFor') && apiSource.includes('existingJob') && apiSource.includes("job_id: `planjob_${sha256Hex(`${client_id}:${requestId}`).slice(0, 24)}`"), 'request_id should key both reservation and deterministic plan job identity');
@@ -825,10 +826,10 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.99') && indexHtml.includes('/styles.css?v=1.6.99') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.99'), 'customer page should cache-bust the v1.6.99 product identity release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.100') && indexHtml.includes('/styles.css?v=1.6.100') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.100'), 'customer page should cache-bust the v1.6.100 model-switch release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.99') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.99') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.99') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.100') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.100') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.100') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1362,7 +1363,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.99' && health.version_label === 'v1.6.99 · 获客罗盘产品标识接入版', 'health should expose the v1.6.99 product identity release');
+assert(health.version === '1.6.100' && health.version_label === 'v1.6.100 · 2.1 Turbo 模型切换版', 'health should expose the v1.6.100 model-switch release');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
@@ -1775,6 +1776,68 @@ for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效
 }
 assert(claimGuardRequestBody.includes('cta<=14字') && claimGuardRequestBody.includes('咨询咨询') && claimGuardRequestBody.includes('7条cta动作要多样'), 'Ark plan prompt should constrain CTA length, grammar, and action diversity');
 assert(claimGuardRequestBody.includes('小红书标题更口语') && claimGuardRequestBody.includes('不要把小红书语气套到其他平台'), 'Ark plan prompt should strengthen XHS tone without leaking it into other platforms');
+
+let nextRoundRequestBody = null;
+globalThis.fetch = async (_url, options = {}) => {
+  nextRoundRequestBody = JSON.parse(String(options.body || '{}'));
+  return new Response(JSON.stringify({
+    model: 'ep-doubao-seed-2-1-turbo-smoke',
+    choices: [{ message: { content: JSON.stringify({
+      title: '下一轮先补家长信任',
+      nextTopic: '零基础孩子第一节课练什么',
+      judgment: '有浏览和咨询，继续放大体验课信任证据',
+      action: '补充课堂实拍和教练讲解',
+      copy_suggestion: '用真实课堂片段回答家长最担心的问题',
+      review_judgment: { type: '加码', more: '真实课堂', less: '泛泛口号', why: '咨询集中在零基础与安全' },
+      customer_summary: '多发真实课堂，少发泛泛介绍',
+      next_7_day_plan: Array.from({ length: 7 }, (_, index) => ({
+        day: index + 1,
+        topic: [
+          '零基础孩子第一节课练什么',
+          '家长旁听时先看这三个细节',
+          '孩子怕球时教练会怎么带',
+          '运球训练也在提升哪些体能',
+          '周末体验课怎样选择合适班型',
+          '教练如何保护第一次上课的孩子',
+          '体验课结束后家长该观察什么',
+        ][index],
+        angle: '围绕真实家长顾虑给出具体判断',
+        platform: '小红书',
+        action: '保存后对照体验课安排',
+        target_metric: '观察家长咨询与预约',
+      })),
+    }) } }],
+    usage: { prompt_tokens: 120, completion_tokens: 520, total_tokens: 640 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+const turboAdvicePlan = claimGuardData.plans[0];
+const turboAdviceResponse = await claimGuardHandler(internalRequest('POST', 'customer-growth-advice', {
+  request_id: 'doubao-seed-2-1-turbo-advice-smoke',
+  client_id: 'doubao-seed-2-1-turbo-advice-smoke',
+  client_mode: 'internal_test',
+  source: 'internal_test',
+  assessment: claimGuardData.assessment,
+  diagnosis: claimGuardData.diagnosis,
+  plans: claimGuardData.plans,
+  records: [],
+  record: {
+    content_plan_id: turboAdvicePlan.id,
+    plan_topic: turboAdvicePlan.topic,
+    publish_link: 'https://example.com/turbo-advice-smoke',
+    views: 1280,
+    engagement: 76,
+    consultations: 6,
+    notes: '家长集中问零基础、安全和周末体验课安排。',
+  },
+  selected_plan_id: turboAdvicePlan.id,
+}));
+assert(turboAdviceResponse.status === 200, `2.1 Turbo next-round advice should return 200, got ${turboAdviceResponse.status}`);
+const turboAdviceData = await turboAdviceResponse.json();
+assert(turboAdviceData.generation_meta?.provider === 'volcengine_ark' && turboAdviceData.generation_meta?.fallback === false, '2.1 Turbo next-round advice should preserve real Ark model evidence internally');
+assert(turboAdviceData.next_7_day_plan?.length === 7, '2.1 Turbo next-round advice should preserve all seven structured rows');
+assert(nextRoundRequestBody?.max_tokens === 1000, `next-round generation should request 1000 tokens, got ${nextRoundRequestBody?.max_tokens}`);
+assert(nextRoundRequestBody?.response_format?.type === 'json_object', 'next-round generation should request a JSON object response');
+assert(nextRoundRequestBody?.thinking?.type === 'disabled', 'next-round generation should disable extended thinking for predictable customer latency');
 
 const noisyCtas = [
   '点击咨询咨询详细方案',
