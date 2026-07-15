@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.102';
-const VERSION_LABEL = 'v1.6.102 · 飞书多维表格主动同步版';
+const APP_VERSION = '1.6.103';
+const VERSION_LABEL = 'v1.6.103 · 飞书 Wiki 表格自动解析版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -44,6 +44,7 @@ const feishuWebhookUrl = () => envValue('FEISHU_WEBHOOK_URL');
 const feishuAppId = () => envValue('FEISHU_APP_ID');
 const feishuAppSecret = () => envValue('FEISHU_APP_SECRET');
 const feishuBaseToken = () => envValue('FEISHU_BASE_TOKEN');
+const feishuWikiNodeToken = () => envValue('FEISHU_WIKI_NODE_TOKEN', 'FEISHU_WIKI_TOKEN');
 const requestInternalToken = (request = null) => {
   const auth = String(request?.headers?.get('authorization') || '').trim();
   const bearer = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
@@ -5058,6 +5059,7 @@ const receiveFeishuInbound = async (payload = {}, request = null) => ingestFeish
 
 const FEISHU_OPEN_API_BASE = 'https://open.feishu.cn/open-apis';
 let feishuTenantTokenCache = { appId: '', token: '', expiresAt: 0 };
+const feishuWikiAppTokenCache = new Map();
 const feishuPullTimeoutMs = () => envInteger('FEISHU_PULL_TIMEOUT_MS', 8000, { min: 1000, max: 20000 });
 const boundedFeishuPullNumber = (value, fallback, max) => {
   const parsed = Number(value);
@@ -5118,6 +5120,60 @@ const getFeishuTenantAccessToken = async () => {
     expiresAt: Date.now() + Math.max(60, expiresIn - 60) * 1000,
   };
   return token;
+};
+
+const feishuBitableTokenConfig = (payload = {}) => {
+  const payloadAppToken = String(payload.app_token || payload.base_token || '').trim();
+  const payloadWikiNodeToken = String(payload.wiki_node_token || payload.wiki_token || payload.node_token || '').trim();
+  if (payloadAppToken) return { appToken: payloadAppToken, wikiNodeToken: '', source: 'base' };
+  if (payloadWikiNodeToken) return { appToken: '', wikiNodeToken: payloadWikiNodeToken, source: 'wiki' };
+  const configuredAppToken = feishuBaseToken();
+  if (configuredAppToken) return { appToken: configuredAppToken, wikiNodeToken: '', source: 'base' };
+  const configuredWikiNodeToken = feishuWikiNodeToken();
+  if (configuredWikiNodeToken) return { appToken: '', wikiNodeToken: configuredWikiNodeToken, source: 'wiki' };
+  return { appToken: '', wikiNodeToken: '', source: 'none' };
+};
+
+const resolveFeishuWikiAppToken = async ({ wikiNodeToken, tenantToken }) => {
+  const nodeToken = String(wikiNodeToken || '').trim();
+  if (!nodeToken) {
+    const error = new Error('missing_feishu_wiki_node_token');
+    error.code = 'missing_feishu_wiki_node_token';
+    throw error;
+  }
+  const cacheKey = `${feishuAppId()}:${nodeToken}`;
+  const cached = feishuWikiAppTokenCache.get(cacheKey);
+  if (cached?.appToken && cached.expiresAt > Date.now()) return cached.appToken;
+
+  const startedAt = Date.now();
+  const url = new URL(`${FEISHU_OPEN_API_BASE}/wiki/v2/spaces/get_node`);
+  url.searchParams.set('token', nodeToken);
+  const data = await fetchFeishuJson(url, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${tenantToken}` },
+  });
+  const node = data.data?.node || {};
+  if (String(node.obj_type || '').trim().toLowerCase() !== 'bitable') {
+    const error = new Error('feishu_wiki_node_not_bitable');
+    error.code = 'feishu_wiki_node_not_bitable';
+    throw error;
+  }
+  const appToken = String(node.obj_token || '').trim();
+  if (!appToken) {
+    const error = new Error('missing_feishu_wiki_obj_token');
+    error.code = 'missing_feishu_wiki_obj_token';
+    throw error;
+  }
+  feishuWikiAppTokenCache.set(cacheKey, {
+    appToken,
+    expiresAt: Date.now() + 30 * 60 * 1000,
+  });
+  console.log(JSON.stringify({
+    event: 'feishu_wiki_node_resolved',
+    obj_type: 'bitable',
+    latency_ms: Date.now() - startedAt,
+  }));
+  return appToken;
 };
 
 const normalizeFeishuTableEventType = (value = '') => {
@@ -5185,11 +5241,13 @@ const fetchBitableTableRecords = async ({ appToken, table, tenantToken, pageSize
 
 export const pullFeishuBitableRecords = async (payload = {}, { trigger = 'manual' } = {}) => {
   const startedAt = Date.now();
-  const appToken = String(payload.app_token || payload.base_token || feishuBaseToken()).trim();
+  const tokenConfig = feishuBitableTokenConfig(payload);
   const tables = feishuConfiguredTables(payload);
   const missingReason = !feishuAppId() || !feishuAppSecret()
     ? 'missing_feishu_app_credentials'
-    : (!appToken ? 'missing_feishu_base_token' : (!tables.length ? 'missing_feishu_table_config' : ''));
+    : ((!tokenConfig.appToken && !tokenConfig.wikiNodeToken)
+      ? 'missing_feishu_base_or_wiki_token'
+      : (!tables.length ? 'missing_feishu_table_config' : ''));
   if (missingReason) {
     console.warn(JSON.stringify({ event: 'feishu_bitable_pull_skipped', trigger, reason: missingReason }));
     return {
@@ -5197,6 +5255,7 @@ export const pullFeishuBitableRecords = async (payload = {}, { trigger = 'manual
       skipped: true,
       mode: 'bitable_pull',
       trigger,
+      token_source: tokenConfig.source,
       reason: missingReason,
       tables: [],
       summary: { fetched: 0, created: 0, updated: 0, skipped: 0, failed_tables: 0 },
@@ -5215,11 +5274,36 @@ export const pullFeishuBitableRecords = async (payload = {}, { trigger = 'manual
       skipped: false,
       mode: 'bitable_pull',
       trigger,
+      token_source: tokenConfig.source,
       reason,
       tables: [],
       summary: { fetched: 0, created: 0, updated: 0, skipped: 0, failed_tables: 0 },
       latency_ms: Date.now() - startedAt,
     };
+  }
+
+  let appToken = tokenConfig.appToken;
+  if (!appToken) {
+    try {
+      appToken = await resolveFeishuWikiAppToken({
+        wikiNodeToken: tokenConfig.wikiNodeToken,
+        tenantToken,
+      });
+    } catch (error) {
+      const reason = feishuSafeError(error, 'feishu_wiki_resolve_failed');
+      console.error(JSON.stringify({ event: 'feishu_wiki_resolve_failed', trigger, reason }));
+      return {
+        ok: false,
+        skipped: false,
+        mode: 'bitable_pull',
+        trigger,
+        token_source: tokenConfig.source,
+        reason,
+        tables: [],
+        summary: { fetched: 0, created: 0, updated: 0, skipped: 0, failed_tables: 0 },
+        latency_ms: Date.now() - startedAt,
+      };
+    }
   }
 
   const pageSize = feishuPullPageSize(payload.page_size);
@@ -5290,6 +5374,7 @@ export const pullFeishuBitableRecords = async (payload = {}, { trigger = 'manual
     skipped: false,
     mode: 'bitable_pull',
     trigger,
+    token_source: tokenConfig.source,
     tables: tableResults,
     summary,
     latency_ms: Date.now() - startedAt,

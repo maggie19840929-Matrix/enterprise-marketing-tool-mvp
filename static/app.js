@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.102';
-const VERSION_LABEL = 'v1.6.102 · 飞书多维表格主动同步版';
+const APP_VERSION = '1.6.103';
+const VERSION_LABEL = 'v1.6.103 · 飞书 Wiki 表格自动解析版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
