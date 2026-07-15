@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.98';
-const VERSION_LABEL = 'v1.6.98 · FP Matrix 品牌标识定稿版';
+const APP_VERSION = '1.6.99';
+const VERSION_LABEL = 'v1.6.99 · 获客罗盘产品标识接入版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';

@@ -2741,7 +2741,7 @@ body.customer-mode .customer-plan-item.is-selected{
   box-shadow:none!important;
 }
 
-/* v1.6.98 FP Matrix official brand lockup */
+/* v1.6.99 FP Matrix and Huoke Compass brand lockups */
 .fp-matrix-lockup{
   display:inline-flex;
   align-items:center;
@@ -2829,6 +2829,62 @@ body.customer-mode .fp-matrix-lockup-footer .fp-matrix-wordmark{
   body.customer-mode .fp-matrix-descriptor{
     font-size:8.5px;
     letter-spacing:.15em;
+  }
+}
+
+body.customer-mode .customer-product-lockup{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  width:max-content;
+  max-width:100%;
+  margin:0 0 24px;
+}
+body.customer-mode .customer-product-mark{
+  display:block;
+  width:42px;
+  height:auto;
+  flex:0 0 auto;
+}
+body.customer-mode .customer-product-type{
+  display:grid;
+  gap:2px;
+  min-width:0;
+  text-align:left;
+}
+body.customer-mode .customer-product-type strong{
+  color:#1a1c24;
+  font-size:18px;
+  font-weight:700;
+  line-height:1;
+  letter-spacing:.05em;
+  white-space:nowrap;
+}
+body.customer-mode .customer-product-type strong span{
+  color:#f23b49;
+}
+body.customer-mode .customer-product-type small{
+  color:#808080;
+  font-family:"Montserrat","Roboto",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:10px;
+  font-weight:500;
+  line-height:1.1;
+  letter-spacing:.035em;
+  white-space:nowrap;
+}
+@media(max-width:520px){
+  body.customer-mode .customer-product-lockup{
+    gap:9px;
+    margin-bottom:20px;
+  }
+  body.customer-mode .customer-product-mark{
+    width:38px;
+  }
+  body.customer-mode .customer-product-type strong{
+    font-size:16px;
+  }
+  body.customer-mode .customer-product-type small{
+    font-size:9px;
   }
 }
 
