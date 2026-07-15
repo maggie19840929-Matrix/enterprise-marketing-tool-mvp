@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 100" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 182 140" fill="none">
   <title>FP Matrix 大象标志</title>
-  <path d="M17 82c19 0 31-15 31-35V35C48 19 62 9 79 9c15 0 27 8 34 21" stroke="#F23B49" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M113 31c7-11 17-17 30-17 18 0 32 14 32 32s-14 32-32 32h-14" stroke="#F23B49" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M113 31v52" stroke="#F23B49" stroke-width="11" stroke-linecap="round"/>
-  <circle cx="78" cy="46" r="6" fill="#F23B49"/>
+  <path d="M14 124c22 0 34-18 34-41V49c0-22 17-37 38-37 15 0 25 9 30 23" stroke="#F23B49" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M116 35c7-11 16-16 27-16 14 0 25 12 25 27s-11 27-25 27h-11" stroke="#F23B49" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M116 35v89" stroke="#F23B49" stroke-width="11" stroke-linecap="round"/>
+  <circle cx="84" cy="53" r="6" fill="#F23B49"/>
 </svg>
