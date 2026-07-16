@@ -255,6 +255,34 @@ curl -X POST https://sales-improve.netlify.app/api/feishu/pull \
 
 飞书侧需给自建应用开通多维表格读取权限，并将应用添加为目标多维表格的文档应用。使用 `FEISHU_WIKI_NODE_TOKEN` 时，还需开通“查看知识空间节点信息”权限；后端只缓存解析出的 `obj_token`，不会向前端返回应用凭据。任何凭据都只配置在 Netlify 环境变量中，不写入前端或 Git。
 
+### 飞书协同写入阶段 C
+
+阶段 C 复用阶段 B 的应用凭据与 Base/Wiki Token，把内部项目的内容计划 upsert 到飞书内容计划/排期表：
+
+- `POST /api/feishu/push`：仅接受 `INTERNAL_ACCESS_TOKEN`，body 必须指定 `client_id + project_id`；系统只读取该客户桶中的指定项目。
+- `GET /api/feishu/status`：仅供内部页读取非敏感协同状态，包括计划数、最近推送/拉取时间和可选工作区链接。
+- 飞书字段固定为：客户 ID、项目 ID、内容计划 ID、平台、选题、角度、形式、CTA、计划发布日期、状态。
+- 以真实 `内容计划ID` 为唯一键；首次推送 `batch_create`，重复推送 `batch_update`，不会生成重复排期行。
+- 日期写为毫秒时间戳，单选写选项名，超链接按 `{link,text}` 格式处理。凭据、表 ID 或写权限缺失时 fail-closed，不冒充成功。
+
+新增 Netlify 环境变量：
+
+```bash
+FEISHU_TABLE_PLAN=内容计划/排期表 table_id
+FEISHU_WORKSPACE_URL=https://... # 可选，内部页“打开飞书工作区”链接
+```
+
+手动推送示例：
+
+```bash
+curl -X POST https://sales-improve.netlify.app/api/feishu/push \
+  -H "Authorization: Bearer $INTERNAL_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"client_id":"basketball","project_id":"project-basketball"}'
+```
+
+飞书自建应用必须增加多维表格写入/编辑权限，重新发布并通过管理员审批，同时添加为目标多维表格的文档应用。阶段 C 不自动创建表格，也不会改写阶段 A/B 的回流表。
+
 ### 豆包 / 火山方舟文本模型
 
 客户 public 版默认通过 Netlify Function 后端调用火山方舟 OpenAI-compatible Chat Completions API，前端不会暴露 API Key。需要在 Netlify 环境变量中配置：

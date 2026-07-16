@@ -1,20 +1,20 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.104';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.104';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.105';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.105';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.104-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.105-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
 process.env.GENERATION_RATE_IP_MAX = '100';
 process.env.GENERATION_DAILY_CLIENT_MAX = '100';
 process.env.TRACKING_ENABLED = 'true';
-const { default: handler, shanghaiDateIso, extractBitableFieldValue } = await import('../netlify/functions/api.mjs');
+const { default: handler, shanghaiDateIso, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
 
 const request = (method, path, body, options = {}) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
@@ -137,7 +137,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.104', `expected app_version 1.6.104, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.105', `expected app_version 1.6.105, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -670,6 +670,7 @@ const privacyHtml = readFileSync(new URL('../static/privacy/index.html', import.
 const termsHtml = readFileSync(new URL('../static/terms/index.html', import.meta.url), 'utf8');
 const contactHtml = readFileSync(new URL('../static/contact/index.html', import.meta.url), 'utf8');
 const apiSource = readFileSync(new URL('../netlify/functions/api.mjs', import.meta.url), 'utf8');
+const stylesCss = readFileSync(new URL('../static/styles.css', import.meta.url), 'utf8');
 const warRoomCss = readFileSync(new URL('../static/war-room-v1.6.1.css', import.meta.url), 'utf8');
 const fpMatrixLogo = readFileSync(new URL('../static/fp-matrix-elephant.svg', import.meta.url), 'utf8');
 const fpMatrixFavicon = readFileSync(new URL('../static/fp-matrix-favicon.svg', import.meta.url), 'utf8');
@@ -679,7 +680,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.104'") && appJs.includes("v1.6.104 · 飞书阶段B实际字段兼容版"), 'app should expose the v1.6.104 Feishu Bitable field compatibility release internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.105'") && appJs.includes("v1.6.105 · 飞书阶段C协同写入版"), 'app should expose the v1.6.105 Feishu Stage C collaboration release internally/API-side');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
@@ -773,6 +774,11 @@ assert(appJs.includes("label: '填入基本信息'") && appJs.includes("label: '
 assert(apiSource.includes("path === '/customers'") && apiSource.includes('listCustomersFromCloudState') && apiSource.includes("store.list({ prefix: CLOUD_STATE_KEY") && apiSource.includes('isTestCustomerKey') && apiSource.includes('groupCustomerRecords'), 'API should expose a read-only grouped internal customer aggregation endpoint backed by blob key listing');
 assert(apiSource.includes("path === '/customers/merge-preview'") && apiSource.includes('previewCustomerMerge') && apiSource.includes('would_write: false'), 'API should expose a dry-run-only customer merge preview endpoint');
 assert(indexHtml.includes('id="allCustomersPanel"') && indexHtml.includes('全部客户') && indexHtml.includes('只读聚合各 client_id') && appJs.includes('function loadAllCustomers') && appJs.includes("api('/api/customers?mode=internal&client_id=internal')") && appJs.includes('primary_client_id') && appJs.includes('data-all-customer-client'), 'internal app should render and load the grouped all-customers panel with specific-record drill-down');
+assert(apiSource.includes("path === '/feishu/push'") && apiSource.includes('pushFeishuContentPlans') && apiSource.includes('batch_create') && apiSource.includes('batch_update') && apiSource.includes('内容计划ID'), 'Stage C should expose an authenticated Bitable plan upsert route');
+assert(apiSource.includes("path === '/feishu/status'") && apiSource.includes('feishuCollaborationStatus') && apiSource.includes('FEISHU_WORKSPACE_URL'), 'Stage C should expose a protected non-sensitive collaboration status endpoint');
+assert(indexHtml.includes('id="feishuCollaborationPanel"') && indexHtml.includes('id="feishuPushPlansBtn"') && indexHtml.includes('id="feishuWorkspaceLink"') && appJs.includes("api('/api/feishu/push'") && appJs.includes('function loadFeishuCollaborationStatus'), 'internal app should expose the Feishu collaboration panel and push action');
+assert(indexHtml.indexOf('id="feishuCollaborationPanel"') > indexHtml.indexOf('id="internalApp"') && !customerAssessmentFormHtml.includes('飞书'), 'Feishu collaboration controls must live only in the internal app tree');
+assert(stylesCss.includes('v1.6.105 internal Feishu collaboration') && stylesCss.includes('.feishu-collaboration-status') && stylesCss.includes('@media(max-width:760px)'), 'Feishu collaboration panel should include internal-only responsive styles');
 assert(redirects.includes('/internal /index.html 200') && redirects.includes('/internal/ /index.html 200') && redirects.includes('/internal/* /index.html 200') && !redirects.includes('/?mode=internal'), 'internal routes should rewrite to the app shell without a Netlify self-redirect loop');
 assert(!existsSync(new URL('../static/internal/index.html', import.meta.url)), 'static/internal/index.html must not exist because it shadows the /internal/ SPA rewrite on Netlify');
 assert(localDevServer.includes("pathname === '/internal'") && localDevServer.includes("location: '/internal/'") && localDevServer.includes("pathname.startsWith('/internal/')"), 'local dev server should mirror /internal -> /internal/ and /internal/* -> app-shell behavior');
@@ -836,10 +842,10 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.104') && indexHtml.includes('/styles.css?v=1.6.104') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.104'), 'customer page should cache-bust the v1.6.104 Feishu field compatibility release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.105') && indexHtml.includes('/styles.css?v=1.6.105') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.105'), 'customer page should cache-bust the v1.6.105 Feishu Stage C release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.104') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.104') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.104') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.105') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.105') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.105') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1375,11 +1381,11 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.104' && health.version_label === 'v1.6.104 · 飞书阶段B实际字段兼容版', 'health should expose the v1.6.104 Feishu Bitable field compatibility release');
+assert(health.version === '1.6.105' && health.version_label === 'v1.6.105 · 飞书阶段C协同写入版', 'health should expose the v1.6.105 Feishu Stage C collaboration release');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
-assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_bitable_pull_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound, stage-B Bitable pull and webhook capabilities');
+assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_bitable_pull_v1') && health.features.includes('feishu_bitable_push_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound, stage-B pull, stage-C push and webhook capabilities');
 
 const timestampProject = ({ id, name, updatedAt, marker }) => ({
   id,
@@ -1471,7 +1477,17 @@ const feishuProjectEnvelope = (clientId, projectId, planId) => ({
         current_cycle_id: 'cycle-feishu-a',
         assessment: { id: `assessment-${clientId}`, client_id: clientId, industry: '本地服务门店' },
         diagnosis: { id: `diagnosis-${clientId}`, client_id: clientId, summary: '飞书回流隔离验证' },
-        plans: [{ id: planId, content_plan_record_id: `${planId}-record`, topic: '门店真实案例', status: '待发布' }],
+        plans: [{
+          id: planId,
+          content_plan_record_id: `${planId}-record`,
+          platform: '小红书',
+          topic: '门店真实案例',
+          angle: '用真实服务过程回应客户顾虑',
+          content_type: '图文',
+          cta: '查看主页了解详情',
+          planned_date: '2026-07-18',
+          status: '待发布',
+        }],
         feedback: [],
         records: [],
         saved_at: '2026-07-13 09:00:00',
@@ -1561,6 +1577,17 @@ assert(feishuBProjectState.feedback.length === 0 && feishuBProjectState.records.
 assert(extractBitableFieldValue([{ type: 'text', text: '附近家长' }, { type: 'text', text: '关注体验课' }]) === '附近家长，关注体验课', 'Bitable rich text arrays should flatten into readable text');
 assert(extractBitableFieldValue({ text: '展示文字', link: 'https://example.com/bitable-link' }) === 'https://example.com/bitable-link', 'Bitable hyperlinks should prefer the actual link');
 assert(extractBitableFieldValue(Date.parse('2026-07-15T04:00:00Z')) === '2026-07-15 12:00:00', 'Bitable millisecond timestamps should convert to Shanghai business time');
+assert(toBitableFieldValue({ type: 'date' }, '2026-07-18') === Date.parse('2026-07-18T00:00:00+08:00'), 'Bitable outbound dates should use millisecond timestamps at Shanghai midnight');
+assert(toBitableFieldValue({ type: 'single_select' }, { name: '小红书' }) === '小红书', 'Bitable outbound single-select fields should use option names');
+assert(JSON.stringify(toBitableFieldValue({ type: 'hyperlink', name: '作品链接' }, 'example.com/post')) === JSON.stringify({ link: 'https://example.com/post', text: '作品链接' }), 'Bitable outbound hyperlinks should use {link,text}');
+assert(toBitableFieldValue({ type: 'text' }, ['真实案例', '家长顾虑']) === '真实案例，家长顾虑', 'Bitable outbound text arrays should flatten safely');
+const outboundPlanFields = buildFeishuPlanFields({
+  clientId: feishuClientA,
+  projectId: feishuProjectA,
+  plan: feishuProjectEnvelope(feishuClientA, feishuProjectA, feishuPlanA).project_store.projects[0].state.plans[0],
+});
+assert(outboundPlanFields.客户ID === feishuClientA && outboundPlanFields.项目ID === feishuProjectA && outboundPlanFields.内容计划ID === feishuPlanA, 'Feishu outbound fields must preserve exact client/project/plan ownership');
+assert(outboundPlanFields.平台 === '小红书' && outboundPlanFields.计划发布日期 === Date.parse('2026-07-18T00:00:00+08:00'), 'Feishu outbound plan fields should format select/date values correctly');
 assert(scheduledFeishuConfig.schedule === '*/15 * * * *', 'Feishu scheduled pull should run every 15 minutes');
 
 const anonymousFeishuPull = await handler(request('POST', 'feishu/pull', { app_token: 'base-smoke', table_id: 'tbl-effect-smoke' }));
@@ -1716,6 +1743,95 @@ assert(repeatedWikiFeishuPull.status === 200, 'repeated Wiki-backed pull should 
 assert(bitableWikiResolveCalls === 1, 'Wiki node resolution should use the in-memory cache on repeated pulls');
 globalThis.fetch = fetchBeforeFeishuBitable;
 ['FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS'].forEach((key) => delete process.env[key]);
+
+const anonymousFeishuPush = await handler(request('POST', 'feishu/push', { client_id: feishuClientA, project_id: feishuProjectA }));
+assert(anonymousFeishuPush.status === 401, 'anonymous POST /feishu/push must be rejected');
+const anonymousFeishuStatus = await handler(request('GET', `feishu/status?client_id=${feishuClientA}&project_id=${feishuProjectA}`));
+assert(anonymousFeishuStatus.status === 401, 'anonymous GET /feishu/status must be rejected');
+const missingFeishuPush = await handler(internalRequest('POST', 'feishu/push', { client_id: feishuClientA, project_id: feishuProjectA }));
+assert(missingFeishuPush.status === 200, 'missing Feishu push credentials should fail closed without crashing');
+const missingFeishuPushBody = await missingFeishuPush.json();
+assert(missingFeishuPushBody.skipped === true && missingFeishuPushBody.reason === 'missing_feishu_app_credentials', 'missing Feishu push credentials should report an explicit skip reason');
+const crossClientFeishuPush = await handler(internalRequest('POST', 'feishu/push', { client_id: feishuClientA, project_id: feishuProjectB }));
+assert(crossClientFeishuPush.status === 404, 'Feishu push must not search another client bucket for the requested project');
+
+process.env.FEISHU_APP_ID = 'cli_stage_c_smoke_app';
+process.env.FEISHU_APP_SECRET = 'stage-c-smoke-secret-not-production';
+process.env.FEISHU_BASE_TOKEN = 'base-stage-c-smoke';
+const missingPlanTablePush = await handler(internalRequest('POST', 'feishu/push', { client_id: feishuClientA, project_id: feishuProjectA }));
+assert(missingPlanTablePush.status === 200, 'missing FEISHU_TABLE_PLAN should fail closed without attempting a write');
+assert((await missingPlanTablePush.json()).reason === 'missing_feishu_plan_table', 'missing plan table should return missing_feishu_plan_table');
+
+process.env.FEISHU_TABLE_PLAN = 'tbl-plan-stage-c-smoke';
+process.env.FEISHU_WORKSPACE_URL = 'https://example.feishu.cn/base/stage-c-smoke';
+let feishuStageCAuthCalls = 0;
+let feishuPlanListCalls = 0;
+let feishuPlanCreateCalls = 0;
+let feishuPlanUpdateCalls = 0;
+let denyFeishuPlanWrites = false;
+const remoteFeishuPlanRecords = [];
+const fetchBeforeFeishuStageC = globalThis.fetch;
+globalThis.fetch = async (url, options = {}) => {
+  const requestUrl = new URL(String(url));
+  if (requestUrl.pathname.endsWith('/auth/v3/tenant_access_token/internal')) {
+    feishuStageCAuthCalls += 1;
+    return new Response(JSON.stringify({ code: 0, tenant_access_token: 'tenant-stage-c-smoke', expire: 7200 }), { status: 200 });
+  }
+  assert(String(options.headers?.authorization || '') === 'Bearer tenant-stage-c-smoke', 'Feishu Stage C requests should use the app tenant token');
+  assert(requestUrl.pathname.includes('/apps/base-stage-c-smoke/tables/tbl-plan-stage-c-smoke/records'), 'Feishu Stage C must write only to the configured plan table');
+  if (requestUrl.pathname.endsWith('/records') && String(options.method || 'GET').toUpperCase() === 'GET') {
+    feishuPlanListCalls += 1;
+    return new Response(JSON.stringify({ code: 0, data: { items: remoteFeishuPlanRecords, has_more: false, page_token: '' } }), { status: 200 });
+  }
+  if (requestUrl.pathname.endsWith('/records/batch_create')) {
+    feishuPlanCreateCalls += 1;
+    if (denyFeishuPlanWrites) return new Response(JSON.stringify({ code: 99991663, msg: 'permission denied' }), { status: 200 });
+    const body = JSON.parse(String(options.body || '{}'));
+    const records = body.records.map((record, index) => ({ record_id: `rec-stage-c-plan-${remoteFeishuPlanRecords.length + index + 1}`, fields: record.fields }));
+    remoteFeishuPlanRecords.push(...records);
+    return new Response(JSON.stringify({ code: 0, data: { records } }), { status: 200 });
+  }
+  if (requestUrl.pathname.endsWith('/records/batch_update')) {
+    feishuPlanUpdateCalls += 1;
+    if (denyFeishuPlanWrites) return new Response(JSON.stringify({ code: 99991663, msg: 'permission denied' }), { status: 200 });
+    const body = JSON.parse(String(options.body || '{}'));
+    body.records.forEach((record) => {
+      const current = remoteFeishuPlanRecords.find((item) => item.record_id === record.record_id);
+      if (current) current.fields = record.fields;
+    });
+    return new Response(JSON.stringify({ code: 0, data: { records: body.records } }), { status: 200 });
+  }
+  return new Response(JSON.stringify({ code: 1254040, msg: 'not found' }), { status: 404 });
+};
+
+const firstFeishuPush = await handler(internalRequest('POST', 'feishu/push', { client_id: feishuClientA, project_id: feishuProjectA }));
+if (firstFeishuPush.status !== 200) throw new Error(`first Feishu plan push should succeed, got ${firstFeishuPush.status}: ${await firstFeishuPush.text()}`);
+const firstFeishuPushBody = await firstFeishuPush.json();
+assert(firstFeishuPushBody.summary.created === 1 && firstFeishuPushBody.summary.updated === 0 && firstFeishuPushBody.summary.failed === 0, 'first Feishu plan push should create one remote row');
+assert(remoteFeishuPlanRecords.length === 1 && remoteFeishuPlanRecords[0].fields.内容计划ID === feishuPlanA, 'Feishu plan row should preserve the real plan id used by Stage B feedback matching');
+assert(remoteFeishuPlanRecords[0].fields.客户ID === feishuClientA && remoteFeishuPlanRecords[0].fields.项目ID === feishuProjectA, 'Feishu plan row should preserve client/project isolation fields');
+assert(remoteFeishuPlanRecords[0].fields.计划发布日期 === Date.parse('2026-07-18T00:00:00+08:00') && remoteFeishuPlanRecords[0].fields.平台 === '小红书', 'Feishu plan write should send date/select values in Bitable format');
+
+const secondFeishuPush = await handler(internalRequest('POST', 'feishu/push', { client_id: feishuClientA, project_id: feishuProjectA }));
+assert(secondFeishuPush.status === 200, 'repeating the same Feishu plan push should succeed');
+const secondFeishuPushBody = await secondFeishuPush.json();
+assert(secondFeishuPushBody.summary.created === 0 && secondFeishuPushBody.summary.updated === 1, 'repeated Feishu plan push should update the existing row');
+assert(remoteFeishuPlanRecords.length === 1 && feishuPlanCreateCalls === 1 && feishuPlanUpdateCalls === 1, 'repeated Feishu plan push must not create a duplicate row');
+
+const feishuStatusResponse = await handler(internalRequest('GET', `feishu/status?client_id=${feishuClientA}&project_id=${feishuProjectA}`));
+assert(feishuStatusResponse.status === 200, 'internal Feishu collaboration status should be readable');
+const feishuStatusBody = await feishuStatusResponse.json();
+assert(feishuStatusBody.configured === true && feishuStatusBody.last_push_at && feishuStatusBody.plan_record_count === 1, 'Feishu collaboration status should expose non-sensitive sync state');
+assert(feishuStatusBody.workspace_url === process.env.FEISHU_WORKSPACE_URL, 'Feishu collaboration status should expose only the configured workspace link');
+
+denyFeishuPlanWrites = true;
+const deniedFeishuPush = await handler(internalRequest('POST', 'feishu/push', { client_id: feishuClientA, project_id: feishuProjectA }));
+assert(deniedFeishuPush.status === 502, 'Feishu write permission errors should fail closed');
+const deniedFeishuPushBody = await deniedFeishuPush.json();
+assert(deniedFeishuPushBody.ok === false && deniedFeishuPushBody.summary.failed === 1 && deniedFeishuPushBody.errors[0]?.reason === 'feishu_api_code_99991663', 'Feishu permission errors should remain explicit and must not masquerade as success');
+assert(remoteFeishuPlanRecords.length === 1, 'failed Feishu writes must not create local or remote duplicate rows');
+globalThis.fetch = fetchBeforeFeishuStageC;
+['FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL'].forEach((key) => delete process.env[key]);
 
 const qaProjectId = 'qa_generation_project';
 const qaClientId = 'internal';
@@ -2277,6 +2393,15 @@ console.log(JSON.stringify({
     wiki_token_resolutions: bitableWikiResolveCalls,
     wiki_token_source: wikiFeishuPullBody.token_source,
     record_requests: bitableRecordCalls,
+  },
+  feishu_bitable_push: {
+    first_push: firstFeishuPushBody.summary,
+    repeated_push: secondFeishuPushBody.summary,
+    remote_record_count: remoteFeishuPlanRecords.length,
+    create_calls: feishuPlanCreateCalls,
+    update_calls: feishuPlanUpdateCalls,
+    permission_denied_status: deniedFeishuPush.status,
+    status_plan_record_count: feishuStatusBody.plan_record_count,
   },
   generation_workbench: {
     asset_sha256: assetData.asset.sha256,

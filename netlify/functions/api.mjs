@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.104';
-const VERSION_LABEL = 'v1.6.104 · 飞书阶段B实际字段兼容版';
+const APP_VERSION = '1.6.105';
+const VERSION_LABEL = 'v1.6.105 · 飞书阶段C协同写入版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -45,6 +45,8 @@ const feishuAppId = () => envValue('FEISHU_APP_ID');
 const feishuAppSecret = () => envValue('FEISHU_APP_SECRET');
 const feishuBaseToken = () => envValue('FEISHU_BASE_TOKEN');
 const feishuWikiNodeToken = () => envValue('FEISHU_WIKI_NODE_TOKEN', 'FEISHU_WIKI_TOKEN');
+const feishuPlanTableId = () => envValue('FEISHU_TABLE_PLAN');
+const feishuWorkspaceUrl = () => envValue('FEISHU_WORKSPACE_URL');
 const requestInternalToken = (request = null) => {
   const auth = String(request?.headers?.get('authorization') || '').trim();
   const bearer = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
@@ -4784,6 +4786,39 @@ export const extractBitableFieldValue = (value) => {
   return '';
 };
 
+const bitableDateTimestamp = (value) => {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.trunc(value) : null;
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const shanghaiDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00+08:00` : text;
+  const parsed = Date.parse(shanghaiDateOnly);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+export const toBitableFieldValue = (field = {}, value = '') => {
+  const descriptor = typeof field === 'string' ? { type: field } : (field || {});
+  const type = String(descriptor.type || 'text').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['date', 'datetime', 'date_time', 'timestamp'].includes(type)) return bitableDateTimestamp(value);
+  if (['single_select', 'select', 'singlechoice', 'single_choice'].includes(type)) {
+    if (value && typeof value === 'object') return String(value.id || value.name || value.value || '').trim();
+    return String(value || '').trim();
+  }
+  if (['url', 'link', 'hyperlink'].includes(type)) {
+    const source = value && typeof value === 'object' ? value : { link: value };
+    const link = normalizeExternalUrl(source.link || source.url || source.value || '');
+    if (!link) return null;
+    return { link, text: String(source.text || descriptor.text || descriptor.name || link).trim() };
+  }
+  if (['number', 'numeric'].includes(type)) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+  if (Array.isArray(value)) return value.map((item) => String(item ?? '').trim()).filter(Boolean).join('，');
+  if (value && typeof value === 'object') return String(value.text || value.name || value.value || '').trim();
+  return String(value ?? '').trim();
+};
+
 const normalizeBitableFields = (fields = {}) => Object.fromEntries(
   Object.entries(fields && typeof fields === 'object' && !Array.isArray(fields) ? fields : {})
     .map(([key, value]) => [String(key).trim(), extractBitableFieldValue(value)]),
@@ -5383,6 +5418,266 @@ export const pullFeishuBitableRecords = async (payload = {}, { trigger = 'manual
   return result;
 };
 
+const FEISHU_PLAN_FIELDS = [
+  { name: '客户ID', type: 'text', value: ({ clientId }) => clientId },
+  { name: '项目ID', type: 'text', value: ({ projectId }) => projectId },
+  { name: '内容计划ID', type: 'text', value: ({ plan }) => plan.id ?? plan.content_plan_id ?? plan.content_plan_record_id ?? '' },
+  { name: '平台', type: 'single_select', value: ({ plan }) => plan.platform || '其他' },
+  { name: '选题', type: 'text', value: ({ plan }) => plan.topic || plan.title || '' },
+  { name: '角度', type: 'text', value: ({ plan }) => plan.angle || plan.action || '' },
+  { name: '形式', type: 'single_select', value: ({ plan }) => plan.content_type || plan.format || '其他' },
+  { name: 'CTA', type: 'text', value: ({ plan }) => plan.cta || '' },
+  { name: '计划发布日期', type: 'date', value: ({ plan, index }) => plan.planned_date || plan.plan_date || plan.publish_date || shanghaiDateIso(index) },
+  { name: '状态', type: 'single_select', value: ({ plan }) => plan.status || '待发布' },
+];
+
+export const buildFeishuPlanFields = ({ clientId = '', projectId = '', plan = {}, index = 0 } = {}) => Object.fromEntries(
+  FEISHU_PLAN_FIELDS.map((field) => [field.name, toBitableFieldValue(field, field.value({ clientId, projectId, plan, index }))])
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== ''),
+);
+
+const feishuPlanIdFromRecord = (record = {}) => String(
+  normalizeBitableFields(record.fields || {})['内容计划ID']
+  || normalizeBitableFields(record.fields || {})['计划ID']
+  || '',
+).trim();
+
+const feishuBatchChunks = (rows = [], size = 100) => {
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
+  return chunks;
+};
+
+const writeFeishuPlanRows = async ({ appToken, tableId, tenantToken, action, rows }) => {
+  const records = [];
+  const path = action === 'update' ? 'batch_update' : 'batch_create';
+  for (const chunk of feishuBatchChunks(rows)) {
+    const url = `${FEISHU_OPEN_API_BASE}/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${path}`;
+    const data = await fetchFeishuJson(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=utf-8', authorization: `Bearer ${tenantToken}` },
+      body: JSON.stringify({ records: chunk.map((row) => action === 'update'
+        ? { record_id: row.record_id, fields: row.fields }
+        : { fields: row.fields }) }),
+    });
+    const responseRows = ensureArray(data.data?.records || data.data?.items);
+    chunk.forEach((row, index) => {
+      records.push({
+        plan_id: row.plan_id,
+        record_id: String(responseRows[index]?.record_id || responseRows[index]?.id || row.record_id || '').trim(),
+      });
+    });
+  }
+  return records;
+};
+
+const feishuProjectContext = async (clientId = '', projectId = '') => {
+  const cloud = await readCloudState(clientId, { internal: true });
+  const projectStore = normalizeCloudProjectStore(cloud.project_store || {});
+  const project = ensureArray(projectStore.projects).find((item) => String(item.id || '') === String(projectId || ''));
+  return { cloud, projectStore, project };
+};
+
+const persistFeishuPlanSync = async ({ clientId, projectStore, project, sync }) => {
+  const pushedAt = sync.last_push_at || nowIso();
+  const updatedProject = {
+    ...project,
+    updated_at: pushedAt,
+    state: {
+      ...(project.state || {}),
+      saved_at: pushedAt,
+      feishu_sync: { ...(project.state?.feishu_sync || {}), ...sync },
+    },
+  };
+  await writeCloudState({
+    client_id: clientId,
+    project_store: {
+      ...projectStore,
+      activeProjectId: projectStore.activeProjectId || project.id,
+      projects: ensureArray(projectStore.projects).map((item) => String(item.id || '') === String(project.id || '') ? updatedProject : item),
+    },
+  }, clientId);
+};
+
+const feishuWorkspaceLink = () => {
+  const url = normalizeExternalUrl(feishuWorkspaceUrl());
+  return /^https?:\/\//i.test(url) ? url : '';
+};
+
+export const feishuCollaborationStatus = async ({ clientId = '', projectId = '' } = {}) => {
+  const normalizedClientId = normalizeClientId(clientId);
+  if (!normalizedClientId || !String(projectId || '').trim()) {
+    return { status: 400, body: { ok: false, error: '飞书协同状态需要 client_id 和 project_id' } };
+  }
+  const { project } = await feishuProjectContext(normalizedClientId, projectId);
+  if (!project) return { status: 404, body: { ok: false, error: '指定客户下未找到对应项目' } };
+  const sync = project.state?.feishu_sync || {};
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      client_id: normalizedClientId,
+      project_id: project.id,
+      plan_count: ensureArray(project.state?.plans).length,
+      configured: Boolean(feishuAppId() && feishuAppSecret() && (feishuBaseToken() || feishuWikiNodeToken()) && feishuPlanTableId()),
+      workspace_url: feishuWorkspaceLink(),
+      last_push_at: sync.last_push_at || '',
+      last_pull_at: sync.last_inbound_at || '',
+      last_push_summary: sync.last_push_summary || null,
+      plan_record_count: Object.keys(sync.plan_record_map || {}).length,
+    },
+  };
+};
+
+export const pushFeishuContentPlans = async (payload = {}, { trigger = 'manual' } = {}) => {
+  const startedAt = Date.now();
+  const clientId = normalizeClientId(payload.client_id || '');
+  const projectId = String(payload.project_id || '').trim();
+  if (!clientId || !projectId) {
+    return { status: 400, body: { ok: false, error: '推送内容计划需要有效的 client_id 和 project_id' } };
+  }
+  const { projectStore, project } = await feishuProjectContext(clientId, projectId);
+  if (!project) {
+    return { status: 404, body: { ok: false, error: '指定客户下未找到对应项目，未向飞书写入任何数据' } };
+  }
+  const plans = ensureArray(project.state?.plans);
+  if (!plans.length) {
+    return {
+      status: 200,
+      body: { ok: false, skipped: true, mode: 'bitable_push', trigger, reason: 'no_content_plans', summary: { created: 0, updated: 0, skipped: 0, failed: 0 } },
+    };
+  }
+
+  const tokenConfig = feishuBitableTokenConfig(payload);
+  const tableId = String(payload.table_id || feishuPlanTableId()).trim();
+  const missingReason = !feishuAppId() || !feishuAppSecret()
+    ? 'missing_feishu_app_credentials'
+    : ((!tokenConfig.appToken && !tokenConfig.wikiNodeToken)
+      ? 'missing_feishu_base_or_wiki_token'
+      : (!tableId ? 'missing_feishu_plan_table' : ''));
+  if (missingReason) {
+    console.warn(JSON.stringify({ event: 'feishu_bitable_push_skipped', trigger, client_id: clientId, project_id: projectId, reason: missingReason }));
+    return {
+      status: 200,
+      body: { ok: false, skipped: true, mode: 'bitable_push', trigger, reason: missingReason, summary: { created: 0, updated: 0, skipped: 0, failed: 0 }, latency_ms: Date.now() - startedAt },
+    };
+  }
+
+  let tenantToken = '';
+  let appToken = tokenConfig.appToken;
+  try {
+    tenantToken = await getFeishuTenantAccessToken();
+    if (!appToken) appToken = await resolveFeishuWikiAppToken({ wikiNodeToken: tokenConfig.wikiNodeToken, tenantToken });
+  } catch (error) {
+    const reason = feishuSafeError(error, 'feishu_auth_failed');
+    return { status: 502, body: { ok: false, error: '飞书授权失败，请检查应用凭据和权限。', skipped: false, mode: 'bitable_push', trigger, reason, summary: { created: 0, updated: 0, skipped: 0, failed: plans.length }, latency_ms: Date.now() - startedAt } };
+  }
+
+  const validRows = [];
+  let skipped = 0;
+  plans.forEach((plan, index) => {
+    const planId = String(plan?.id ?? plan?.content_plan_id ?? plan?.content_plan_record_id ?? '').trim();
+    const topic = String(plan?.topic || plan?.title || '').trim();
+    if (!planId || !topic) {
+      skipped += 1;
+      return;
+    }
+    validRows.push({ plan_id: planId, fields: buildFeishuPlanFields({ clientId, projectId, plan, index }) });
+  });
+
+  let existingRecords = [];
+  try {
+    const fetched = await fetchBitableTableRecords({
+      appToken,
+      table: { table_id: tableId },
+      tenantToken,
+      pageSize: feishuPullPageSize(payload.page_size),
+      maxRecords: feishuPullMaxRecords(payload.max_records),
+      deadlineAt: startedAt + feishuPullDeadlineMs(),
+    });
+    existingRecords = fetched.records;
+  } catch (error) {
+    const reason = feishuSafeError(error, 'feishu_plan_list_failed');
+    return { status: 502, body: { ok: false, error: '读取飞书内容计划表失败，请检查表格权限和 table_id。', skipped: false, mode: 'bitable_push', trigger, reason, summary: { created: 0, updated: 0, skipped, failed: validRows.length }, latency_ms: Date.now() - startedAt } };
+  }
+
+  const existingByPlanId = new Map();
+  const duplicatePlanIds = new Set();
+  existingRecords.forEach((record) => {
+    const planId = feishuPlanIdFromRecord(record);
+    const recordId = String(record?.record_id || record?.id || '').trim();
+    if (!planId || !recordId) return;
+    if (existingByPlanId.has(planId)) duplicatePlanIds.add(planId);
+    else existingByPlanId.set(planId, recordId);
+  });
+  const createRows = validRows.filter((row) => !existingByPlanId.has(row.plan_id));
+  const updateRows = validRows.filter((row) => existingByPlanId.has(row.plan_id)).map((row) => ({ ...row, record_id: existingByPlanId.get(row.plan_id) }));
+  const recordMap = { ...(project.state?.feishu_sync?.plan_record_map || {}) };
+  const errors = [];
+  let created = 0;
+  let updated = 0;
+
+  if (createRows.length) {
+    try {
+      const rows = await writeFeishuPlanRows({ appToken, tableId, tenantToken, action: 'create', rows: createRows });
+      created = createRows.length;
+      rows.forEach((row) => { if (row.record_id) recordMap[row.plan_id] = row.record_id; });
+    } catch (error) {
+      errors.push({ action: 'create', count: createRows.length, reason: feishuSafeError(error, 'feishu_plan_create_failed') });
+    }
+  }
+  if (updateRows.length) {
+    try {
+      const rows = await writeFeishuPlanRows({ appToken, tableId, tenantToken, action: 'update', rows: updateRows });
+      updated = updateRows.length;
+      rows.forEach((row) => { if (row.record_id) recordMap[row.plan_id] = row.record_id; });
+    } catch (error) {
+      errors.push({ action: 'update', count: updateRows.length, reason: feishuSafeError(error, 'feishu_plan_update_failed') });
+    }
+  }
+
+  const failed = errors.reduce((sum, item) => sum + item.count, 0);
+  const summary = { created, updated, skipped, failed };
+  const pushedAt = nowIso();
+  if (created || updated) {
+    await persistFeishuPlanSync({
+      clientId,
+      projectStore,
+      project,
+      sync: {
+        last_push_at: pushedAt,
+        last_plan_table_id: tableId,
+        last_push_summary: summary,
+        plan_record_map: recordMap,
+      },
+    });
+  }
+  const ok = failed === 0;
+  const result = {
+    ok,
+    ...(ok ? {} : { error: '部分内容计划写入失败，请检查飞书写权限和字段类型。' }),
+    skipped: false,
+    mode: 'bitable_push',
+    trigger,
+    client_id: clientId,
+    project_id: projectId,
+    token_source: tokenConfig.source,
+    workspace_url: feishuWorkspaceLink(),
+    summary,
+    duplicate_plan_ids: [...duplicatePlanIds],
+    errors,
+    sync: {
+      last_push_at: created || updated ? pushedAt : (project.state?.feishu_sync?.last_push_at || ''),
+      last_inbound_at: project.state?.feishu_sync?.last_inbound_at || '',
+      last_push_summary: summary,
+      plan_record_map: recordMap,
+    },
+    latency_ms: Date.now() - startedAt,
+  };
+  console.log(JSON.stringify({ event: 'feishu_bitable_push', trigger, client_id: clientId, project_id: projectId, ...summary, latency_ms: result.latency_ms }));
+  return { status: ok ? 200 : 502, body: result };
+};
+
 const buildFeishuPayload = (item = {}) => ({
   synced: false,
   mode: 'manual_payload',
@@ -5699,7 +5994,7 @@ export default async (request, context = {}) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking'],
       });
       if (path === '/customers') {
         if (!internalAuthorized) return unauthorized();
@@ -5719,6 +6014,14 @@ export default async (request, context = {}) => {
           from: String(url.searchParams.get('from') || '').slice(0, 10),
           to: String(url.searchParams.get('to') || '').slice(0, 10),
         }), 200, { internal: true });
+      }
+      if (path === '/feishu/status') {
+        if (!internalAuthorized) return unauthorized();
+        const result = await feishuCollaborationStatus({
+          clientId: url.searchParams.get('client_id') || '',
+          projectId: url.searchParams.get('project_id') || '',
+        });
+        return json(result.body, result.status, { internal: true });
       }
       if (path === '/state') {
         if (requestClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
@@ -5787,6 +6090,11 @@ export default async (request, context = {}) => {
       if (!internalAuthorized) return unauthorized();
       const result = await pullFeishuBitableRecords(payload, { trigger: 'manual' });
       return json(result, result.ok || result.skipped ? 200 : 502, { internal: true });
+    }
+    if (request.method === 'POST' && path === '/feishu/push') {
+      if (!internalAuthorized) return unauthorized();
+      const result = await pushFeishuContentPlans(payload, { trigger: 'manual' });
+      return json(result.body, result.status, { internal: true });
     }
     if (request.method === 'POST' && path === '/plan-jobs') {
       const clientId = planJobClientIdFrom(payload, url, request);

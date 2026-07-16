@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.104';
-const VERSION_LABEL = 'v1.6.104 · 飞书阶段B实际字段兼容版';
+const APP_VERSION = '1.6.105';
+const VERSION_LABEL = 'v1.6.105 · 飞书阶段C协同写入版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -196,6 +196,7 @@ const blankClientState = () => ({
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
+let feishuCollaborationState = { scope: '', loading: false, error: '', status: null, result: null };
 let customerPendingCoCreationPayload = null;
 let lastCustomerGenerationPayload = null;
 
@@ -1137,6 +1138,7 @@ function switchProject(projectId){
   saveProjectStore();
   safeStorage.setItem(appStateStorageKey(), JSON.stringify(clientState));
   renderAllFromClient();
+  loadFeishuCollaborationStatus().catch((error)=>toast(error.message || '飞书协同状态读取失败'));
   toast(`已切换到：${project.name}`);
 }
 window.switchProject = switchProject;
@@ -3929,6 +3931,7 @@ function renderAllFromClient(){
   hydrateInternalFormValuesFromState();
   renderInternalClientIdentity();
   renderAllCustomersPanel();
+  renderFeishuCollaborationPanel();
   renderLifecycleWorkbench();
   renderWorkflowVisibility();
   renderDashboard(clientDashboard());
@@ -4032,6 +4035,118 @@ async function loadAllCustomers(){
     allCustomersState = { customers: [], errors: [], loading: false, error: error.message || '请求失败' };
   }
   renderAllCustomersPanel();
+}
+
+function feishuCollaborationScope(){
+  const projectId = String(clientState.project?.id || '').trim();
+  return projectId ? `${customerClientId()}:${projectId}` : '';
+}
+
+function feishuReasonMessage(reason = ''){
+  return ({
+    missing_feishu_app_credentials: '飞书应用凭据尚未配置。',
+    missing_feishu_base_or_wiki_token: '飞书多维表格 Token 尚未配置。',
+    missing_feishu_plan_table: '尚未配置内容计划表 FEISHU_TABLE_PLAN。',
+    no_content_plans: '当前项目还没有可推送的内容计划。',
+  })[String(reason || '')] || '飞书同步失败，请检查写权限和表字段配置。';
+}
+
+function renderFeishuCollaborationPanel(){
+  const panel = $('#feishuCollaborationPanel');
+  if (!panel) return;
+  const projectId = String(clientState.project?.id || '').trim();
+  const visible = isInternalProfile() && !isGenerationWorkbenchRoute() && Boolean(projectId);
+  panel.hidden = !visible;
+  if (!visible) return;
+
+  const scope = feishuCollaborationScope();
+  const remote = feishuCollaborationState.scope === scope ? (feishuCollaborationState.status || {}) : {};
+  const localSync = clientState.feishu_sync || {};
+  const plans = Array.isArray(clientState.plans) ? clientState.plans : [];
+  const lastPushAt = remote.last_push_at || localSync.last_push_at || '';
+  const lastPullAt = remote.last_pull_at || localSync.last_inbound_at || '';
+  const status = $('#feishuCollaborationStatus');
+  if (status) status.innerHTML = `
+    <div><span>当前项目</span><strong>${esc(cleanDisplayName(clientState.project?.name) || projectId)}</strong></div>
+    <div><span>内容计划</span><strong>${plans.length} 条</strong></div>
+    <div><span>最近推送</span><strong>${esc(lastPushAt || '暂无')}</strong></div>
+    <div><span>最近拉取</span><strong>${esc(lastPullAt || '暂无')}</strong></div>`;
+
+  const button = $('#feishuPushPlansBtn');
+  if (button) {
+    button.disabled = feishuCollaborationState.loading || !plans.length;
+    button.textContent = feishuCollaborationState.loading ? '同步中...' : '推送到飞书';
+  }
+  const workspaceUrl = normalizeExternalUrl(remote.workspace_url || feishuCollaborationState.result?.workspace_url || '');
+  const link = $('#feishuWorkspaceLink');
+  if (link) {
+    link.hidden = !/^https?:\/\//i.test(workspaceUrl);
+    if (!link.hidden) link.href = workspaceUrl;
+  }
+  const message = $('#feishuCollaborationMessage');
+  if (!message) return;
+  const result = feishuCollaborationState.result;
+  const summary = result?.summary || remote.last_push_summary;
+  if (feishuCollaborationState.error) {
+    setCustomerMessage('#feishuCollaborationMessage', feishuCollaborationState.error, 'error');
+  } else if (feishuCollaborationState.loading) {
+    setCustomerMessage('#feishuCollaborationMessage', '正在读取飞书协同状态...');
+  } else if (summary) {
+    setCustomerMessage('#feishuCollaborationMessage', `最近同步：新增 ${Number(summary.created || 0)} 条，更新 ${Number(summary.updated || 0)} 条，跳过 ${Number(summary.skipped || 0)} 条，失败 ${Number(summary.failed || 0)} 条。`);
+  } else if (remote.configured === false) {
+    setCustomerMessage('#feishuCollaborationMessage', '飞书写入配置尚未完整，系统会保持关闭，不会产生脏数据。', 'error');
+  } else {
+    setCustomerMessage('#feishuCollaborationMessage', '尚未推送当前项目的内容计划。');
+  }
+}
+
+async function loadFeishuCollaborationStatus(){
+  if (!isInternalProfile() || !internalAuthVerified) return;
+  const projectId = String(clientState.project?.id || '').trim();
+  if (!projectId) {
+    feishuCollaborationState = { scope: '', loading: false, error: '', status: null, result: null };
+    renderFeishuCollaborationPanel();
+    return;
+  }
+  const scope = feishuCollaborationScope();
+  feishuCollaborationState = { scope, loading: true, error: '', status: null, result: null };
+  renderFeishuCollaborationPanel();
+  try {
+    const result = await api(`/api/feishu/status?client_id=${encodeURIComponent(customerClientId())}&project_id=${encodeURIComponent(projectId)}`);
+    if (feishuCollaborationScope() !== scope) return;
+    feishuCollaborationState = { scope, loading: false, error: '', status: result, result: null };
+  } catch (error) {
+    if (feishuCollaborationScope() !== scope) return;
+    feishuCollaborationState = { scope, loading: false, error: error.message || '飞书协同状态读取失败。', status: null, result: null };
+  }
+  renderFeishuCollaborationPanel();
+}
+
+async function pushCurrentProjectToFeishu(){
+  const projectId = String(clientState.project?.id || '').trim();
+  if (!projectId) throw new Error('请先选择一个已有项目。');
+  if (!Array.isArray(clientState.plans) || !clientState.plans.length) throw new Error('当前项目还没有可推送的内容计划。');
+  const scope = feishuCollaborationScope();
+  feishuCollaborationState = { ...feishuCollaborationState, scope, loading: true, error: '', result: null };
+  renderFeishuCollaborationPanel();
+  try {
+    const result = await api('/api/feishu/push', {
+      method: 'POST',
+      body: JSON.stringify({ client_id: customerClientId(), project_id: projectId }),
+      timeoutMs: 30000,
+    });
+    if (!result.ok) throw new Error(feishuReasonMessage(result.reason));
+    clientState.feishu_sync = { ...(clientState.feishu_sync || {}), ...(result.sync || {}) };
+    saveLocal();
+    feishuCollaborationState = { scope, loading: false, error: '', status: { ...(feishuCollaborationState.status || {}), ...(result.sync || {}), workspace_url: result.workspace_url || '' }, result };
+    const summary = result.summary || {};
+    toast(`飞书同步完成：新增 ${Number(summary.created || 0)} 条，更新 ${Number(summary.updated || 0)} 条。`);
+  } catch (error) {
+    feishuCollaborationState = { ...feishuCollaborationState, scope, loading: false, error: error.message || '飞书同步失败。', result: null };
+    throw error;
+  } finally {
+    renderFeishuCollaborationPanel();
+  }
 }
 
 function hydrateInternalFormValuesFromState(){
@@ -5203,7 +5318,7 @@ function renderGenerationWorkbenchRoute(){
   }
   if (planLink) planLink.hidden = active;
   if (!isInternalProfile()) return;
-  ['#allCustomersPanel', '#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow', '.internal-debug-panel', '.internal-progress-strip'].forEach((selector) => {
+  ['#allCustomersPanel', '#feishuCollaborationPanel', '#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow', '.internal-debug-panel', '.internal-progress-strip'].forEach((selector) => {
     const el = $(selector);
     if (active && el) el.hidden = true;
   });
@@ -5517,8 +5632,13 @@ function initInternalApp(){
   $('#refreshBtn')?.addEventListener('click', () => {
     resetForNewCustomer();
   });
+  $('#feishuPushPlansBtn')?.addEventListener('click', () => {
+    pushCurrentProjectToFeishu().catch((error)=>toast(error.message || '飞书同步失败'));
+  });
   activeInternalRouteClientId = customerClientId();
-  loadAll().catch(err=>toast(err.message));
+  loadAll()
+    .then(()=>loadFeishuCollaborationStatus())
+    .catch(err=>toast(err.message));
   loadAllCustomers().catch((error)=>toast(error.message || '客户列表读取失败'));
 }
 

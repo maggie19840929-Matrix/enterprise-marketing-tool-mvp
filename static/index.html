@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.104" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.104" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.104" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.105" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.105" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.105" />
 </head>
 <body class="customer-mode">
   <script>
@@ -21,7 +21,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.104" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.105" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -51,7 +51,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.104" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.105" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -450,7 +450,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.104" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.105" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -473,7 +473,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.104" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.105" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -525,6 +525,27 @@
       </div>
       <div id="allCustomersStatus" class="customer-message success">正在读取客户列表...</div>
       <div id="allCustomersList" class="generation-list empty">暂无客户。</div>
+    </section>
+
+    <section id="feishuCollaborationPanel" class="customer-card feishu-collaboration-panel" hidden>
+      <div class="customer-section-head feishu-collaboration-head">
+        <div>
+          <p>INTERNAL · 飞书协同</p>
+          <h2>内容计划同步</h2>
+          <span>把当前项目的内容计划推送到飞书排期表；门店执行后，效果数据仍由现有飞书回流链路进入系统。</span>
+        </div>
+        <div class="feishu-collaboration-actions">
+          <button id="feishuPushPlansBtn" type="button">推送到飞书</button>
+          <a id="feishuWorkspaceLink" class="secondary" href="#" target="_blank" rel="noopener" hidden>打开飞书工作区</a>
+        </div>
+      </div>
+      <div id="feishuCollaborationStatus" class="feishu-collaboration-status">
+        <div><span>当前项目</span><strong>尚未选择项目</strong></div>
+        <div><span>内容计划</span><strong>0 条</strong></div>
+        <div><span>最近推送</span><strong>暂无</strong></div>
+        <div><span>最近拉取</span><strong>暂无</strong></div>
+      </div>
+      <div id="feishuCollaborationMessage" class="customer-message success" hidden></div>
     </section>
 
     <details class="customer-why internal-debug-panel">
@@ -887,6 +908,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.104"></script>
+  <script src="/app.js?v=1.6.105"></script>
 </body>
 </html>
