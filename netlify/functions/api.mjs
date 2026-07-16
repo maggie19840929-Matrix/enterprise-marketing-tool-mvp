@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.103';
-const VERSION_LABEL = 'v1.6.103 · 飞书 Wiki 表格自动解析版';
+const APP_VERSION = '1.6.104';
+const VERSION_LABEL = 'v1.6.104 · 飞书阶段B实际字段兼容版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -4902,17 +4902,17 @@ export const ingestFeishuRecord = async (payload = {}, {
   const feishuRecordId = explicitRecordId || `derived_${sha256Hex(recordFingerprint).slice(0, 20)}`;
   const publishLink = normalizeExternalUrl(feishuInboundText(payload, ['publish_link', '发布链接', '内容链接', '作品链接']));
   const metrics = {
-    views: feishuInboundNumber(payload, ['views', 'exposure', '浏览/曝光', '曝光', '播放量', '浏览量']),
-    likes: feishuInboundNumber(payload, ['likes', '点赞', '点赞数']),
-    comments: feishuInboundNumber(payload, ['comments', '评论', '评论数']),
-    favorites: feishuInboundNumber(payload, ['favorites', '收藏', '收藏数']),
-    shares: feishuInboundNumber(payload, ['shares', '转发', '分享', '转发数']),
-    consultations: feishuInboundNumber(payload, ['consultations', 'inquiries', '咨询人数', '私信/咨询', '咨询']),
-    appointments: feishuInboundNumber(payload, ['appointments', '预约人数', '到店预约', '预约']),
+    views: feishuInboundNumber(payload, ['views', 'exposure', '浏览/曝光', '曝光', '曝光量', '播放量', '浏览量']),
+    likes: feishuInboundNumber(payload, ['likes', '点赞', '点赞数', '点赞量']),
+    comments: feishuInboundNumber(payload, ['comments', '评论', '评论数', '评论量']),
+    favorites: feishuInboundNumber(payload, ['favorites', '收藏', '收藏数', '收藏量']),
+    shares: feishuInboundNumber(payload, ['shares', '转发', '分享', '转发数', '转发量', '分享数']),
+    consultations: feishuInboundNumber(payload, ['consultations', 'inquiries', '咨询人数', '咨询数', '咨询量', '私信/咨询', '私信数', '咨询']),
+    appointments: feishuInboundNumber(payload, ['appointments', '预约人数', '预约数', '预约量', '到店预约', '到店数', '预约']),
   };
   const suppliedEngagement = feishuInboundNumber(payload, ['engagement', 'interactions', '互动', '互动数']);
   const engagement = suppliedEngagement || metrics.likes + metrics.comments + metrics.favorites + metrics.shares;
-  const notes = feishuInboundText(payload, ['notes', 'observation', '备注', '观察', '执行说明', '打卡内容']);
+  const notes = feishuInboundText(payload, ['notes', 'observation', '备注', '观察', '运营观察', '效果观察', '执行说明', '打卡内容']);
   const observationTags = feishuInboundText(payload, ['observation_tags', '观察标签', '效果标签']);
   const taskName = feishuInboundText(payload, ['task_name', '任务名称', '打卡项', '口碑任务']);
   const eventStatus = feishuInboundText(payload, ['status', '完成状态', '执行状态'], feishuInboundBoolean(payload, ['completed', '是否完成']) ? '已完成' : '已记录');
