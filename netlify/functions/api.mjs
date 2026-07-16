@@ -40,7 +40,7 @@ const clientIdFrom = (payload = {}, url = null, request = null) =>
 const clientScopedCloudStateKey = (clientId = 'anonymous') => `${CLOUD_STATE_KEY}.${normalizeClientId(clientId) || 'anonymous'}`;
 const internalAccessToken = () => envValue('INTERNAL_ACCESS_TOKEN');
 const feishuInboundToken = () => envValue('FEISHU_INBOUND_TOKEN');
-const feishuWebhookUrl = () => envValue('FEISHU_WEBHOOK_URL');
+const feishuWebhookUrl = () => envValue('FEISHU_BOT_WEBHOOK', 'FEISHU_WEBHOOK_URL');
 const feishuAppId = () => envValue('FEISHU_APP_ID');
 const feishuAppSecret = () => envValue('FEISHU_APP_SECRET');
 const feishuBaseToken = () => envValue('FEISHU_BASE_TOKEN');

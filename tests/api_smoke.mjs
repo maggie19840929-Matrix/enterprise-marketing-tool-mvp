@@ -1938,16 +1938,16 @@ assert(feishuManual.synced === false && feishuManual.mode === 'manual_payload' &
 });
 const fetchBeforeFeishuWebhook = globalThis.fetch;
 let feishuWebhookRequest = null;
-process.env.FEISHU_WEBHOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/smoke-only';
+process.env.FEISHU_BOT_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/smoke-only';
 globalThis.fetch = async (url, options = {}) => {
   feishuWebhookRequest = { url: String(url), body: JSON.parse(String(options.body || '{}')) };
   return new Response(JSON.stringify({ code: 0, msg: 'success' }), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 const feishuWebhook = await (await handler(internalRequest('POST', 'feishu/sync', { client_id: qaClientId, task_id: videoTask.task_id }))).json();
 assert(feishuWebhook.synced === true && feishuWebhook.mode === 'webhook', 'configured Feishu webhook should receive the outbound task message');
-assert(feishuWebhookRequest?.url === process.env.FEISHU_WEBHOOK_URL && feishuWebhookRequest?.body?.msg_type === 'text', 'Feishu webhook request should use the configured URL and bot text payload');
+assert(feishuWebhookRequest?.url === process.env.FEISHU_BOT_WEBHOOK && feishuWebhookRequest?.body?.msg_type === 'text', 'Feishu webhook request should prefer FEISHU_BOT_WEBHOOK and use a bot text payload');
 globalThis.fetch = fetchBeforeFeishuWebhook;
-delete process.env.FEISHU_WEBHOOK_URL;
+delete process.env.FEISHU_BOT_WEBHOOK;
 
 const coverTask = await (await handler(internalRequest('POST', 'generation-tasks', {
   project_id: qaProjectId,

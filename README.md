@@ -189,7 +189,8 @@ Netlify 环境变量：
 
 ```bash
 FEISHU_INBOUND_TOKEN=至少32字节的强随机回流令牌
-FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
+FEISHU_BOT_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/...
+# 兼容历史变量名：FEISHU_WEBHOOK_URL
 ```
 
 飞书自动化回推示例（字段也兼容对应中文列名）：
@@ -270,6 +271,7 @@ curl -X POST https://sales-improve.netlify.app/api/feishu/pull \
 ```bash
 FEISHU_TABLE_PLAN=内容计划/排期表 table_id
 FEISHU_WORKSPACE_URL=https://... # 可选，内部页“打开飞书工作区”链接
+FEISHU_BOT_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/... # 可选，沿用阶段 A 机器人通知
 ```
 
 手动推送示例：
