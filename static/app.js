@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.105';
-const VERSION_LABEL = 'v1.6.105 · 飞书阶段C协同写入版';
+const APP_VERSION = '1.6.112';
+const VERSION_LABEL = 'v1.6.112 · Kimi 后台异步出稿';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1887,6 +1887,33 @@ function collectCustomerCoCreation(){
   });
 }
 
+function isP03AnbiaoSubmission(payload = {}){
+  const explicit = explicitCustomerClientId();
+  if (/^(p03|anbiao|project-anbiao|licheng)|(?:p03|anbiao|project-anbiao|licheng)/i.test(explicit)) return true;
+  const text = [
+    payload.company_name,
+    payload.industry,
+    payload.main_goal,
+    payload.target_customer,
+    payload.offer,
+    payload.customer_pain,
+    payload.extra_context,
+  ].filter(Boolean).join(' ');
+  return /安标|安规|医疗器械|注册送检|注册检验/.test(text) && /检测|合规|整改|送检|资料|机构/.test(text);
+}
+
+function defaultCustomerCoCreation(payload = {}){
+  const directions = customerCoCreationDirections(payload);
+  return sanitizeCustomerPayload({
+    selected_direction: directions[0]?.value || '客户痛点型',
+    support_direction: '',
+    avoided_content: [],
+    customer_emphasis: '',
+    confirmed_at: localTimestamp(),
+    auto_confirmed: true,
+  });
+}
+
 const CUSTOMER_PLAN_JOB_POLL_DELAYS = [700, 900, 1200, 1600, 2200, 3000, 4000, 5000, 5000, 5000];
 const waitForCustomerPlanJob = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -2665,8 +2692,8 @@ function renderCustomerRecordSummary(saved = {}){
   box.innerHTML = `<p class="customer-loop-kicker">本条内容结果</p>
     <h3>${esc(level.label)}</h3>
     <div class="customer-result-metrics">
-      <span>曝光 <strong>${esc(nums.views)}</strong></span>
-      <span>互动 <strong>${esc(nums.engagement)}</strong></span>
+      <span>播放量 <strong>${esc(nums.views)}</strong></span>
+      <span>点赞 <strong>${esc(nums.likes)}</strong></span>
       <span>咨询 <strong>${esc(nums.consultations)}</strong></span>
       <span>咨询率 <strong>${esc(rateLabel(nums.consultations, nums.views))}</strong></span>
     </div>
@@ -3007,9 +3034,10 @@ function renderCustomerNextAdvice(saved = {}){
     </ul>
     <p class="customer-next-gate">${esc(gateHint)}</p>
     ${activateHtml}
+    <button class="customer-primary customer-next-continue" type="button" data-customer-continue>回到内容计划，发下一条 →</button>
     <details class="customer-next-evidence">
       <summary>查看判断依据</summary>
-      <p>发布数据：曝光 ${esc(nums.views)}，互动 ${esc(nums.engagement)}，咨询 ${esc(nums.consultations)}。</p>
+      <p>发布数据：播放量 ${esc(nums.views)}，点赞 ${esc(nums.likes)}，咨询 ${esc(nums.consultations)}。</p>
       <p>本次内容：${esc(selectedPlan?.topic || latest.plan_topic || '已发布内容')}。</p>
       <p>${esc(advice.history_signal || '已结合当天内容和当天数据判断。')}</p>
     </details>`;
@@ -3115,6 +3143,64 @@ function loadCustomerTrialState(options = {}){
   } catch {
     return {};
   }
+}
+
+function customerStateFromCloudProjectStore(store = {}){
+  const normalized = normalizeProjectStoreShape(store);
+  const active = normalized.projects.find((item)=>String(item.id) === String(normalized.activeProjectId)) || normalized.projects[0];
+  if (!active?.state || !hasRestorableState(active.state)) return null;
+  return {projectStore: normalized, state: normalizeState(active.state)};
+}
+
+async function restoreCustomerTrialFromCloud({force = false} = {}){
+  if (isInternalDataScope()) return null;
+  const localState = loadCustomerTrialState({allowDedicatedFallback: true});
+  if (!force && customerHasGeneratedState(localState)) return localState;
+  try {
+    const result = await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}`);
+    const restored = customerStateFromCloudProjectStore(result?.project_store || {});
+    if (!restored) return null;
+    projectStore = restored.projectStore;
+    saveProjectStore();
+    clientState = restored.state;
+    const trialState = {
+      ...restored.state,
+      project_id: restored.state.project?.id || restored.projectStore.activeProjectId || '',
+      draft_assessment: null,
+      restored_from_cloud: true,
+    };
+    saveCustomerTrialState(trialState);
+    return trialState;
+  } catch {
+    return null;
+  }
+}
+
+function shouldGateCustomerCloudRestore(saved = {}){
+  return Boolean(explicitCustomerClientId() && !customerHasGeneratedState(saved) && !hasDifferentCustomerDraft(saved) && !dedicatedCustomerKey());
+}
+
+function showCustomerCloudRestoreGate(){
+  document.body.classList.add('customer-cloud-restore-pending');
+  const resultSection = $('#customerResultSection');
+  const result = $('#customerResult');
+  if (result) result.innerHTML = '<div class="empty">正在恢复项目...</div>';
+  if (resultSection) resultSection.hidden = false;
+  $('#customerCoCreationSection')?.setAttribute('hidden', '');
+  $('#customerEffectSection')?.setAttribute('hidden', '');
+  $('#customerPlanBlock')?.setAttribute('hidden', '');
+  setCustomerFormCollapsed(true);
+  setCustomerStep('plan', {state: {}, focus: false});
+}
+
+function hideCustomerCloudRestoreGate(){
+  document.body.classList.remove('customer-cloud-restore-pending');
+  const resultSection = $('#customerResultSection');
+  const result = $('#customerResult');
+  if (result) result.innerHTML = '';
+  if (resultSection) resultSection.hidden = true;
+  setCustomerFormCollapsed(false);
+  setCustomerStep('intake', {state: {}, focus: false});
 }
 
 function saveCustomerDraft(payload = {}){
@@ -3411,7 +3497,21 @@ function initCustomerTrial(){
   renderCustomerBriefPreview(currentCustomerFormPayload());
   renderCustomerRecordSummary(savedCustomerState);
   renderCustomerNextAdvice(savedCustomerState);
-  setCustomerStep(customerDefaultStep(savedCustomerState), {state: savedCustomerState});
+  const gateCloudRestore = shouldGateCustomerCloudRestore(savedCustomerState);
+  if (gateCloudRestore) showCustomerCloudRestoreGate();
+  else setCustomerStep(customerDefaultStep(savedCustomerState), {state: savedCustomerState});
+  restoreCustomerTrialFromCloud().then((cloudState) => {
+    if (!cloudState || !customerHasGeneratedState(cloudState)) {
+      if (gateCloudRestore) hideCustomerCloudRestoreGate();
+      return;
+    }
+    document.body.classList.remove('customer-cloud-restore-pending');
+    renderCustomerResumeBanner(cloudState);
+    renderCustomerGeneratedState(cloudState, {step: customerDefaultStep(cloudState)});
+    renderCustomerRecordSummary(cloudState);
+    renderCustomerNextAdvice(cloudState);
+    renderCustomerEffects(cloudState);
+  });
   $('#customerResumeContinue')?.addEventListener('click', () => {
     setCustomerStep(customerDefaultStep(loadCustomerTrialState()), {focus: true});
   });
@@ -3482,6 +3582,13 @@ function initCustomerTrial(){
     const scopedPayload = customerScopedPayload(payload);
     saveCustomerDraft(scopedPayload);
     clearCustomerGeneratedView();
+    if (isP03AnbiaoSubmission(scopedPayload)) {
+      await submitCustomerAssessmentPayload({
+        ...scopedPayload,
+        co_creation: defaultCustomerCoCreation(scopedPayload),
+      }, e.submitter || $('#customerGenerateBtn'));
+      return;
+    }
     renderCustomerCoCreation(scopedPayload);
   });
   $('#customerCoCreationDirections')?.addEventListener('click', (event) => {
@@ -3519,6 +3626,13 @@ function initCustomerTrial(){
     selectCustomerEffectPlan(button.dataset.customerRecordPlan);
   });
   $('#customerNextAdvice')?.addEventListener('click', (event) => {
+    const continueBtn = event.target?.closest?.('[data-customer-continue]');
+    if (continueBtn) {
+      setCustomerStep('record', {state: loadCustomerTrialState()});
+      const planBlock = $('#customerPlanBlock');
+      (planBlock && !planBlock.hidden ? planBlock : $('#customerEffectSection'))?.scrollIntoView({behavior:'smooth', block:'start'});
+      return;
+    }
     const button = event.target?.closest?.('[data-customer-activate-round]');
     if (!button || button.disabled) return;
     activateCustomerNextRound();

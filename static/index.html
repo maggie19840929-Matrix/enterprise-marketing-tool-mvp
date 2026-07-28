@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.105" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.105" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.105" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.112" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.112" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.112" />
 </head>
 <body class="customer-mode">
   <script>
@@ -15,13 +15,16 @@
       const internal = path === '/internal' || path.startsWith('/internal/');
       document.body.classList.toggle('customer-mode', !internal);
       document.body.classList.toggle('internal-mode', internal);
+      const params = new URLSearchParams(window.location.search || '');
+      const explicitCustomer = params.get('client_id') || params.get('customer') || params.get('client') || params.get('prefill');
+      if (!internal && explicitCustomer) document.body.classList.add('customer-cloud-restore-pending');
     })();
   </script>
   <div id="customerApp" class="customer-trial-app">
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.105" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.112" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -51,7 +54,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.105" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.112" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -92,7 +95,7 @@
           <article>
             <span class="customer-mini-icon customer-icon-loop" aria-hidden="true"></span>
             <b>效果记录</b>
-            <p>把曝光、互动、咨询变成下一轮判断</p>
+            <p>把播放量、点赞、咨询变成下一轮判断</p>
           </article>
         </div>
       </aside>
@@ -403,15 +406,15 @@
             <div>
               <h3>填几个数</h3>
               <div class="customer-effect-mini-grid">
-                <label>曝光<input name="views" type="number" min="0" value="0" /></label>
-                <label>互动<input name="engagement" type="number" min="0" value="0" /></label>
+                <label>播放量<input name="views" type="number" min="0" value="0" /></label>
+                <label>点赞<input name="likes" type="number" min="0" value="0" /></label>
                 <label>咨询<input name="consultations" type="number" min="0" value="0" /></label>
               </div>
               <details class="customer-effect-more">
                 <summary>更多（可选）</summary>
                 <div class="customer-effect-more-grid">
-                  <label>点赞<input name="likes" type="number" min="0" value="0" /></label>
                   <label>评论<input name="comments" type="number" min="0" value="0" /></label>
+                  <label>收藏<input name="favorites" type="number" min="0" value="0" /></label>
                   <label>转发<input name="shares" type="number" min="0" value="0" /></label>
                 </div>
               </details>
@@ -438,7 +441,7 @@
 
         <details class="customer-why customer-record-help">
           <summary>查看判断依据</summary>
-          <p>系统会先看曝光、互动、咨询和你的观察，判断下一条内容该加码、换角度，还是先扩大样本。</p>
+          <p>系统会先看播放量、点赞、咨询和你的观察，判断下一条内容该加码、换角度，还是先扩大样本。</p>
         </details>
 
         <h3 class="customer-record-title">已记录</h3>
@@ -450,7 +453,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.105" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.112" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -473,7 +476,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.105" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.112" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -908,6 +911,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.105"></script>
+  <script src="/app.js?v=1.6.112"></script>
 </body>
 </html>

@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.105';
-const VERSION_LABEL = 'v1.6.105 · 飞书阶段C协同写入版';
+const APP_VERSION = '1.6.112';
+const VERSION_LABEL = 'v1.6.112 · Kimi 后台异步出稿';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -21,6 +21,16 @@ const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
 const CLAUDE_SCRIPT_MODEL = process.env.CLAUDE_SCRIPT_MODEL || 'claude-opus-4-8';
 const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
+const KIMI_BASE_URL = process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1';
+const KIMI_MODEL = process.env.KIMI_MODEL || 'kimi-k2.6';
+const KIMI_TIMEOUT_MS = Math.min(Math.max(Number(process.env.KIMI_TIMEOUT_MS || 24000), 1000), 26000);
+const KIMI_BG_TIMEOUT_MS = Math.min(Math.max(Number(process.env.KIMI_BG_TIMEOUT_MS || 120000), 10000), 600000);
+const KIMI_MAX_RETRIES = Math.min(Math.max(Number(process.env.KIMI_MAX_RETRIES || 4), 0), 8);
+const BACKGROUND_GENERATION_LOCK_MS = Math.min(
+  Math.max(Number(process.env.BACKGROUND_GENERATION_LOCK_MS || 14 * 60 * 1000), 60 * 1000),
+  15 * 60 * 1000,
+);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 const MODEL_TIMEOUT_MS = Math.min(Math.max(Number(process.env.MODEL_TIMEOUT_MS || process.env.ARK_TIMEOUT_MS || 19000), 1000), 20000);
 const CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS || 19000), 500), 20000);
 const CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS = Math.min(Math.max(Number(process.env.CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 15000), 5000), 18000);
@@ -59,6 +69,11 @@ const constantTimeTokenMatch = (provided = '', expected = '') => {
   return timingSafeEqual(providedDigest, expectedDigest);
 };
 const hasValidInternalAuth = (request = null) => constantTimeTokenMatch(requestInternalToken(request), internalAccessToken());
+const backgroundGenerationToken = () => envValue('BACKGROUND_GENERATION_TOKEN') || internalAccessToken();
+const requestBackgroundGenerationToken = (request = null) =>
+  String(request?.headers?.get('x-background-generation-token') || '').trim();
+export const hasValidBackgroundGenerationAuth = (request = null) =>
+  constantTimeTokenMatch(requestBackgroundGenerationToken(request), backgroundGenerationToken());
 const requestFeishuInboundToken = (request = null) => {
   const auth = String(request?.headers?.get('authorization') || '').trim();
   const bearer = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
@@ -158,6 +173,7 @@ const arkApiKey = () => envValue('ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY');
 const openaiApiKey = () => envValue('OPENAI_API_KEY');
 const anthropicApiKey = () => envValue('ANTHROPIC_API_KEY');
 const glmApiKey = () => envValue('GLM_API_KEY');
+const kimiApiKey = () => envValue('KIMI_API_KEY', 'MOONSHOT_API_KEY');
 const paidGenerationSafeToRun = () => ['1', 'true', 'yes', 'SAFE_TO_RUN'].includes(String(process.env.SAFE_TO_RUN || '').trim());
 const envFlag = (key, fallback = false) => {
   const value = String(process.env[key] ?? '').trim().toLowerCase();
@@ -1497,8 +1513,9 @@ const coCreationTopicSeeds = (assessment = {}) => {
   const offer = assessment.offer || service.service || '服务';
   const basketball = service.type === 'youth_basketball';
   const martialArts = service.type === 'martial_arts' || isMartialArtsText(biz);
+  const postpartum = service.type === 'postpartum';
   const withEmphasis = (rows) => emphasis
-    ? [{ topic: `${emphasis}，客户最想先确认什么`, angle: `围绕客户特别强调的「${emphasis}」展开`, cta: basketball ? '引导家长咨询孩子年龄和体验课时间' : martialArts ? '引导家长咨询孩子年龄、基础和体验课时间' : '引导客户咨询具体情况' }, ...rows]
+    ? [{ topic: `${emphasis}，客户最想先确认什么`, angle: `围绕客户特别强调的「${emphasis}」展开`, cta: basketball ? '引导家长咨询孩子年龄和体验课时间' : martialArts ? '引导家长咨询孩子年龄、基础和体验课时间' : postpartum ? '引导客户说明产后阶段和身体情况' : '引导客户咨询具体情况' }, ...rows]
     : rows;
   if (basketball) {
     if (direction.includes('教练') || direction.includes('信任')) {
@@ -1542,6 +1559,27 @@ const coCreationTopicSeeds = (assessment = {}) => {
       { topic: '家长怕搏击课太激烈，课堂里到底怎么保护', angle: '用防护、护具和教练动作纠正回应顾虑', cta: '引导咨询课程安排' },
     ]);
   }
+  if (postpartum) {
+    if (direction.includes('信任') || direction.includes('背书')) {
+      return withEmphasis([
+        { topic: '产后修复到底修的是什么，第一次去先了解这些', angle: '用项目分类和评估流程建立专业认知', cta: '引导客户说明产后时间和身体情况' },
+        { topic: '正规的产后修复，会先给你做一次评估', angle: '用评估环节和判断标准体现专业度', cta: '引导咨询评估怎么安排' },
+        { topic: '同样是产后修复，过程上的差别在哪', angle: '展示服务流程和真实细节，而不是罗列项目', cta: '引导咨询具体项目安排' },
+      ]);
+    }
+    if (direction.includes('转化') || direction.includes('咨询') || direction.includes('体验')) {
+      return withEmphasis([
+        { topic: '想做产后修复，去之前先问清楚这3件事', angle: '把咨询集中到评估、周期和适合人群', cta: '引导客户说明产后阶段和身体情况' },
+        { topic: '产后多久可以开始做修复', angle: '讲清不同阶段的先后顺序和注意事项', cta: '引导咨询自己现在适合哪一步' },
+        { topic: '第一次到店做产后修复，流程是怎样的', angle: '用到店流程降低第一次的心理门槛', cta: '引导预约到店评估' },
+      ]);
+    }
+    return withEmphasis([
+      { topic: '产后身体的这些变化，很多宝妈以为忍忍就过去了', angle: '先回应真实困扰，而不是介绍项目清单', cta: '引导客户描述自己的情况' },
+      { topic: '骨盆、腹直肌、盆底肌，产后先看哪一个', angle: '用客户视角把项目关系讲清楚', cta: '引导咨询自己适合从哪里开始' },
+      { topic: '产后修复不是越早越好，也不是越贵越好', angle: '拆解常见误区和犹豫点', cta: '引导咨询合适的时机' },
+    ]);
+  }
   if (direction.includes('信任')) {
     return withEmphasis([
       { topic: `${audience}选择${offer}前，最该看哪3个证据`, angle: '用案例、流程和保障建立信任', cta: '引导客户咨询是否适合' },
@@ -1573,12 +1611,14 @@ const violatesCoCreationAvoidance = (row = [], avoided = []) => {
   );
 };
 
-const applyCoCreationToPlanRows = (rows = [], assessment = {}) => {
+const applyCoCreationToPlanRows = (rows = [], assessment = {}, { seedOverride = true } = {}) => {
   const co = assessment.co_creation || {};
   if (!hasCoCreation(co)) return rows;
   const next = rows.map((row) => [...row]);
   const seeds = coCreationTopicSeeds(assessment);
-  seeds.slice(0, 3).forEach((seed, index) => {
+  // seedOverride=false：模型已在提示词里拿到客户确认方向并按其生成，
+  // 不再用模板种子覆盖选题，只保留下方 avoided_content 违禁替换兜底。
+  if (seedOverride) seeds.slice(0, 3).forEach((seed, index) => {
     const existing = next[index] || [];
     next[index] = [
       seed.topic || existing[0] || '',
@@ -1779,17 +1819,29 @@ const planGenerationVariant = (value = '') => {
   return PLAN_VARIATION_DIRECTIONS[hash % PLAN_VARIATION_DIRECTIONS.length];
 };
 
+const coCreationPromptContext = (assessment = {}) => {
+  const co = assessment.co_creation || {};
+  if (!hasCoCreation(co)) return null;
+  return {
+    selected_direction: String(co.selected_direction || co.support_direction || '').slice(0, 60),
+    customer_emphasis: String(co.customer_emphasis || '').slice(0, 80),
+    avoided_content: (Array.isArray(co.avoided_content) ? co.avoided_content : []).map((item) => String(item).slice(0, 40)).slice(0, 6),
+  };
+};
+
 const planPromptContext = (assessment = {}, diagnosis = {}) => {
   const businessContext = diagnosis?.smart_context || inferBusinessContext(assessment);
   const merchantProfile = diagnosis?.merchant_profile || merchantProfileFor(assessment, businessContext);
   const strategyQuality = diagnosis?.strategy_quality_context || strategyQualityContextFor(assessment, businessContext, merchantProfile);
+  const coCreation = coCreationPromptContext(assessment);
   return {
+    ...(coCreation ? { customer_confirmed_direction: coCreation } : {}),
     industry: String(assessment.industry || '').slice(0, 120),
     main_goal: String(assessment.main_goal || '').slice(0, 100),
     target_customer: String(assessment.target_customer || '').slice(0, 120),
     platforms: planPlatforms(diagnosis?.platform_recommendations, assessment?.current_channels).slice(0, 4),
-    pain: String(assessment.customer_pain || assessment.biggest_problem || '').slice(0, 120),
-    biggest_problem: String(assessment.biggest_problem || '').slice(0, 60),
+    pain: String(assessment.customer_pain || '').slice(0, 120),
+    operator_content_pain: String(assessment.biggest_problem || '').slice(0, 60),
     priority_problem: String(diagnosis.priority_problem || '').slice(0, 60),
     platform_recommendations: compactPlatformRecommendations(diagnosis.platform_recommendations),
     variation_direction: String(assessment.plan_generation_variant || '').slice(0, 40),
@@ -1809,13 +1861,15 @@ const planPromptContext = (assessment = {}, diagnosis = {}) => {
 const contentPlanPrompt = (assessment, diagnosis) => [
   '请生成正好7条可直接进入内容草稿的选题，只返回JSON对象，不要Markdown。',
   '格式固定为{"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，每条仅含这4个核心字段。topic<=20字，angle<=24字，content_type<=8字，cta<=14字。',
-  '内容写给目标客户，必须贴合行业、目标、痛点和平台；7条角度不得重复；禁止评论区或留言关键词引导；禁止照抄输入长句；禁止编造未提供的优惠、接送、价格或效果承诺。',
+  '视角固定：以商家官方账号身份，写给最终消费者看的内容；选题是消费者会点开的话题，不是教商家如何做营销或“发什么内容”。上下文的 operator_content_pain 只是商家自身困扰，绝不能作为选题。',
+  '内容写给目标客户，必须贴合行业、目标、消费者痛点和平台；7条角度不得重复；禁止评论区或留言关键词引导；禁止照抄输入长句；禁止编造未提供的优惠、接送、价格或效果承诺。',
   '每条cta必须是完整、自然、口语化的一句话，不得出现“咨询咨询”“预约预约”等叠词，不得以“引导客户/引导家长”开头，也不要与topic重复。7条cta动作要多样，按场景轮换保存清单、主页咨询、预约体验、到店确认、截图问款、了解详情等安全动作，不能全部以“咨询”开头。',
   '按上下文platforms的顺序轮换平台语感：小红书标题更口语，可用“原来、后悔没早知道、谁懂啊”等轻情绪钩子或数字清单感，但必须真实、不夸大、不堆emoji；抖音保持短视频开头钩子；视频号保持稳健口播/科普，不要把小红书语气套到其他平台。',
   '除非上下文明确提供，topic、angle、content_type和cta中严禁出现：免费、接送、无隐形消费、包会、保证效果、立减、折扣、优惠、赠送、返现。',
   '根据 variation_direction 改变本批次的选题切口；不要机械复用同一行业的固定标题顺序。',
   '先读 strategy_quality：至少3条直接回应 customer_language/buyer_objections，至少2条使用 proof_assets 里的真实素材做案例、过程或信任内容；如果 proof_assets 为空，只能讲流程、边界和判断标准。',
   'market_calibration 只用于识别已验证的主题和表达结构，禁止照抄标题、案例、素材或对标账号人设。每条都应是可验证内容实验，并能用曝光、互动、咨询或预约决定下一步。',
+  '如上下文含 customer_confirmed_direction：这是客户亲自确认的内容方向，优先级最高。至少4条围绕 selected_direction 展开；如有 customer_emphasis，至少2条明确体现它；avoided_content 列出的内容一条都不许出现。',
   `上下文:${JSON.stringify(planPromptContext(assessment, diagnosis))}`,
 ].join('\n');
 
@@ -2092,8 +2146,10 @@ const callArkPlanRows = async (assessment, diagnosis) => {
     {
       role: 'system',
       content: [
-        '你是企业增长内容策略顾问，服务对象是门店老板、企业主和商家。',
-        '你必须根据客户真实行业、目标客户、平台、痛点和产品服务生成内容选题。',
+        '你为门店/商家策划内容，但选题是以【商家的官方账号】身份、发给【最终消费者/目标客户】看的内容。',
+        '视角铁律：选题是消费者会主动点开看的内容，绝不是教商家“怎么做营销/发什么内容”。严禁出现“不知道发什么”“如何引流”“内容没思路”这类站在经营者视角的选题。',
+        '上下文里的 operator_content_pain 是商家自己的运营困扰，仅供你理解商家处境，严禁把它变成选题主题或标题。',
+        '你必须根据客户真实行业、目标客户、平台、消费者痛点和产品服务生成内容选题。',
         '禁止评论区/留言关键词引导，禁止输出无关行业，禁止照抄客户字段长句。',
         '只返回 JSON，不要解释。',
       ].join('\n'),
@@ -2318,7 +2374,8 @@ const createContentPlan = (diagnosisId, modelRows = null, modelMeta = null) => {
     : fallbackRows;
   const sourceRows = postProcessPlanRows(applyCoCreationToPlanRows(
     modelRows?.length ? modelRows : variedFallbackRows,
-    assessment || {}
+    assessment || {},
+    { seedOverride: !modelRows?.length }
   ), platforms, assessment || {});
   const generation = normalizeModelMeta(modelMeta || { requested_model: REQUESTED_CONTENT_MODEL, actual_model: 'rule_template', provider: 'local', fallback: true, fallback_reason: 'model_not_requested', failure_reason: 'model_not_requested' });
   diagnosis.content_generation = generation;
@@ -4227,15 +4284,16 @@ const listAssets = async ({ clientId = 'anonymous', projectId = '' } = {}) => {
 const requestedModelForGeneration = (generationType = '') => {
   if (['image', 'cover'].includes(generationType)) return 'GPT-Image-2';
   if (generationType === 'video') return 'Seedance 2.0';
-  if (['script', 'copy'].includes(generationType)) return 'Claude Opus';
-  return 'Claude Opus';
+  if (['script', 'copy'].includes(generationType)) return kimiApiKey() ? `Kimi (${KIMI_MODEL})` : 'Claude Opus';
+  return kimiApiKey() ? `Kimi (${KIMI_MODEL})` : 'Claude Opus';
 };
 
 const providerForGeneration = (generationType = '') => {
   if (['image', 'cover'].includes(generationType)) return 'openai-image';
   if (generationType === 'video') return 'seedance-video';
-  if (['script', 'copy'].includes(generationType)) return 'claude-text';
-  return 'claude-text';
+  // 脚本/文案：配了 Kimi 就优先走 Kimi（AI 味最低），否则回退到既有 claude-text(A/B)
+  if (['script', 'copy'].includes(generationType)) return kimiApiKey() ? 'kimi-text' : 'claude-text';
+  return kimiApiKey() ? 'kimi-text' : 'claude-text';
 };
 
 const statusEvent = (status, note = '') => ({ status, note, at: nowIso() });
@@ -4541,6 +4599,48 @@ const submitGlmTextSingle = async ({ task }) => {
   };
 };
 
+const isRetriableModelError = (error = {}) => {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.status === 429 || error?.status === 502 || error?.status === 503 || error?.status === 504
+    || /overload|aborted|timeout|timed out|rate.?limit|temporarily|try again/.test(message);
+};
+
+const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, retries = 0 } = {}) => {
+  const output = { storage_url: `mock://kimi-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Kimi mock：${task.prompt || '按内容计划生成素材'}` };
+  if (!kimiApiKey()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_KEY_MISSING', output });
+  if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
+  const base = String(KIMI_BASE_URL || '').replace(/\/+$/, '');
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const data = await jsonFetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${kimiApiKey()}` },
+        body: JSON.stringify({ model: KIMI_MODEL, messages: [{ role: 'user', content: task.prompt || '生成一份营销短内容脚本' }], temperature: 1, max_tokens: 1200 }),
+      }, timeoutMs);
+      const text = String(data?.choices?.[0]?.message?.content || '').trim();
+      if (!text) throw new Error('kimi_empty_output');
+      return {
+        ok: true,
+        provider: 'kimi-text',
+        actual_model: data?.model || KIMI_MODEL,
+        fallback: false,
+        fallback_reason: null,
+        output: { ...output, storage_url: `real://kimi-text/${task.task_id}.txt`, text },
+        manifest: adapterManifest({ provider: 'kimi-text', mode: 'real', requestedModel: KIMI_MODEL, actualModel: data?.model || KIMI_MODEL, output: { chars: text.length, attempts: attempt + 1 } }),
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries && isRetriableModelError(error)) {
+        await sleep(Math.min(20000, 2000 * (2 ** attempt)));
+        continue;
+      }
+      break;
+    }
+  }
+  return { ok: false, provider: 'kimi-text', actual_model: 'rule_template', fallback: true, fallback_reason: lastError?.message || 'kimi_failed', error: lastError?.message || 'kimi_failed' };
+};
+
 const submitTextAb = async ({ task }) => {
   const [claude, glm] = await Promise.all([
     submitClaudeTextSingle({ task }),
@@ -4587,6 +4687,12 @@ const generationAdapters = {
     isAsync: false,
     submit: submitGlmTextSingle,
   },
+  'kimi-text': {
+    name: 'kimi-text',
+    isAsync: false,
+    isBackground: true,
+    submit: submitKimiTextSingle,
+  },
   'seedance-video': {
     name: 'seedance-video',
     isAsync: true,
@@ -4606,6 +4712,114 @@ const validateTaskAssets = async (task) => {
   return { ok: missing.length === 0, assets: ids.map((id) => byId.get(id)).filter(Boolean), missing };
 };
 
+const backgroundBaseUrl = () => String(process.env.URL || process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL || 'https://sales-improve.fpmatrix.cn').replace(/\/+$/, '');
+
+const triggerBackgroundGeneration = async (clientId, taskId) => {
+  const url = `${backgroundBaseUrl()}/.netlify/functions/generate-background`;
+  const token = backgroundGenerationToken();
+  if (!token) return { ok: false, status: 0, error: 'missing_background_generation_token' };
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-background-generation-token': token,
+        },
+        body: JSON.stringify({ client_id: clientId, task_id: taskId }),
+      }, 8000);
+      if (!response.ok) {
+        const error = new Error(`background_trigger_http_${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      return { ok: true, status: response.status, attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await sleep(500 * attempt);
+    }
+  }
+  const reason = lastError?.message || 'background_trigger_failed';
+  console.error(JSON.stringify({ event: 'background_trigger_failed', task_id: taskId, reason }));
+  return { ok: false, status: Number(lastError?.status || 0), error: reason, attempts: 2 };
+};
+
+export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } = {}) => {
+  const clientId = normalizeClientId(client_id);
+  if (!clientId || !String(task_id || '').trim()) throw new Error('后台生成缺少 client_id 或 task_id');
+  let task = await getTask(clientId, task_id);
+  if (!task) throw new Error('生成任务不存在');
+  const adapter = adapterForTask(task);
+  if (!adapter.isBackground) throw new Error('当前任务不支持后台生成');
+  if (ensureArray(task.output_asset_ids).length || ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status)) {
+    return task;
+  }
+  const previousStartedAt = Date.parse(task.adapter_state?.background_started_at || '');
+  if (
+    task.status === 'generating'
+    && Number.isFinite(previousStartedAt)
+    && Date.now() - previousStartedAt < BACKGROUND_GENERATION_LOCK_MS
+  ) {
+    return task;
+  }
+  const backgroundStartedAt = nowIso();
+  task = withStatus({
+    ...task,
+    error: '',
+    adapter_state: {
+      ...(task.adapter_state || {}),
+      trigger_status: 'accepted',
+      background_started_at: backgroundStartedAt,
+      background_attempts: Number(task.adapter_state?.background_attempts || 0) + 1,
+      last_background_error: '',
+    },
+  }, 'generating', '后台模型开始生成');
+  await saveTask(task);
+  let submitted;
+  try {
+    submitted = await adapter.submit({ task, outputSpec: task.output_spec }, { timeoutMs: KIMI_BG_TIMEOUT_MS, retries: KIMI_MAX_RETRIES });
+  } catch (error) {
+    submitted = { ok: false, provider: adapter.name, actual_model: 'rule_template', fallback_reason: error?.message || 'adapter_failed', error: error?.message || 'adapter_failed' };
+  }
+  await recordInternalProviderUsage({ task, submitted });
+  if (!submitted.ok) {
+    const status = /auth|key|credential/i.test(submitted.fallback_reason || submitted.error || '') ? 'blocked_model_auth' : 'failed';
+    task = withStatus({
+      ...task,
+      actual_model: submitted.actual_model || 'rule_template',
+      provider: submitted.provider || adapter.name,
+      fallback: true,
+      fallback_reason: submitted.fallback_reason || submitted.error || 'adapter_failed',
+      error: submitted.error || submitted.fallback_reason || '模型调用失败',
+      adapter_state: {
+        ...(task.adapter_state || {}),
+        background_completed_at: nowIso(),
+        last_background_error: submitted.error || submitted.fallback_reason || 'adapter_failed',
+      },
+    }, status, '后台生成失败');
+    return saveTask(task);
+  }
+  task = {
+    ...task,
+    actual_model: submitted.actual_model || task.requested_model,
+    provider: submitted.provider || adapter.name,
+    fallback: Boolean(submitted.fallback),
+    fallback_reason: submitted.fallback_reason || null,
+    error: '',
+    adapter_manifest: submitted.manifest || null,
+    adapter_state: {
+      ...(task.adapter_state || {}),
+      background_completed_at: nowIso(),
+      last_background_error: '',
+    },
+  };
+  const asset = await outputAssetForTask(task, submitted.output || {});
+  task = withStatus({ ...task, output_asset_ids: [asset.asset_id] }, 'generated', '后台大模型已生成');
+  task = withStatus(task, 'qa_pending', '等待内部 QA');
+  return saveTask(task);
+};
+
 const submitGenerationTask = async (clientId, taskId) => {
   let task = await getTask(clientId, taskId);
   if (!task) throw new Error('生成任务不存在');
@@ -4621,6 +4835,45 @@ const submitGenerationTask = async (clientId, taskId) => {
   if (String(task.prompt || '').includes('[mock_fail_auth]')) {
     task = withStatus({ ...task, actual_model: 'rule_template', fallback: true, fallback_reason: 'missing_provider_key', error: '模型鉴权失败' }, 'blocked_model_auth', 'mock 鉴权失败');
     return saveTask(task);
+  }
+  if (adapter.isBackground) {
+    const queuedAt = nowIso();
+    task = withStatus({
+      ...task,
+      error: '',
+      adapter_state: {
+        queued_at: queuedAt,
+        triggered_at: queuedAt,
+        trigger_status: 'requested',
+        poll_count: 0,
+      },
+    }, 'generating', '已进入后台生成队列（大模型异步出稿）');
+    await saveTask(task);
+    const trigger = await triggerBackgroundGeneration(task.client_id, task.task_id);
+    if (!trigger.ok) {
+      const latest = await getTask(task.client_id, task.task_id);
+      if (
+        ensureArray(latest?.output_asset_ids).length
+        || latest?.adapter_state?.background_started_at
+        || ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(latest?.status)
+      ) {
+        return latest;
+      }
+      task = withStatus({
+        ...(latest || task),
+        fallback: true,
+        fallback_reason: trigger.error || 'background_trigger_failed',
+        error: '后台任务启动失败，请重试提交',
+        adapter_state: {
+          ...((latest || task).adapter_state || {}),
+          trigger_status: 'failed',
+          trigger_error: trigger.error || 'background_trigger_failed',
+          trigger_attempts: trigger.attempts || 0,
+        },
+      }, trigger.error === 'missing_background_generation_token' ? 'blocked_model_auth' : 'failed', '后台任务点火失败');
+      return saveTask(task);
+    }
+    return (await getTask(task.client_id, task.task_id)) || task;
   }
   let submitted;
   try {
@@ -5995,6 +6248,16 @@ export default async (request, context = {}) => {
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
         features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking'],
+        // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
+        providers: {
+          safe_to_run: paidGenerationSafeToRun(),
+          kimi: Boolean(kimiApiKey()),
+          kimi_model: KIMI_MODEL,
+          ark: Boolean(arkApiKey()),
+          anthropic: Boolean(anthropicApiKey()),
+          glm: Boolean(glmApiKey()),
+          script_provider: providerForGeneration('script'),
+        },
       });
       if (path === '/customers') {
         if (!internalAuthorized) return unauthorized();

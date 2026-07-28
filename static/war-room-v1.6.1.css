@@ -2901,3 +2901,8 @@ body.customer-mode.customer-info-mode .customer-info-page>p:not(.customer-kicker
     margin:16px auto 24px!important;
   }
 }
+
+/* v1.6.110 explicit customer first-paint restore gate */
+body.customer-mode.customer-cloud-restore-pending section#customerFormCard.customer-form-card{display:none!important}
+body.customer-mode.customer-cloud-restore-pending section#customerResultSection[hidden]{display:block!important}
+body.customer-mode.customer-cloud-restore-pending #customerResult:empty::before{content:"正在恢复项目...";display:block;border:1px solid rgba(31,41,55,.12);border-radius:18px;background:#fffdf8;color:#111827;font-weight:900;padding:18px 20px}

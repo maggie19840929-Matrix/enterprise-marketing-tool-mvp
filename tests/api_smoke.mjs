@@ -1,13 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.105';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.105';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.112';
+const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.112';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.112';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.105-not-production';
+process.env.BACKGROUND_GENERATION_TOKEN = BACKGROUND_GENERATION_TOKEN;
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.112-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -15,6 +17,7 @@ process.env.GENERATION_RATE_IP_MAX = '100';
 process.env.GENERATION_DAILY_CLIENT_MAX = '100';
 process.env.TRACKING_ENABLED = 'true';
 const { default: handler, shanghaiDateIso, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
+const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
 
 const request = (method, path, body, options = {}) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
@@ -137,7 +140,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.105', `expected app_version 1.6.105, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.112', `expected app_version 1.6.112, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -680,7 +683,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.105'") && appJs.includes("v1.6.105 · 飞书阶段C协同写入版"), 'app should expose the v1.6.105 Feishu Stage C collaboration release internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.112'") && appJs.includes("v1.6.112 · Kimi 后台异步出稿"), 'app should expose the v1.6.112 Kimi background generation release internally/API-side');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
@@ -725,9 +728,12 @@ assert(customerOptionalStart >= 0 && customerAssessmentFormHtml.indexOf('name="c
 assert(apiSource.includes("assessment.current_channels === '还不确定'") && appJs.includes('generatedPlatforms') && appJs.includes("selectedPlatform !== '还不确定'"), 'an uncertain platform default should be rendered as the actual recommended plan platforms, not as literal uncertain copy');
 assert(indexHtml.includes('class="customer-effect-more"') && indexHtml.includes('<summary>更多（可选）</summary>') && !indexHtml.includes('<input name="likes" type="hidden"'), 'customer effect form should show only three core metrics by default and place split engagement fields in optional details');
 const customerEffectMoreStart = customerEffectFormHtml.indexOf('<details class="customer-effect-more">');
-assert(['views', 'engagement', 'consultations'].every((name) => customerEffectFormHtml.indexOf(`name="${name}"`) >= 0 && customerEffectFormHtml.indexOf(`name="${name}"`) < customerEffectMoreStart), 'views, engagement and consultations should be the only core metrics before optional details');
-assert(['likes', 'comments', 'shares'].every((name) => customerEffectFormHtml.indexOf(`name="${name}" type="number" min="0" value="0"`) > customerEffectMoreStart), 'likes, comments and shares should be optional collapsed metrics defaulting to zero');
+assert(['views', 'likes', 'consultations'].every((name) => customerEffectFormHtml.indexOf(`name="${name}"`) >= 0 && customerEffectFormHtml.indexOf(`name="${name}"`) < customerEffectMoreStart), 'views, likes and consultations should be the only core metrics before optional details');
+const customerEffectMoreHtml = customerEffectFormHtml.slice(customerEffectMoreStart);
+assert(['comments', 'favorites', 'shares'].every((name) => customerEffectMoreHtml.includes(`name="${name}" type="number" min="0" value="0"`)), 'comments, favorites and shares should be optional collapsed metrics defaulting to zero');
 assert(appJs.includes('lastCustomerGenerationPayload') && appJs.includes('customerGenerationRetry') && appJs.includes('setCustomerGenerationRetryVisible(true)'), 'failed customer plan generation should expose an in-place retry using the last confirmed payload');
+assert(appJs.includes('function isP03AnbiaoSubmission') && appJs.includes('defaultCustomerCoCreation(scopedPayload)') && appJs.includes('submitCustomerAssessmentPayload({'), 'P03/anbiao customer intake should bypass the extra co-creation edit step and submit directly through plan-jobs');
+assert(appJs.includes('function restoreCustomerTrialFromCloud') && appJs.includes('function showCustomerCloudRestoreGate') && appJs.includes('const gateCloudRestore = shouldGateCustomerCloudRestore(savedCustomerState)'), 'explicit customer links should show a restore gate and hydrate generated state from /api/state before exposing the blank intake form');
 assert(appJs.includes('就能解锁更准的下一轮建议') && !appJs.includes('才会开放下一轮计划'), 'next-round readiness copy should encourage additional records without changing the gate');
 assert(warRoomCss.includes('v1.6.86 customer contrast closeout') && warRoomCss.includes('body.customer-mode .war-tag.green') && warRoomCss.includes('color:#065f46!important') && warRoomCss.includes('.war-tag.green{color:#8ff2cb'), 'customer light mode should use dark green readable text while the internal dark theme keeps its mint green baseline');
 assert(warRoomCss.includes('.customer-selected-plan{') && warRoomCss.includes('color:#065f46!important') && !warRoomCss.includes('.customer-selected-plan{grid-column:1/-1!important;padding:12px 14px!important;border:1px solid rgba(16,185,129,.26)!important;border-radius:16px!important;background:rgba(16,185,129,.08)!important;color:#bdf7df'), 'selected customer plan copy should use dark green ink instead of pale green');
@@ -778,7 +784,7 @@ assert(apiSource.includes("path === '/feishu/push'") && apiSource.includes('push
 assert(apiSource.includes("path === '/feishu/status'") && apiSource.includes('feishuCollaborationStatus') && apiSource.includes('FEISHU_WORKSPACE_URL'), 'Stage C should expose a protected non-sensitive collaboration status endpoint');
 assert(indexHtml.includes('id="feishuCollaborationPanel"') && indexHtml.includes('id="feishuPushPlansBtn"') && indexHtml.includes('id="feishuWorkspaceLink"') && appJs.includes("api('/api/feishu/push'") && appJs.includes('function loadFeishuCollaborationStatus'), 'internal app should expose the Feishu collaboration panel and push action');
 assert(indexHtml.indexOf('id="feishuCollaborationPanel"') > indexHtml.indexOf('id="internalApp"') && !customerAssessmentFormHtml.includes('飞书'), 'Feishu collaboration controls must live only in the internal app tree');
-assert(stylesCss.includes('v1.6.105 internal Feishu collaboration') && stylesCss.includes('.feishu-collaboration-status') && stylesCss.includes('@media(max-width:760px)'), 'Feishu collaboration panel should include internal-only responsive styles');
+assert(stylesCss.includes('v1.6.110 internal Feishu collaboration') && stylesCss.includes('.feishu-collaboration-status') && stylesCss.includes('@media(max-width:760px)'), 'Feishu collaboration panel should include internal-only responsive styles');
 assert(redirects.includes('/internal /index.html 200') && redirects.includes('/internal/ /index.html 200') && redirects.includes('/internal/* /index.html 200') && !redirects.includes('/?mode=internal'), 'internal routes should rewrite to the app shell without a Netlify self-redirect loop');
 assert(!existsSync(new URL('../static/internal/index.html', import.meta.url)), 'static/internal/index.html must not exist because it shadows the /internal/ SPA rewrite on Netlify');
 assert(localDevServer.includes("pathname === '/internal'") && localDevServer.includes("location: '/internal/'") && localDevServer.includes("pathname.startsWith('/internal/')"), 'local dev server should mirror /internal -> /internal/ and /internal/* -> app-shell behavior');
@@ -842,10 +848,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.105') && indexHtml.includes('/styles.css?v=1.6.105') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.105'), 'customer page should cache-bust the v1.6.105 Feishu Stage C release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.112') && indexHtml.includes('/styles.css?v=1.6.112') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.112'), 'customer page should cache-bust the v1.6.112 Kimi background generation release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.105') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.105') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.105') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.112') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.112') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.112') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1381,7 +1388,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.105' && health.version_label === 'v1.6.105 · 飞书阶段C协同写入版', 'health should expose the v1.6.105 Feishu Stage C collaboration release');
+assert(health.version === '1.6.112' && health.version_label === 'v1.6.112 · Kimi 后台异步出稿', 'health should expose the v1.6.112 Kimi background generation release');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
@@ -1997,6 +2004,88 @@ assert(submittedCopy.task.fallback === true && submittedCopy.task.fallback_reaso
 assert(submittedCopy.task.adapter_manifest?.output?.variants?.claude && submittedCopy.task.adapter_manifest?.output?.variants?.glm, 'copy task manifest should include both text adapter variants');
 
 const originalFetch = globalThis.fetch;
+process.env.KIMI_API_KEY = 'smoke-kimi-key';
+process.env.SAFE_TO_RUN = 'true';
+process.env.URL = 'https://background-smoke.example';
+let backgroundTriggerRequest = null;
+let kimiGenerationCalls = 0;
+const kimiGeneratedText = '安标系统短视频脚本：先说明企业最容易忽略的合规节点，再给出现场可执行的检查清单。';
+globalThis.fetch = async (url, options = {}) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith('/.netlify/functions/generate-background')) {
+    backgroundTriggerRequest = {
+      method: options.method,
+      token: options.headers?.['x-background-generation-token'],
+      body: JSON.parse(String(options.body || '{}')),
+    };
+    return new Response('', { status: 202 });
+  }
+  if (requestUrl.endsWith('/chat/completions')) {
+    kimiGenerationCalls += 1;
+    return new Response(JSON.stringify({
+      model: 'kimi-k2.6',
+      choices: [{ message: { content: kimiGeneratedText } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  throw new Error(`unexpected Kimi smoke fetch: ${requestUrl}`);
+};
+const kimiTaskResponse = await handler(internalRequest('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  content_plan_record_id: 'qa_content_plan_kimi_background',
+  platform: '视频号',
+  content_type: '脚本',
+  generation_type: 'script',
+  prompt: '为安标系统生成一条负责人能直接录制的短视频脚本',
+  output_spec: { style: '负责人专业口播', client_visible: false },
+}));
+assert(kimiTaskResponse.status === 201, 'Kimi background task should be created');
+const kimiTask = (await kimiTaskResponse.json()).task;
+assert(kimiTask.provider === 'kimi-text' && kimiTask.requested_model.includes('kimi-k2.6'), 'configured Kimi should own script generation');
+const submittedKimiResponse = await handler(internalRequest('POST', `generation-tasks/${kimiTask.task_id}/submit`, { client_id: qaClientId }));
+assert(submittedKimiResponse.status === 200, 'Kimi background task submit should return immediately');
+const submittedKimi = (await submittedKimiResponse.json()).task;
+assert(submittedKimi.status === 'generating', 'Kimi submit should stop at generating while the background function works');
+assert(kimiGenerationCalls === 0, 'Kimi submit must not call the long-running model in the synchronous API function');
+assert(backgroundTriggerRequest?.method === 'POST', 'Kimi submit should trigger the Netlify background function');
+assert(backgroundTriggerRequest?.token === BACKGROUND_GENERATION_TOKEN, 'background trigger should carry the server-only background token');
+assert(backgroundTriggerRequest?.body?.task_id === kimiTask.task_id, 'background trigger should identify the saved generation task');
+
+const unauthorizedBackgroundResponse = await backgroundGenerationHandler(new Request('http://localhost/.netlify/functions/generate-background', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ client_id: qaClientId, task_id: kimiTask.task_id }),
+}));
+assert(unauthorizedBackgroundResponse.status === 401, 'background generation must reject unsigned public requests');
+const authorizedBackgroundRequest = () => new Request('http://localhost/.netlify/functions/generate-background', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-background-generation-token': BACKGROUND_GENERATION_TOKEN,
+  },
+  body: JSON.stringify({ client_id: qaClientId, task_id: kimiTask.task_id }),
+});
+const generatedKimiResponse = await backgroundGenerationHandler(authorizedBackgroundRequest());
+assert(generatedKimiResponse.status === 200, 'authorized background generation should complete locally');
+const generatedKimiBody = await generatedKimiResponse.json();
+assert(generatedKimiBody.ok === true && generatedKimiBody.status === 'qa_pending', 'background generation should persist the final QA-pending status');
+const polledKimi = await (await handler(internalRequest('POST', `generation-tasks/${kimiTask.task_id}/poll`, { client_id: qaClientId }))).json();
+assert(polledKimi.task.status === 'qa_pending', 'Kimi poll should read the result written by the background function');
+assert(polledKimi.task.actual_model === 'kimi-k2.6' && polledKimi.task.fallback === false, 'Kimi task should retain real-model evidence');
+assert(polledKimi.task.output_asset_ids.length === 1, 'Kimi background generation should persist exactly one output asset');
+const kimiAssetsResponse = await handler(internalRequest('GET', `assets?client_id=${qaClientId}&project_id=${qaProjectId}`));
+const kimiAssets = (await kimiAssetsResponse.json()).assets;
+const kimiOutputAsset = kimiAssets.find((asset) => asset.asset_id === polledKimi.task.output_asset_ids[0]);
+assert(kimiOutputAsset?.notes === kimiGeneratedText, 'generated Kimi script should be readable from the output asset notes field');
+const repeatedBackgroundResponse = await backgroundGenerationHandler(authorizedBackgroundRequest());
+assert(repeatedBackgroundResponse.status === 200, 'repeating a completed background request should be safe');
+assert(kimiGenerationCalls === 1, 'completed background tasks must be idempotent and must not call Kimi twice');
+globalThis.fetch = originalFetch;
+delete process.env.KIMI_API_KEY;
+delete process.env.SAFE_TO_RUN;
+delete process.env.URL;
+
 process.env.ARK_API_KEY = 'timeout-smoke-key';
 process.env.ARK_MODEL = 'ep-timeout-baseline';
 process.env.ARK_PLAN_MODEL = 'doubao-timeout-plan';
@@ -2418,6 +2507,14 @@ console.log(JSON.stringify({
     cover_actual_model: submittedCover.task.actual_model,
     cover_provider: submittedCover.task.provider,
     cover_qa_status: coverPassed.task.qa.qa_status,
+    kimi_task_id: kimiTask.task_id,
+    kimi_submit_status: submittedKimi.status,
+    kimi_final_status: polledKimi.task.status,
+    kimi_actual_model: polledKimi.task.actual_model,
+    kimi_fallback: polledKimi.task.fallback,
+    kimi_model_calls: kimiGenerationCalls,
+    kimi_output_asset_id: kimiOutputAsset.asset_id,
+    kimi_output_text: kimiOutputAsset.notes,
     feishu_inbound_mode: 'authenticated_client_scoped',
     feishu_outbound_mode: feishuManual.mode,
   },
