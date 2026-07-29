@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.113';
-const VERSION_LABEL = 'v1.6.113 · Kimi 成稿完整性修复版';
+const APP_VERSION = '1.6.115';
+const VERSION_LABEL = 'v1.6.115 · 生成流程收敛版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -5261,10 +5261,13 @@ const GENERATION_MODEL_BY_TYPE = {
   image: 'GPT-Image-2',
   cover: 'GPT-Image-2',
   video: 'Seedance 2.0',
-  script: 'Claude Opus',
-  copy: 'Claude Opus',
+  script: 'Kimi (kimi-k2.6)',
+  copy: 'Kimi (kimi-k2.6)',
 };
 let generationWorkbenchState = { assets: [], tasks: [], clientTasks: [] };
+let generationWorkbenchRefreshTimer = 0;
+let generationWorkbenchRefreshBusy = false;
+const GENERATION_WORKBENCH_REFRESH_MS = 5000;
 
 const generationClientId = () =>
   normalizeClientId($('#generationTaskForm [name="client_id"]')?.value || $('#generationAssetForm [name="client_id"]')?.value || INTERNAL_CLIENT_ID) || INTERNAL_CLIENT_ID;
@@ -5281,7 +5284,7 @@ function setGenerationMessage(selector, message, tone = 'success'){
 }
 
 function generationModelFor(type){
-  return GENERATION_MODEL_BY_TYPE[type] || 'Claude Opus';
+  return GENERATION_MODEL_BY_TYPE[type] || 'Kimi (kimi-k2.6)';
 }
 
 function updateGenerationRequestedModel(){
@@ -5334,47 +5337,197 @@ function renderGenerationAssets(){
   }
 }
 
-function taskStatusText(task = {}){
-  const bits = [task.status || 'draft', task.provider || '', task.requested_model || ''].filter(Boolean);
-  if (task.fallback) bits.push(`fallback:${task.fallback_reason || 'unknown'}`);
-  return bits.join(' / ');
+const GENERATION_STATUS_LABELS = {
+  draft: '待开始',
+  submitted: '正在提交',
+  asset_checking: '正在检查素材',
+  blocked_asset_missing: '素材需要处理',
+  blocked_model_auth: '模型配置待处理',
+  queued: '正在排队',
+  generating: '正在生成',
+  generated: '生成完成',
+  qa_pending: '成稿待验收',
+  qa_failed: '验收未通过',
+  client_ready: '可以交付',
+  delivered: '已交付',
+  failed: '生成失败',
+};
+
+function generationStatusLabel(status = ''){
+  return GENERATION_STATUS_LABELS[status] || status || '待处理';
+}
+
+function generationTaskAgeMs(task = {}){
+  const timestamp = Date.parse(task.updated_at || task.created_at || '');
+  return Number.isFinite(timestamp) ? Math.max(0, Date.now() - timestamp) : 0;
+}
+
+function generationTaskProgressText(task = {}){
+  if (task.status === 'generating') {
+    return generationTaskAgeMs(task) > 180000
+      ? '生成时间比平时长，系统仍在自动检查。可以离开本页，稍后回来查看。'
+      : '后台正在生成，通常需要 30-90 秒，本页会自动更新。';
+  }
+  if (task.status === 'draft') return '任务已经建立，点击“开始生成”后才会调用模型。';
+  if (task.status === 'qa_pending' || task.status === 'generated') return '成稿已生成，请先检查内容，再决定是否通过验收。';
+  if (task.status === 'client_ready') return '内容已通过验收，可以交付给客户。';
+  if (task.status === 'delivered') return '这条内容已完成交付。';
+  if (task.status === 'qa_failed') return '内容未通过验收，可调整生成需求后重新生成。';
+  if (task.status === 'failed' || String(task.status || '').startsWith('blocked_')) {
+    return task.error || '任务没有完成，请检查原因后重新生成。';
+  }
+  return '任务状态已更新。';
+}
+
+function generationOutputAssetsForTask(task = {}){
+  const outputIds = new Set((task.output_asset_ids || []).map((id) => String(id)));
+  if (!outputIds.size) return [];
+  return (generationWorkbenchState.assets || []).filter((asset) => outputIds.has(String(asset.asset_id || '')));
+}
+
+function generationOutputTextForTask(task = {}){
+  return generationOutputAssetsForTask(task)
+    .filter((asset) => String(asset.mime_type || '').startsWith('text/') || ['script', 'copy'].includes(task.generation_type))
+    .map((asset) => String(asset.notes || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+const GENERATION_COMPLETENESS_REASON_LABELS = {
+  provider_token_limit: '模型达到输出上限',
+  token_budget_exhausted: '输出预算已用尽',
+  unclosed_code_fence: '代码块未闭合',
+  unclosed_bracket_or_quote: '括号或引号未闭合',
+  trailing_heading: '结尾停在标题',
+  dangling_list_item: '结尾列表项未写完',
+  dangling_punctuation: '结尾语句未收完整',
+  empty_output: '没有生成正文',
+};
+
+function generationCompletenessReasonText(reasons = []){
+  return (Array.isArray(reasons) ? reasons : [])
+    .map((reason) => GENERATION_COMPLETENESS_REASON_LABELS[reason] || String(reason || ''))
+    .filter(Boolean)
+    .join('、') || '无';
+}
+
+function renderGenerationCompleteness(task = {}){
+  const evidence = task.adapter_manifest?.output;
+  if (!evidence?.completeness_checked) return '';
+  const passed = evidence.completeness_passed === true;
+  const continuationRounds = Number(evidence.continuation_rounds || 0);
+  const regenerated = evidence.regeneration_attempted === true;
+  return `
+    <details class="generation-completeness ${passed ? 'is-passed' : 'is-failed'}">
+      <summary>成稿检查 · ${passed ? '完整性通过' : '未通过'}</summary>
+      <div class="generation-completeness-grid">
+        <span>首稿问题<strong>${esc(generationCompletenessReasonText(evidence.initial_incomplete_reasons))}</strong></span>
+        <span>自动续写<strong>${esc(continuationRounds ? `${continuationRounds} 轮` : '未触发')}</strong></span>
+        <span>完整重写<strong>${regenerated ? '已触发' : '未触发'}</strong></span>
+        <span>模型调用<strong>${esc(String(evidence.provider_attempts || 1))} 次</strong></span>
+        <span>最终检查<strong>${esc(generationCompletenessReasonText(evidence.final_incomplete_reasons))}</strong></span>
+      </div>
+    </details>
+  `;
+}
+
+function renderGenerationOutput(task = {}){
+  const text = generationOutputTextForTask(task);
+  if (!text) return '';
+  return `
+    <section class="generation-output-preview">
+      <div class="generation-output-head">
+        <div>
+          <span>生成成稿</span>
+          <strong>${esc(text.length)} 字符 · ${esc(task.actual_model || task.requested_model || '模型输出')}</strong>
+        </div>
+        <button type="button" data-gw-action="copy-output" data-task-id="${esc(task.task_id)}">复制成稿</button>
+      </div>
+      <pre>${esc(text)}</pre>
+      ${renderGenerationCompleteness(task)}
+    </section>
+  `;
+}
+
+function renderGenerationTaskActions(task = {}){
+  const taskId = esc(task.task_id);
+  const status = String(task.status || 'draft');
+  const buttons = [];
+  if (['draft', 'failed', 'blocked_asset_missing', 'blocked_model_auth', 'qa_failed'].includes(status)) {
+    buttons.push(`<button type="button" data-gw-action="submit" data-task-id="${taskId}">${status === 'draft' ? '开始生成' : '重新生成'}</button>`);
+  }
+  if (status === 'generating') {
+    buttons.push('<button type="button" class="generation-running-button" disabled><span aria-hidden="true"></span>正在生成</button>');
+  }
+  if (['generated', 'qa_pending'].includes(status)) {
+    buttons.push(`<button type="button" data-gw-action="qa-pass" data-task-id="${taskId}">验收通过</button>`);
+    buttons.push(`<button type="button" class="secondary" data-gw-action="qa-fail" data-task-id="${taskId}">需要修改</button>`);
+  }
+  if (status === 'client_ready') {
+    buttons.push(`<button type="button" data-gw-action="deliver" data-task-id="${taskId}">确认交付</button>`);
+  }
+  return buttons.length ? `<div class="generation-actions">${buttons.join('')}</div>` : '';
+}
+
+function renderGenerationTechnicalDetails(task = {}){
+  return `
+    <details class="generation-technical-details">
+      <summary>技术信息</summary>
+      <div class="generation-debug">
+        <span>任务：${esc(task.task_id || '-')}</span>
+        <span>计划：${esc(task.content_plan_record_id || '-')}</span>
+        <span>Provider：${esc(task.provider || '-')}</span>
+        <span>模型：${esc(task.actual_model || task.requested_model || '-')}</span>
+        <span>Job：${esc(task.provider_job_id || '-')}</span>
+        <span>QA：${esc(task.qa?.qa_status || 'pending')}</span>
+        ${task.fallback ? `<span>Fallback：${esc(task.fallback_reason || 'unknown')}</span>` : ''}
+      </div>
+    </details>
+  `;
+}
+
+function renderGenerationTaskCard(task = {}){
+  return `
+    <article class="generation-task-card ${task.status === 'generating' ? 'is-generating' : ''}" data-task-id="${esc(task.task_id)}">
+      <div class="generation-task-head">
+        <div>
+          <strong>${esc(task.platform || '未选平台')} · ${esc(task.content_type || task.generation_type || '内容')}</strong>
+          <span>${esc(generationTaskProgressText(task))}</span>
+        </div>
+        <span class="generation-status" data-status="${esc(task.status || 'draft')}">${esc(generationStatusLabel(task.status))}</span>
+      </div>
+      ${task.error ? `<p class="generation-error">${esc(task.error)}</p>` : ''}
+      ${renderGenerationOutput(task)}
+      ${renderGenerationTaskActions(task)}
+      <details class="generation-prompt-details">
+        <summary>查看本次生成需求</summary>
+        <p>${esc(task.prompt || '暂无生成需求')}</p>
+      </details>
+      ${renderGenerationTechnicalDetails(task)}
+    </article>
+  `;
 }
 
 function renderGenerationTasks(){
   const list = $('#generationTaskList');
-  const tasks = generationWorkbenchState.tasks || [];
+  const tasks = [...(generationWorkbenchState.tasks || [])].sort((a, b) =>
+    Date.parse(b.updated_at || b.created_at || '') - Date.parse(a.updated_at || a.created_at || '')
+  );
   if (!list) return;
   list.classList.toggle('empty', !tasks.length);
   if (!tasks.length) {
     list.innerHTML = '暂无生成任务。';
     return;
   }
-  list.innerHTML = tasks.map((task) => `
-    <article class="generation-task-card" data-task-id="${esc(task.task_id)}">
-      <div class="generation-task-head">
-        <div>
-          <strong>${esc(task.platform)} · ${esc(task.content_type)} · ${esc(task.content_plan_record_id)}</strong>
-          <span>${esc(taskStatusText(task))}</span>
-        </div>
-        <span class="generation-status">${esc(task.status)}</span>
-      </div>
-      <p>${esc(task.prompt || '暂无需求')}</p>
-      <div class="generation-debug">
-        <span>provider: ${esc(task.provider || '-')}</span>
-        <span>actual: ${esc(task.actual_model || '-')}</span>
-        <span>job: ${esc(task.provider_job_id || '-')}</span>
-        <span>QA: ${esc(task.qa?.qa_status || 'pending')}</span>
-      </div>
-      ${task.error ? `<p class="generation-error">${esc(task.error)}</p>` : ''}
-      <div class="generation-actions">
-        <button type="button" data-gw-action="submit" data-task-id="${esc(task.task_id)}">提交生成</button>
-        <button type="button" data-gw-action="poll" data-task-id="${esc(task.task_id)}">轮询视频</button>
-        <button type="button" data-gw-action="qa-fail" data-task-id="${esc(task.task_id)}">QA failed</button>
-        <button type="button" data-gw-action="qa-pass" data-task-id="${esc(task.task_id)}">QA passed</button>
-        <button type="button" data-gw-action="deliver" data-task-id="${esc(task.task_id)}">交付</button>
-      </div>
-    </article>
-  `).join('');
+  const primaryTasks = tasks.slice(0, 1);
+  const historyTasks = tasks.slice(1);
+  list.innerHTML = primaryTasks.map(renderGenerationTaskCard).join('')
+    + (historyTasks.length ? `
+      <details class="generation-task-history">
+        <summary>查看历史任务（${esc(historyTasks.length)}）</summary>
+        <div class="generation-task-history-list">${historyTasks.map(renderGenerationTaskCard).join('')}</div>
+      </details>
+    ` : '');
 }
 
 function renderGenerationClientDelivery(){
@@ -5392,7 +5545,64 @@ function renderGenerationClientDelivery(){
   `).join('') : '暂无可交付内容。';
 }
 
-async function loadGenerationWorkbench(){
+function clearGenerationWorkbenchRefresh(){
+  if (generationWorkbenchRefreshTimer) {
+    window.clearTimeout(generationWorkbenchRefreshTimer);
+    generationWorkbenchRefreshTimer = 0;
+  }
+}
+
+function updateGenerationAutoStatus(message = ''){
+  const status = $('#generationAutoStatus');
+  if (status) status.textContent = message || '任务生成中会自动刷新，无需反复点击。';
+}
+
+function scheduleGenerationWorkbenchRefresh(){
+  clearGenerationWorkbenchRefresh();
+  if (!isGenerationWorkbenchRoute()) return;
+  const generatingTasks = (generationWorkbenchState.tasks || []).filter((task) => task.status === 'generating');
+  if (!generatingTasks.length) {
+    const hasFreshOutput = (generationWorkbenchState.tasks || []).some((task) =>
+      ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status)
+    );
+    updateGenerationAutoStatus(hasFreshOutput ? '成稿已更新，可以直接查看和复制。' : '任务状态已更新。');
+    const taskMessage = $('#generationTaskMessage');
+    if (taskMessage?.textContent.includes('后台生成')) {
+      setGenerationMessage('#generationTaskMessage', '成稿已完成，请在下方查看、复制并验收。');
+    }
+    return;
+  }
+  updateGenerationAutoStatus(`正在跟踪 ${generatingTasks.length} 个生成任务，页面每 5 秒自动更新。`);
+  generationWorkbenchRefreshTimer = window.setTimeout(refreshGeneratingWorkbenchTasks, GENERATION_WORKBENCH_REFRESH_MS);
+}
+
+async function refreshGeneratingWorkbenchTasks(){
+  if (generationWorkbenchRefreshBusy || !isGenerationWorkbenchRoute()) return;
+  generationWorkbenchRefreshBusy = true;
+  clearGenerationWorkbenchRefresh();
+  try {
+    const client_id = generationClientId();
+    const videoTasks = (generationWorkbenchState.tasks || []).filter((task) =>
+      task.status === 'generating' && task.generation_type === 'video' && task.provider_job_id
+    );
+    if (videoTasks.length) {
+      await Promise.allSettled(videoTasks.map((task) =>
+        api(`/api/generation-tasks/${encodeURIComponent(task.task_id)}/poll`, {
+          method: 'POST',
+          body: JSON.stringify({client_id}),
+        })
+      ));
+    }
+    await loadGenerationWorkbench({scheduleRefresh: false});
+  } catch (error) {
+    updateGenerationAutoStatus('自动刷新暂时失败，可点击“立即刷新”重试。');
+  } finally {
+    generationWorkbenchRefreshBusy = false;
+    scheduleGenerationWorkbenchRefresh();
+  }
+}
+
+async function loadGenerationWorkbench({scheduleRefresh = true} = {}){
   if (!isGenerationWorkbenchRoute()) return;
   const profile = currentProfile();
   const clientId = generationClientId();
@@ -5411,10 +5621,12 @@ async function loadGenerationWorkbench(){
   renderGenerationAssets();
   renderGenerationTasks();
   renderGenerationClientDelivery();
+  if (scheduleRefresh) scheduleGenerationWorkbenchRefresh();
 }
 
 function renderGenerationWorkbenchRoute(){
   const active = isGenerationWorkbenchRoute();
+  if (!active) clearGenerationWorkbenchRefresh();
   const wb = $('#generationWorkbench');
   if (wb) wb.hidden = !active;
   renderInternalWorkspaceShell(active);
@@ -5446,8 +5658,8 @@ function renderInternalWorkspaceShell(productionActive = isGenerationWorkbenchRo
   const copy = productionActive
     ? {
       kicker: '内部版 · 素材生产工作台',
-      title: '素材生成与验收工作台',
-      desc: '这里只处理素材、生成任务、内部 QA 和客户交付，不和客户内容策略流混在同一页面。',
+      title: '内容生产工作台',
+      desc: '写清楚生成需求，后台完成后直接查看、复制和验收成稿。',
     }
     : {
       kicker: '内测版 · 智能诊断内核',
@@ -5501,8 +5713,11 @@ async function handleGenerationTaskSubmit(form){
   delete data.style;
   delete data.client_visible;
   const result = await api('/api/generation-tasks', {method:'POST', body: JSON.stringify(data)});
-  setGenerationMessage('#generationTaskMessage', `任务已创建：${result.task?.task_id || ''}`);
+  const taskId = result.task?.task_id || '';
+  setGenerationMessage('#generationTaskMessage', `任务已创建：${taskId}。请在下方点击“开始生成”。`);
   await loadGenerationWorkbench();
+  const taskCard = document.querySelector(`.generation-task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
+  taskCard?.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
 async function runGenerationTaskAction(action, taskId){
@@ -5518,8 +5733,37 @@ async function runGenerationTaskAction(action, taskId){
     body = {client_id, qa_status: 'passed', qa_reviewer: 'QA', qa_notes: '验收通过，可进入客户区', visual_check: true, content_check: true, brand_check: true, platform_fit_check: true, client_visibility_check: true};
   }
   const result = await api(endpoint, {method:'POST', body: JSON.stringify(body)});
-  toast(`任务状态：${result.task?.status || '已更新'}`);
+  if (action === 'submit') {
+    setGenerationMessage(
+      '#generationTaskMessage',
+      result.task?.status === 'generating'
+        ? '任务已进入后台生成，通常需要 30-90 秒。页面会自动更新，完成后直接显示成稿。'
+        : '成稿已完成，请在下方查看、复制并验收。'
+    );
+  } else {
+    toast(`任务状态：${generationStatusLabel(result.task?.status || '')}`);
+  }
   await loadGenerationWorkbench();
+}
+
+async function copyGenerationTaskOutput(taskId){
+  const task = (generationWorkbenchState.tasks || []).find((item) => String(item.task_id) === String(taskId));
+  const text = generationOutputTextForTask(task);
+  if (!text) throw new Error('这条任务还没有可复制的成稿');
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+  toast('成稿已复制，可以粘贴使用');
 }
 
 async function showGenerationFeishuPayload(){
@@ -5564,6 +5808,10 @@ function initGenerationWorkbench(){
   $('#generationTaskList')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-gw-action][data-task-id]');
     if (!button) return;
+    if (button.dataset.gwAction === 'copy-output') {
+      copyGenerationTaskOutput(button.dataset.taskId).catch((error)=>toast(error.message || '复制成稿失败'));
+      return;
+    }
     runGenerationTaskAction(button.dataset.gwAction, button.dataset.taskId).catch((error)=>toast(error.message || '任务操作失败'));
   });
   $('#refreshGenerationWorkbench')?.addEventListener('click', () => loadGenerationWorkbench().catch((error)=>toast(error.message)));
