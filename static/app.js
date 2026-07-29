@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.112';
-const VERSION_LABEL = 'v1.6.112 · Kimi 后台异步出稿';
+const APP_VERSION = '1.6.113';
+const VERSION_LABEL = 'v1.6.113 · Kimi 成稿完整性修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';

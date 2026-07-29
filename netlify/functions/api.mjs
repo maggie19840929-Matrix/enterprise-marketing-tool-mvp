@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.112';
-const VERSION_LABEL = 'v1.6.112 · Kimi 后台异步出稿';
+const APP_VERSION = '1.6.113';
+const VERSION_LABEL = 'v1.6.113 · Kimi 成稿完整性修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -26,6 +26,10 @@ const KIMI_MODEL = process.env.KIMI_MODEL || 'kimi-k2.6';
 const KIMI_TIMEOUT_MS = Math.min(Math.max(Number(process.env.KIMI_TIMEOUT_MS || 24000), 1000), 26000);
 const KIMI_BG_TIMEOUT_MS = Math.min(Math.max(Number(process.env.KIMI_BG_TIMEOUT_MS || 120000), 10000), 600000);
 const KIMI_MAX_RETRIES = Math.min(Math.max(Number(process.env.KIMI_MAX_RETRIES || 4), 0), 8);
+const KIMI_MAX_TOKENS = Math.min(Math.max(Number(process.env.KIMI_MAX_TOKENS || 1800), 600), 6000);
+const KIMI_CONTINUATION_MAX_TOKENS = Math.min(Math.max(Number(process.env.KIMI_CONTINUATION_MAX_TOKENS || 1200), 400), 4000);
+const KIMI_COMPLETENESS_REPAIR_ROUNDS = Math.min(Math.max(Number(process.env.KIMI_COMPLETENESS_REPAIR_ROUNDS || 2), 1), 3);
+const KIMI_REGENERATION_MAX_TOKENS = Math.min(Math.max(Number(process.env.KIMI_REGENERATION_MAX_TOKENS || 2400), 800), 6000);
 const BACKGROUND_GENERATION_LOCK_MS = Math.min(
   Math.max(Number(process.env.BACKGROUND_GENERATION_LOCK_MS || 14 * 60 * 1000), 60 * 1000),
   15 * 60 * 1000,
@@ -4605,29 +4609,84 @@ const isRetriableModelError = (error = {}) => {
     || /overload|aborted|timeout|timed out|rate.?limit|temporarily|try again/.test(message);
 };
 
-const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, retries = 0 } = {}) => {
-  const output = { storage_url: `mock://kimi-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Kimi mock：${task.prompt || '按内容计划生成素材'}` };
-  if (!kimiApiKey()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_KEY_MISSING', output });
-  if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
+const kimiSystemPrompt = [
+  '你是企业营销内容团队的资深中文编导。',
+  '严格按照用户需求输出可直接进入内部 QA 的完整稿件。',
+  '不得在标题、冒号、句子或列表项中途结束；若接近输出上限，优先压缩表达并完整收尾。',
+].join('');
+
+const textCompleteness = ({ text = '', finishReason = '', usage = null, maxTokens = 0 } = {}) => {
+  const value = String(text || '').trim();
+  const reasons = [];
+  const normalizedFinishReason = String(finishReason || '').trim().toLowerCase();
+  const completionTokens = Number(usage?.completion_tokens || usage?.output_tokens || 0);
+  if (!value) reasons.push('empty_output');
+  if (value && value.length < 32) reasons.push('output_too_short');
+  if (['length', 'max_tokens', 'max_token'].includes(normalizedFinishReason)) reasons.push('provider_token_limit');
+  if (maxTokens > 0 && completionTokens >= Math.floor(maxTokens * 0.98)) reasons.push('token_budget_exhausted');
+  if ((value.match(/```/g) || []).length % 2 !== 0) reasons.push('unclosed_code_fence');
+  [
+    ['（', '）', 'unclosed_parenthesis'],
+    ['【', '】', 'unclosed_bracket'],
+    ['「', '」', 'unclosed_quote'],
+    ['“', '”', 'unclosed_double_quote'],
+  ].forEach(([open, close, reason]) => {
+    if ((value.split(open).length - 1) > (value.split(close).length - 1)) reasons.push(reason);
+  });
+  const lastLine = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) || '';
+  if (/^#{1,6}\s+\S/.test(lastLine)) reasons.push('trailing_heading');
+  if (/^[-*+]\s+\S{1,12}$/.test(lastLine) && !/[。！？!?；;…）)」』】]$/.test(lastLine)) {
+    reasons.push('trailing_short_list_item');
+  }
+  if (/[：:,，、（(【\[]$/.test(value)) reasons.push('dangling_ending');
+  return { complete: reasons.length === 0, reasons: [...new Set(reasons)], finish_reason: normalizedFinishReason || null };
+};
+
+const stripContinuationPreamble = (text = '') => String(text || '')
+  .trim()
+  .replace(/^(?:续写|接上文|承接上文|以下是续写内容|继续完成)[：:\s-]*/i, '')
+  .trim();
+
+const mergeContinuationText = (current = '', continuation = '') => {
+  const base = String(current || '').trimEnd();
+  const next = stripContinuationPreamble(continuation);
+  if (!base) return next;
+  if (!next || base.endsWith(next)) return base;
+  if (/^[：:，,。！？!?；;]/.test(next)) return `${base}${next}`;
+  const overlapLimit = Math.min(600, base.length, next.length);
+  for (let size = overlapLimit; size >= 8; size -= 1) {
+    if (base.slice(-size) === next.slice(0, size)) return `${base}${next.slice(size)}`;
+  }
+  return `${base}\n${next}`;
+};
+
+const callKimiText = async ({ messages = [], timeoutMs, retries = 0, maxTokens = KIMI_MAX_TOKENS } = {}) => {
   const base = String(KIMI_BASE_URL || '').replace(/\/+$/, '');
   let lastError = null;
+  let attemptsMade = 0;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    attemptsMade = attempt + 1;
     try {
       const data = await jsonFetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${kimiApiKey()}` },
-        body: JSON.stringify({ model: KIMI_MODEL, messages: [{ role: 'user', content: task.prompt || '生成一份营销短内容脚本' }], temperature: 1, max_tokens: 1200 }),
+        body: JSON.stringify({
+          model: KIMI_MODEL,
+          messages,
+          temperature: 1,
+          max_tokens: maxTokens,
+        }),
       }, timeoutMs);
-      const text = String(data?.choices?.[0]?.message?.content || '').trim();
+      const choice = data?.choices?.[0] || {};
+      const text = String(choice?.message?.content || '').trim();
       if (!text) throw new Error('kimi_empty_output');
       return {
         ok: true,
-        provider: 'kimi-text',
+        text,
         actual_model: data?.model || KIMI_MODEL,
-        fallback: false,
-        fallback_reason: null,
-        output: { ...output, storage_url: `real://kimi-text/${task.task_id}.txt`, text },
-        manifest: adapterManifest({ provider: 'kimi-text', mode: 'real', requestedModel: KIMI_MODEL, actualModel: data?.model || KIMI_MODEL, output: { chars: text.length, attempts: attempt + 1 } }),
+        finish_reason: choice?.finish_reason || '',
+        usage: data?.usage || null,
+        attempts: attempt + 1,
       };
     } catch (error) {
       lastError = error;
@@ -4638,7 +4697,166 @@ const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, ret
       break;
     }
   }
-  return { ok: false, provider: 'kimi-text', actual_model: 'rule_template', fallback: true, fallback_reason: lastError?.message || 'kimi_failed', error: lastError?.message || 'kimi_failed' };
+  return {
+    ok: false,
+    error: lastError?.message || 'kimi_failed',
+    attempts: attemptsMade,
+  };
+};
+
+const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, retries = 0 } = {}) => {
+  const output = { storage_url: `mock://kimi-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Kimi mock：${task.prompt || '按内容计划生成素材'}` };
+  if (!kimiApiKey()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_KEY_MISSING', output });
+  if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
+  const originalPrompt = task.prompt || '生成一份营销短内容脚本';
+  const initial = await callKimiText({
+    messages: [
+      { role: 'system', content: kimiSystemPrompt },
+      { role: 'user', content: originalPrompt },
+    ],
+    timeoutMs,
+    // Background Functions cap at 15 minutes; reserve time for continuation and one full rewrite.
+    retries: Math.min(retries, 2),
+    maxTokens: KIMI_MAX_TOKENS,
+  });
+  if (!initial.ok) {
+    return {
+      ok: false,
+      provider: 'kimi-text',
+      actual_model: KIMI_MODEL,
+      fallback: true,
+      fallback_reason: initial.error || 'kimi_failed',
+      error: initial.error || 'kimi_failed',
+    };
+  }
+
+  let text = initial.text;
+  let actualModel = initial.actual_model || KIMI_MODEL;
+  let usage = initial.usage || null;
+  let providerAttempts = initial.attempts;
+  let completeness = textCompleteness({
+    text,
+    finishReason: initial.finish_reason,
+    usage: initial.usage,
+    maxTokens: KIMI_MAX_TOKENS,
+  });
+  const initialIncompleteReasons = [...completeness.reasons];
+  const finishReasons = [initial.finish_reason || null];
+  let continuationRounds = 0;
+  let regenerationAttempted = false;
+
+  while (!completeness.complete && continuationRounds < KIMI_COMPLETENESS_REPAIR_ROUNDS) {
+    const continuation = await callKimiText({
+      messages: [
+        { role: 'system', content: kimiSystemPrompt },
+        { role: 'user', content: originalPrompt },
+        { role: 'assistant', content: text },
+        {
+          role: 'user',
+          content: '上一次输出被截断。只从断点续写未完成部分，不要重写或重复已有内容；补齐剩余段落，并以完整句子或完整列表项收尾。',
+        },
+      ],
+      timeoutMs,
+      retries: 0,
+      maxTokens: KIMI_CONTINUATION_MAX_TOKENS,
+    });
+    providerAttempts += continuation.attempts || 0;
+    continuationRounds += 1;
+    if (!continuation.ok) break;
+    actualModel = continuation.actual_model || actualModel;
+    usage = mergeModelUsage(usage, continuation.usage);
+    finishReasons.push(continuation.finish_reason || null);
+    const merged = mergeContinuationText(text, continuation.text);
+    if (merged.length <= text.length) break;
+    text = merged;
+    completeness = textCompleteness({
+      text,
+      finishReason: continuation.finish_reason,
+      usage: continuation.usage,
+      maxTokens: KIMI_CONTINUATION_MAX_TOKENS,
+    });
+  }
+
+  if (!completeness.complete) {
+    regenerationAttempted = true;
+    const regenerated = await callKimiText({
+      messages: [
+        { role: 'system', content: kimiSystemPrompt },
+        {
+          role: 'user',
+          content: `${originalPrompt}\n\n完整性要求：请从头输出一份完整稿件，不要提及此前截断；所有标题、句子和列表项都必须写完，接近篇幅上限时主动压缩并完整收尾。`,
+        },
+      ],
+      timeoutMs,
+      retries: 0,
+      maxTokens: KIMI_REGENERATION_MAX_TOKENS,
+    });
+    providerAttempts += regenerated.attempts || 0;
+    if (regenerated.ok) {
+      const regeneratedCompleteness = textCompleteness({
+        text: regenerated.text,
+        finishReason: regenerated.finish_reason,
+        usage: regenerated.usage,
+        maxTokens: KIMI_REGENERATION_MAX_TOKENS,
+      });
+      finishReasons.push(regenerated.finish_reason || null);
+      usage = mergeModelUsage(usage, regenerated.usage);
+      if (regeneratedCompleteness.complete) {
+        text = regenerated.text;
+        actualModel = regenerated.actual_model || actualModel;
+        completeness = regeneratedCompleteness;
+      } else {
+        completeness = regeneratedCompleteness;
+      }
+    }
+  }
+
+  const completenessEvidence = {
+    completeness_checked: true,
+    completeness_passed: completeness.complete,
+    initial_incomplete_reasons: initialIncompleteReasons,
+    final_incomplete_reasons: completeness.reasons,
+    continuation_rounds: continuationRounds,
+    regeneration_attempted: regenerationAttempted,
+    provider_attempts: providerAttempts,
+    finish_reasons: finishReasons,
+  };
+  if (!completeness.complete) {
+    const reason = `kimi_incomplete_after_repair:${completeness.reasons.join(',') || 'unknown'}`;
+    return {
+      ok: false,
+      provider: 'kimi-text',
+      actual_model: actualModel,
+      fallback: true,
+      fallback_reason: reason,
+      error: '模型成稿不完整，自动续写与重写后仍未完整收尾',
+      manifest: adapterManifest({
+        provider: 'kimi-text',
+        mode: 'failed',
+        reason,
+        requestedModel: KIMI_MODEL,
+        actualModel,
+        output: { chars: text.length, ...completenessEvidence },
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    provider: 'kimi-text',
+    actual_model: actualModel,
+    fallback: false,
+    fallback_reason: null,
+    output: { ...output, storage_url: `real://kimi-text/${task.task_id}.txt`, text },
+    manifest: adapterManifest({
+      provider: 'kimi-text',
+      mode: 'real',
+      requestedModel: KIMI_MODEL,
+      actualModel,
+      output: { chars: text.length, ...completenessEvidence },
+      extra: { usage },
+    }),
+  };
 };
 
 const submitTextAb = async ({ task }) => {
@@ -4792,6 +5010,7 @@ export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } =
       fallback: true,
       fallback_reason: submitted.fallback_reason || submitted.error || 'adapter_failed',
       error: submitted.error || submitted.fallback_reason || '模型调用失败',
+      adapter_manifest: submitted.manifest || task.adapter_manifest || null,
       adapter_state: {
         ...(task.adapter_state || {}),
         background_completed_at: nowIso(),

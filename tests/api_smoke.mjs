@@ -1,15 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.112';
-const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.112';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.112';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.113';
+const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.113';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.113';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 process.env.BACKGROUND_GENERATION_TOKEN = BACKGROUND_GENERATION_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.112-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.113-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -140,7 +140,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.112', `expected app_version 1.6.112, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.113', `expected app_version 1.6.113, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -683,7 +683,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.112'") && appJs.includes("v1.6.112 · Kimi 后台异步出稿"), 'app should expose the v1.6.112 Kimi background generation release internally/API-side');
+assert(appJs.includes("const APP_VERSION = '1.6.113'") && appJs.includes("v1.6.113 · Kimi 成稿完整性修复版"), 'app should expose the v1.6.113 Kimi completeness repair release internally/API-side');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
@@ -848,11 +848,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.112') && indexHtml.includes('/styles.css?v=1.6.112') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.112'), 'customer page should cache-bust the v1.6.112 Kimi background generation release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.113') && indexHtml.includes('/styles.css?v=1.6.113') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.113'), 'customer page should cache-bust the v1.6.113 Kimi completeness repair release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.112') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.112') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.112') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.113') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.113') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.113') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1388,7 +1388,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.112' && health.version_label === 'v1.6.112 · Kimi 后台异步出稿', 'health should expose the v1.6.112 Kimi background generation release');
+assert(health.version === '1.6.113' && health.version_label === 'v1.6.113 · Kimi 成稿完整性修复版', 'health should expose the v1.6.113 Kimi completeness repair release');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
@@ -2010,6 +2010,7 @@ process.env.URL = 'https://background-smoke.example';
 let backgroundTriggerRequest = null;
 let kimiGenerationCalls = 0;
 const kimiGeneratedText = '安标系统短视频脚本：先说明企业最容易忽略的合规节点，再给出现场可执行的检查清单。';
+let kimiResponseQueue = [];
 globalThis.fetch = async (url, options = {}) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith('/.netlify/functions/generate-background')) {
@@ -2022,9 +2023,14 @@ globalThis.fetch = async (url, options = {}) => {
   }
   if (requestUrl.endsWith('/chat/completions')) {
     kimiGenerationCalls += 1;
+    const queued = kimiResponseQueue.shift() || {};
     return new Response(JSON.stringify({
       model: 'kimi-k2.6',
-      choices: [{ message: { content: kimiGeneratedText } }],
+      choices: [{
+        finish_reason: queued.finish_reason || 'stop',
+        message: { content: queued.text || kimiGeneratedText },
+      }],
+      usage: queued.usage || { prompt_tokens: 120, completion_tokens: 180, total_tokens: 300 },
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   }
   throw new Error(`unexpected Kimi smoke fetch: ${requestUrl}`);
@@ -2078,9 +2084,151 @@ const kimiAssetsResponse = await handler(internalRequest('GET', `assets?client_i
 const kimiAssets = (await kimiAssetsResponse.json()).assets;
 const kimiOutputAsset = kimiAssets.find((asset) => asset.asset_id === polledKimi.task.output_asset_ids[0]);
 assert(kimiOutputAsset?.notes === kimiGeneratedText, 'generated Kimi script should be readable from the output asset notes field');
+assert(polledKimi.task.adapter_manifest?.output?.completeness_checked === true && polledKimi.task.adapter_manifest?.output?.completeness_passed === true, 'complete Kimi text should retain positive completeness evidence');
+assert(polledKimi.task.adapter_manifest?.output?.continuation_rounds === 0 && polledKimi.task.adapter_manifest?.output?.regeneration_attempted === false, 'complete Kimi text should not spend continuation or regeneration calls');
 const repeatedBackgroundResponse = await backgroundGenerationHandler(authorizedBackgroundRequest());
 assert(repeatedBackgroundResponse.status === 200, 'repeating a completed background request should be safe');
 assert(kimiGenerationCalls === 1, 'completed background tasks must be idempotent and must not call Kimi twice');
+
+kimiResponseQueue = [
+  {
+    text: '## 口播文案\n明天开标，检测报告还没拿到？先别慌。\n\n## 字幕与包装\n- 大字',
+    finish_reason: 'length',
+    usage: { prompt_tokens: 180, completion_tokens: 1800, total_tokens: 1980 },
+  },
+  {
+    text: '：明天开标，检测报告还没拿到？\n- 小字：投标检测至少提前两周准备。',
+    finish_reason: 'stop',
+    usage: { prompt_tokens: 240, completion_tokens: 120, total_tokens: 360 },
+  },
+];
+const continuationTask = (await (await handler(internalRequest('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  content_plan_record_id: 'qa_content_plan_kimi_continuation',
+  platform: '视频号',
+  content_type: '脚本',
+  generation_type: 'script',
+  prompt: '生成带有口播文案和字幕包装的完整短视频脚本',
+  output_spec: { style: '负责人专业口播', client_visible: false },
+}))).json()).task;
+await handler(internalRequest('POST', `generation-tasks/${continuationTask.task_id}/submit`, { client_id: qaClientId }));
+const continuedResponse = await backgroundGenerationHandler(new Request('http://localhost/.netlify/functions/generate-background', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-background-generation-token': BACKGROUND_GENERATION_TOKEN,
+  },
+  body: JSON.stringify({ client_id: qaClientId, task_id: continuationTask.task_id }),
+}));
+assert(continuedResponse.status === 200, 'truncated Kimi output should be repaired inside the background function');
+const continuedTask = (await (await handler(internalRequest('POST', `generation-tasks/${continuationTask.task_id}/poll`, { client_id: qaClientId }))).json()).task;
+const continuedAssets = (await (await handler(internalRequest('GET', `assets?client_id=${qaClientId}&project_id=${qaProjectId}`))).json()).assets;
+const continuedAsset = continuedAssets.find((asset) => asset.asset_id === continuedTask.output_asset_ids[0]);
+assert(continuedTask.status === 'qa_pending' && continuedTask.fallback === false, 'successfully continued Kimi output should enter QA without fallback');
+assert(continuedAsset?.notes.includes('- 大字：明天开标') && continuedAsset?.notes.includes('- 小字：投标检测至少提前两周准备。'), 'continuation should join the interrupted list item into a complete script');
+assert((continuedAsset?.notes.match(/## 字幕与包装/g) || []).length === 1, 'continuation merge should not duplicate existing sections');
+assert(continuedTask.adapter_manifest?.output?.initial_incomplete_reasons.includes('provider_token_limit'), 'truncated Kimi output should record the provider token-limit evidence');
+assert(continuedTask.adapter_manifest?.output?.continuation_rounds === 1 && continuedTask.adapter_manifest?.output?.completeness_passed === true, 'one successful continuation should satisfy the completeness gate');
+assert(continuedTask.adapter_manifest?.output?.regeneration_attempted === false, 'successful continuation should avoid a full regeneration');
+
+kimiResponseQueue = [
+  {
+    text: '## 口播文案\n先讲清企业最容易遗漏的检测资料。\n\n## 拍摄提示',
+    finish_reason: 'length',
+    usage: { prompt_tokens: 170, completion_tokens: 1800, total_tokens: 1970 },
+  },
+  {
+    text: '## 拍摄提示',
+    finish_reason: 'stop',
+    usage: { prompt_tokens: 210, completion_tokens: 20, total_tokens: 230 },
+  },
+  {
+    text: '## 口播文案\n先讲清企业最容易遗漏的检测资料，再给出提前准备清单。\n\n## 拍摄提示\n负责人正对镜头说明三个准备节点，结尾提醒提前咨询。',
+    finish_reason: 'stop',
+    usage: { prompt_tokens: 190, completion_tokens: 220, total_tokens: 410 },
+  },
+];
+const regenerationTask = (await (await handler(internalRequest('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  content_plan_record_id: 'qa_content_plan_kimi_regeneration',
+  platform: '视频号',
+  content_type: '脚本',
+  generation_type: 'script',
+  prompt: '生成包含口播文案和拍摄提示的完整短视频脚本',
+  output_spec: { style: '负责人专业口播', client_visible: false },
+}))).json()).task;
+await handler(internalRequest('POST', `generation-tasks/${regenerationTask.task_id}/submit`, { client_id: qaClientId }));
+const regeneratedResponse = await backgroundGenerationHandler(new Request('http://localhost/.netlify/functions/generate-background', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-background-generation-token': BACKGROUND_GENERATION_TOKEN,
+  },
+  body: JSON.stringify({ client_id: qaClientId, task_id: regenerationTask.task_id }),
+}));
+assert(regeneratedResponse.status === 200, 'Kimi should regenerate from scratch when continuation makes no progress');
+const regeneratedTask = (await (await handler(internalRequest('POST', `generation-tasks/${regenerationTask.task_id}/poll`, { client_id: qaClientId }))).json()).task;
+const regeneratedAssets = (await (await handler(internalRequest('GET', `assets?client_id=${qaClientId}&project_id=${qaProjectId}`))).json()).assets;
+const regeneratedAsset = regeneratedAssets.find((asset) => asset.asset_id === regeneratedTask.output_asset_ids[0]);
+assert(regeneratedTask.status === 'qa_pending' && regeneratedTask.fallback === false, 'complete full regeneration should enter QA without fallback');
+assert(regeneratedAsset?.notes.endsWith('结尾提醒提前咨询。'), 'full regeneration should replace the incomplete draft with a complete ending');
+assert(regeneratedTask.adapter_manifest?.output?.regeneration_attempted === true && regeneratedTask.adapter_manifest?.output?.completeness_passed === true, 'regeneration path should remain visible in internal completeness evidence');
+assert(regeneratedTask.adapter_manifest?.output?.provider_attempts === 3, 'regeneration evidence should count initial, continuation, and full-rewrite provider calls');
+assert(kimiGenerationCalls === 6, 'Kimi completeness smoke should make one normal, two continuation, and three regeneration-path calls');
+
+kimiResponseQueue = [
+  {
+    text: '## 口播文案\n先说明客户最关心的问题。\n\n## 字幕包装',
+    finish_reason: 'length',
+    usage: { prompt_tokens: 170, completion_tokens: 1800, total_tokens: 1970 },
+  },
+  {
+    text: '：主标题',
+    finish_reason: 'length',
+    usage: { prompt_tokens: 210, completion_tokens: 1200, total_tokens: 1410 },
+  },
+  {
+    text: '- 小字',
+    finish_reason: 'stop',
+    usage: { prompt_tokens: 220, completion_tokens: 20, total_tokens: 240 },
+  },
+  {
+    text: '## 完整稿\n重新说明业务问题。\n\n## 结尾',
+    finish_reason: 'length',
+    usage: { prompt_tokens: 180, completion_tokens: 2400, total_tokens: 2580 },
+  },
+];
+const incompleteTask = (await (await handler(internalRequest('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  content_plan_record_id: 'qa_content_plan_kimi_incomplete',
+  platform: '视频号',
+  content_type: '脚本',
+  generation_type: 'script',
+  prompt: '生成一份必须完整收尾的短视频脚本',
+  output_spec: { style: '负责人专业口播', client_visible: false },
+}))).json()).task;
+await handler(internalRequest('POST', `generation-tasks/${incompleteTask.task_id}/submit`, { client_id: qaClientId }));
+const incompleteResponse = await backgroundGenerationHandler(new Request('http://localhost/.netlify/functions/generate-background', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-background-generation-token': BACKGROUND_GENERATION_TOKEN,
+  },
+  body: JSON.stringify({ client_id: qaClientId, task_id: incompleteTask.task_id }),
+}));
+assert(incompleteResponse.status === 200, 'background handler should persist an explicit failed task when every completeness repair is exhausted');
+const failedIncompleteTask = (await (await handler(internalRequest('POST', `generation-tasks/${incompleteTask.task_id}/poll`, { client_id: qaClientId }))).json()).task;
+assert(failedIncompleteTask.status === 'failed' && failedIncompleteTask.fallback === true, 'unrepaired incomplete Kimi text must fail closed instead of entering QA');
+assert(failedIncompleteTask.output_asset_ids.length === 0, 'unrepaired incomplete Kimi text must not create a deliverable output asset');
+assert(failedIncompleteTask.fallback_reason.startsWith('kimi_incomplete_after_repair:'), 'failed completeness gate should retain a specific machine-readable reason');
+assert(failedIncompleteTask.adapter_manifest?.output?.completeness_passed === false && failedIncompleteTask.adapter_manifest?.output?.continuation_rounds === 2, 'failed completeness evidence should retain both continuation rounds');
+assert(kimiGenerationCalls === 10, 'Kimi completeness smoke should include the four fail-closed provider calls');
 globalThis.fetch = originalFetch;
 delete process.env.KIMI_API_KEY;
 delete process.env.SAFE_TO_RUN;
