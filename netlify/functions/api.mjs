@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.115';
-const VERSION_LABEL = 'v1.6.115 · 生成流程收敛版';
+const APP_VERSION = '1.6.117';
+const VERSION_LABEL = 'v1.6.117 · 个性化推荐控制版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -1693,6 +1693,8 @@ const createAssessment = (payload, clientId = clientIdFrom(payload)) => {
     contact: clean(payload, 'contact'),
     client_mode: clean(payload, 'client_mode') || clean(payload, '_mode'),
     source: clean(payload, 'source') || clean(payload, 'client_mode') || clean(payload, '_mode') || 'api_assessment',
+    personalized_recommendation_enabled: payload.personalized_recommendation_enabled !== false,
+    personalization_mode: payload.personalized_recommendation_enabled === false ? 'non_personalized' : 'personalized',
     app_version: APP_VERSION,
     created_at: nowIso(),
   };
@@ -3952,6 +3954,57 @@ const commercialBlobSet = async (key = '', value = {}) => {
   memoryCommercialEvents.set(key, value);
   return { ...value, storage: 'memory-fallback' };
 };
+const USER_SETTINGS_PREFIX = 'user-settings/v1';
+const userSettingsKey = (clientId = '') =>
+  `${USER_SETTINGS_PREFIX}/${normalizeClientId(clientId) || 'anonymous'}`;
+const defaultUserSettings = (clientId = '') => ({
+  client_id: normalizeClientId(clientId) || 'anonymous',
+  personalized_recommendation_enabled: true,
+  personalization_mode: 'personalized',
+  updated_at: '',
+});
+const readUserSettings = async (clientId = '') => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId) throw new Error('用户设置需要有效 client_id');
+  const stored = await commercialBlobGet(userSettingsKey(safeClientId));
+  if (!stored) return defaultUserSettings(safeClientId);
+  const enabled = stored.personalized_recommendation_enabled !== false;
+  return {
+    ...defaultUserSettings(safeClientId),
+    ...stored,
+    client_id: safeClientId,
+    personalized_recommendation_enabled: enabled,
+    personalization_mode: enabled ? 'personalized' : 'non_personalized',
+  };
+};
+const writeUserSettings = async (clientId = '', patch = {}) => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId) throw new Error('用户设置需要有效 client_id');
+  if (typeof patch.personalized_recommendation_enabled !== 'boolean') {
+    throw new Error('personalized_recommendation_enabled 必须是布尔值');
+  }
+  const current = await readUserSettings(safeClientId);
+  const enabled = patch.personalized_recommendation_enabled;
+  const next = {
+    ...current,
+    client_id: safeClientId,
+    personalized_recommendation_enabled: enabled,
+    personalization_mode: enabled ? 'personalized' : 'non_personalized',
+    updated_at: nowIso(),
+  };
+  await commercialBlobSet(userSettingsKey(safeClientId), next);
+  return next;
+};
+const userSettingsClientIdFrom = (payload = {}, url = null, request = null) =>
+  normalizeClientId(
+    payload.settings_client_id
+    || payload.client_id
+    || payload.customer_key
+    || url?.searchParams?.get('settings_client_id')
+    || url?.searchParams?.get('client_id')
+    || request?.headers?.get('x-user-settings-id')
+    || ''
+  );
 const commercialBlobKeys = async (prefix = '') => {
   const keys = new Set();
   const store = await cloudStore();
@@ -4335,6 +4388,15 @@ const createGenerationTask = async (payload = {}) => {
       size: payload.output_spec?.size || payload.size || 'auto',
       duration: payload.output_spec?.duration || payload.duration || '',
       style: payload.output_spec?.style || payload.style || '',
+      ratio: payload.output_spec?.ratio || payload.ratio || '',
+      generate_audio: Boolean(payload.output_spec?.generate_audio ?? payload.generate_audio ?? (generation_type === 'video')),
+      format: payload.output_spec?.format || payload.format || '',
+      target_duration: payload.output_spec?.target_duration || payload.target_duration || '',
+      target_length: payload.output_spec?.target_length || payload.target_length || '',
+      must_include: payload.output_spec?.must_include || payload.must_include || '',
+      cta: payload.output_spec?.cta || payload.cta || '',
+      cover_text: payload.output_spec?.cover_text || payload.cover_text || '',
+      usage: payload.output_spec?.usage || payload.usage || '',
       client_visible: Boolean(payload.output_spec?.client_visible ?? payload.client_visible ?? true),
     },
     input_asset_ids: ensureArray(payload.input_asset_ids),
@@ -4458,11 +4520,30 @@ const parseDurationSeconds = (value = '') => {
   return match ? Number(match[0]) : 8;
 };
 
+const generationModelPrompt = (task = {}) => {
+  const spec = task.output_spec || {};
+  const labels = [
+    ['内容形式', spec.format],
+    ['目标时长', spec.target_duration || spec.duration],
+    ['目标长度', spec.target_length],
+    ['画面比例', spec.ratio],
+    ['成品尺寸', spec.size && spec.size !== 'auto' ? spec.size : ''],
+    ['视觉风格', spec.style],
+    ['必须包含', spec.must_include],
+    ['行动引导', spec.cta],
+    ['封面主标题', spec.cover_text],
+    ['图片用途', spec.usage],
+    ['是否生成声音', task.generation_type === 'video' ? (spec.generate_audio ? '是' : '否') : ''],
+  ].filter(([, value]) => String(value || '').trim());
+  const settings = labels.map(([label, value]) => `- ${label}：${value}`).join('\n');
+  return [String(task.prompt || '').trim(), settings ? `生成设置：\n${settings}` : ''].filter(Boolean).join('\n\n');
+};
+
 const seedanceContentFor = (task = {}, inputAssets = []) => {
   const imageAsset = inputAssets.find((asset) => String(asset.mime_type || '').startsWith('image/') || String(asset.storage_url || '').startsWith('http') || String(asset.storage_url || '').startsWith('data:image/'));
   const content = [];
   if (imageAsset?.storage_url) content.push({ type: 'image_url', image_url: { url: imageAsset.storage_url } });
-  content.push({ type: 'text', text: task.prompt || '生成一条营销短视频素材' });
+  content.push({ type: 'text', text: generationModelPrompt(task) || '生成一条营销短视频素材' });
   return content;
 };
 
@@ -4533,7 +4614,8 @@ const pollSeedanceVideo = async ({ task, provider_job_id }) => {
 };
 
 const submitOpenAIImage = async ({ task }) => {
-  const output = { storage_url: `mock://openai-image/${task.task_id}.png`, mime_type: 'image/png', resolution: task.output_spec?.size || '1024x1024', summary: `OpenAI image mock: ${task.prompt || task.content_type}` };
+  const prompt = generationModelPrompt(task) || 'marketing asset image';
+  const output = { storage_url: `mock://openai-image/${task.task_id}.png`, mime_type: 'image/png', resolution: task.output_spec?.size || '1024x1024', summary: `OpenAI image mock: ${prompt}` };
   if (!openaiApiKey()) return mockAdapterResult({ task, provider: 'openai-image', reason: 'MOCK_KEY_MISSING', output });
   if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'openai-image', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const base = String(OPENAI_BASE_URL || '').replace(/\/+$/, '');
@@ -4541,7 +4623,7 @@ const submitOpenAIImage = async ({ task }) => {
   const data = await jsonFetch(`${base}/images/generations`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${openaiApiKey()}` },
-    body: JSON.stringify({ model, prompt: task.prompt || 'marketing asset image', size: task.output_spec?.size || '1024x1024', n: 1 }),
+    body: JSON.stringify({ model, prompt, size: task.output_spec?.size || '1024x1024', n: 1 }),
   });
   const image = data?.data?.[0] || {};
   const storageUrl = image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : '');
@@ -4557,7 +4639,8 @@ const submitOpenAIImage = async ({ task }) => {
 };
 
 const submitClaudeTextSingle = async ({ task }) => {
-  const output = { storage_url: `mock://claude-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Claude mock：${task.prompt || '按内容计划生成素材'}` };
+  const prompt = generationModelPrompt(task) || '生成一份营销短内容脚本';
+  const output = { storage_url: `mock://claude-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Claude mock：${prompt}` };
   if (!anthropicApiKey()) return mockAdapterResult({ task, provider: 'claude-text', reason: 'MOCK_KEY_MISSING', output });
   if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'claude-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const data = await jsonFetch('https://api.anthropic.com/v1/messages', {
@@ -4567,7 +4650,7 @@ const submitClaudeTextSingle = async ({ task }) => {
       'x-api-key': anthropicApiKey(),
       'anthropic-version': '2023-06-01',
     },
-    body: JSON.stringify({ model: CLAUDE_SCRIPT_MODEL, max_tokens: 1800, messages: [{ role: 'user', content: task.prompt || '生成一份营销短内容脚本' }] }),
+    body: JSON.stringify({ model: CLAUDE_SCRIPT_MODEL, max_tokens: 1800, messages: [{ role: 'user', content: prompt }] }),
   });
   const text = ensureArray(data?.content).map((item) => item?.text || '').join('\n').trim();
   return {
@@ -4582,14 +4665,15 @@ const submitClaudeTextSingle = async ({ task }) => {
 };
 
 const submitGlmTextSingle = async ({ task }) => {
-  const output = { storage_url: `mock://glm-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `GLM mock：${task.prompt || '按内容计划生成素材'}` };
+  const prompt = generationModelPrompt(task) || '生成一份营销短内容脚本';
+  const output = { storage_url: `mock://glm-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `GLM mock：${prompt}` };
   if (!glmApiKey()) return mockAdapterResult({ task, provider: 'glm-text', reason: 'MOCK_KEY_MISSING', output });
   if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'glm-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const base = String(GLM_BASE_URL || '').replace(/\/+$/, '');
   const data = await jsonFetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${glmApiKey()}` },
-    body: JSON.stringify({ model: GLM_MODEL, messages: [{ role: 'user', content: task.prompt || '生成一份营销短内容脚本' }], temperature: 0.7 }),
+    body: JSON.stringify({ model: GLM_MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.7 }),
   });
   const text = String(data?.choices?.[0]?.message?.content || '').trim();
   return {
@@ -4705,10 +4789,11 @@ const callKimiText = async ({ messages = [], timeoutMs, retries = 0, maxTokens =
 };
 
 const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, retries = 0 } = {}) => {
-  const output = { storage_url: `mock://kimi-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Kimi mock：${task.prompt || '按内容计划生成素材'}` };
+  const prompt = generationModelPrompt(task) || '生成一份营销短内容脚本';
+  const output = { storage_url: `mock://kimi-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Kimi mock：${prompt}` };
   if (!kimiApiKey()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_KEY_MISSING', output });
   if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
-  const originalPrompt = task.prompt || '生成一份营销短内容脚本';
+  const originalPrompt = prompt;
   const initial = await callKimiText({
     messages: [
       { role: 'system', content: kimiSystemPrompt },
@@ -5039,6 +5124,27 @@ export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } =
   return saveTask(task);
 };
 
+export const markBackgroundGenerationFailure = async ({ client_id = '', task_id = '', error = '' } = {}) => {
+  const clientId = normalizeClientId(client_id);
+  if (!clientId || !String(task_id || '').trim()) return null;
+  const task = await getTask(clientId, task_id);
+  if (!task) return null;
+  if (ensureArray(task.output_asset_ids).length || ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status)) {
+    return task;
+  }
+  return saveTask(withStatus({
+    ...task,
+    fallback: true,
+    fallback_reason: String(error || 'background_generation_failed'),
+    error: '后台生成没有完成，请在任务卡片中重新生成',
+    adapter_state: {
+      ...(task.adapter_state || {}),
+      background_completed_at: nowIso(),
+      last_background_error: String(error || 'background_generation_failed'),
+    },
+  }, 'failed', '后台函数异常退出'));
+};
+
 const submitGenerationTask = async (clientId, taskId) => {
   let task = await getTask(clientId, taskId);
   if (!task) throw new Error('生成任务不存在');
@@ -5092,7 +5198,19 @@ const submitGenerationTask = async (clientId, taskId) => {
       }, trigger.error === 'missing_background_generation_token' ? 'blocked_model_auth' : 'failed', '后台任务点火失败');
       return saveTask(task);
     }
-    return (await getTask(task.client_id, task.task_id)) || task;
+    const latest = (await getTask(task.client_id, task.task_id)) || task;
+    if (latest.status === 'generating' && !latest.adapter_state?.background_started_at) {
+      return saveTask({
+        ...latest,
+        adapter_state: {
+          ...(latest.adapter_state || {}),
+          trigger_status: 'accepted',
+          trigger_attempts: trigger.attempts || 1,
+        },
+        updated_at: nowIso(),
+      });
+    }
+    return latest;
   }
   let submitted;
   try {
@@ -5136,13 +5254,53 @@ const submitGenerationTask = async (clientId, taskId) => {
 const pollGenerationTask = async (clientId, taskId) => {
   let task = await getTask(clientId, taskId);
   if (!task) throw new Error('生成任务不存在');
+  if (task.status !== 'generating') return task;
+  const adapter = adapterForTask(task);
+  if (adapter.isBackground) {
+    const startedAt = Date.parse(task.adapter_state?.background_started_at || '');
+    const triggeredAt = Date.parse(task.adapter_state?.triggered_at || task.updated_at || task.created_at || '');
+    const missingStartIsStale = !Number.isFinite(startedAt)
+      && Number.isFinite(triggeredAt)
+      && Date.now() - triggeredAt > 45000;
+    const startedRunIsStale = Number.isFinite(startedAt)
+      && Date.now() - startedAt > BACKGROUND_GENERATION_LOCK_MS;
+    if (!missingStartIsStale && !startedRunIsStale) return task;
+    task = await saveTask({
+      ...task,
+      adapter_state: {
+        ...(task.adapter_state || {}),
+        trigger_status: 'retry_requested',
+        triggered_at: nowIso(),
+        background_started_at: startedRunIsStale ? '' : task.adapter_state?.background_started_at || '',
+        retry_trigger_count: Number(task.adapter_state?.retry_trigger_count || 0) + 1,
+      },
+      updated_at: nowIso(),
+    });
+    const trigger = await triggerBackgroundGeneration(task.client_id, task.task_id);
+    if (!trigger.ok) {
+      return markBackgroundGenerationFailure({
+        client_id: task.client_id,
+        task_id: task.task_id,
+        error: trigger.error || 'background_retry_failed',
+      });
+    }
+    const latest = (await getTask(task.client_id, task.task_id)) || task;
+    return saveTask({
+      ...latest,
+      adapter_state: {
+        ...(latest.adapter_state || {}),
+        trigger_status: latest.adapter_state?.background_started_at ? 'started' : 'retry_accepted',
+        trigger_attempts: Number(latest.adapter_state?.trigger_attempts || 0) + Number(trigger.attempts || 1),
+      },
+      updated_at: nowIso(),
+    });
+  }
   if (task.generation_type !== 'video') return task;
   if (!task.provider_job_id) throw new Error('视频任务缺少 provider_job_id');
-  if (task.status !== 'generating') return task;
-  const adapter = generationAdapters['seedance-video'];
+  const videoAdapter = generationAdapters['seedance-video'];
   let result;
   try {
-    result = await adapter.poll({ task, provider_job_id: task.provider_job_id });
+    result = await videoAdapter.poll({ task, provider_job_id: task.provider_job_id });
   } catch (error) {
     const retryCount = Number(task.adapter_state?.retry_count || 0) + 1;
     const backoffMs = Math.min(60000, 3000 * (2 ** Math.min(retryCount - 1, 5)));
@@ -6246,8 +6404,71 @@ const modelPayloadForRequest = (payload = {}, internalAuthorized = false) => {
   return customerPayload;
 };
 
+const nonPersonalizedAssessment = (assessment = {}) => ({
+  ...assessment,
+  best_recent_content: '',
+  account_preference: '',
+  benchmark: {
+    platform: '',
+    accounts: [],
+    notes: '',
+    sample_content: '',
+  },
+});
+
+const applyPersonalizationPolicy = (payload = {}, enabled = true) => {
+  const next = {
+    ...payload,
+    personalized_recommendation_enabled: enabled,
+    personalization_mode: enabled ? 'personalized' : 'non_personalized',
+  };
+  if (enabled) return next;
+
+  if (payload.assessment && typeof payload.assessment === 'object') {
+    next.assessment = nonPersonalizedAssessment(payload.assessment);
+  } else {
+    const strippedAssessment = nonPersonalizedAssessment(payload);
+    next.best_recent_content = strippedAssessment.best_recent_content;
+    next.account_preference = strippedAssessment.account_preference;
+    next.benchmark = strippedAssessment.benchmark;
+  }
+  if (payload.diagnosis && typeof payload.diagnosis === 'object') {
+    next.diagnosis = {
+      ...payload.diagnosis,
+      benchmark_reference: null,
+      strategy_quality_context: {
+        ...(payload.diagnosis.strategy_quality_context || {}),
+        market_calibration: [],
+      },
+    };
+  }
+  next.previous_rounds = [];
+  next.previous_plan_topics = [];
+  next.records = payload.record ? [payload.record] : [];
+  return next;
+};
+
+const resolvePersonalizationForRequest = async (payload = {}, clientId = '') => {
+  const settingsClientId = userSettingsClientIdFrom(payload) || normalizeClientId(clientId);
+  const stored = await readUserSettings(settingsClientId);
+  const enabled = stored.personalized_recommendation_enabled !== false
+    && payload.personalized_recommendation_enabled !== false;
+  return {
+    payload: applyPersonalizationPolicy({
+      ...payload,
+      settings_client_id: settingsClientId,
+    }, enabled),
+    settings: {
+      ...stored,
+      personalized_recommendation_enabled: enabled,
+      personalization_mode: enabled ? 'personalized' : 'non_personalized',
+    },
+  };
+};
+
 const generateAssessmentResult = async ({ payload = {}, clientId = '', internalAuthorized = false, forceRules = false, fallbackReason = 'async_fallback', generationVariant = '' } = {}) => {
-  const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
+  const enabled = payload.personalized_recommendation_enabled !== false;
+  const trustedPayload = modelPayloadForRequest(applyPersonalizationPolicy(payload, enabled), internalAuthorized);
   const assessment_id = createAssessment(trustedPayload, clientId);
   const assessment = state.assessments.find((item) => item.id === assessment_id);
   Object.defineProperty(assessment, 'plan_generation_variant', {
@@ -6268,7 +6489,15 @@ const generateAssessmentResult = async ({ payload = {}, clientId = '', internalA
     : await generateOpusPlanRows(assessment, diagnosis);
   const plans = createContentPlan(diagnosis.id, generated.rows, generated.meta);
   const generation_meta = normalizeModelMeta(generated.meta);
-  return { assessment_id, assessment, diagnosis, plans, model_info: generation_meta, generation_meta };
+  return {
+    assessment_id,
+    assessment,
+    diagnosis,
+    plans,
+    personalization_mode: enabled ? 'personalized' : 'non_personalized',
+    model_info: generation_meta,
+    generation_meta,
+  };
 };
 
 const planJobClientIdFrom = (payload = {}, url = null, request = null) => normalizeClientId(
@@ -6298,6 +6527,9 @@ const createPlanJob = async (payload = {}, reservation = {}) => {
     client_id,
     status: 'pending',
     assessment_payload: sanitizeCustomerPayload(assessmentPayload),
+    personalization_mode: assessmentPayload.personalized_recommendation_enabled === false
+      ? 'non_personalized'
+      : 'personalized',
     generation_variant: generationVariant,
     rate_limit_shadow: Boolean(reservation.would_rate_limit && !reservation.rate_limit_enforced),
     metering_reservation: {
@@ -6432,6 +6664,7 @@ const forcePlanJobFallback = async (clientId = '', jobId = '') => {
 const clientVisiblePlanJob = (job = {}) => ({
   job_id: job.job_id || '',
   status: job.status || 'pending',
+  personalization_mode: job.personalization_mode || 'personalized',
   poll_after_ms: job.status === 'pending' ? 700 : 1200,
   created_at: job.created_at || '',
   updated_at: job.updated_at || '',
@@ -6466,7 +6699,7 @@ export default async (request, context = {}) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -6478,6 +6711,12 @@ export default async (request, context = {}) => {
           script_provider: providerForGeneration('script'),
         },
       });
+      if (path === '/user/settings') {
+        const settingsClientId = userSettingsClientIdFrom({}, url, request);
+        if (!settingsClientId) return json({ error: '读取隐私设置需要 client_id' }, 400);
+        if (settingsClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+        return json(await readUserSettings(settingsClientId), 200, { internal: internalAuthorized });
+      }
       if (path === '/customers') {
         if (!internalAuthorized) return unauthorized();
         return json(await listCustomersFromCloudState(), 200, { internal: true });
@@ -6560,9 +6799,15 @@ export default async (request, context = {}) => {
       }
     }
 
-    const payload = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+    const payload = ['POST', 'PATCH'].includes(request.method) ? await request.json().catch(() => ({})) : {};
     const payloadClientId = clientIdFrom(payload, url, request);
     const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
+    if (request.method === 'PATCH' && path === '/user/settings') {
+      const settingsClientId = userSettingsClientIdFrom(payload, url, request);
+      if (!settingsClientId) return json({ error: '保存隐私设置需要 client_id' }, 400);
+      if (settingsClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      return json(await writeUserSettings(settingsClientId, payload), 200, { internal: internalAuthorized });
+    }
     if (request.method === 'POST' && path === '/feishu/inbound') {
       if (!hasValidFeishuInboundAuth(request)) return json({ ok: false, error: '飞书回流鉴权失败' }, 401, { internal: true });
       const result = await receiveFeishuInbound(payload, request);
@@ -6582,13 +6827,18 @@ export default async (request, context = {}) => {
       const clientId = planJobClientIdFrom(payload, url, request);
       if (!clientId) return json({ error: '创建计划任务需要 client_id' }, 400);
       if (clientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const personalization = await resolvePersonalizationForRequest(payload, clientId);
       const requestId = generationRequestId(payload);
       const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'plan-jobs' });
       if (reservation.would_rate_limit && reservation.rate_limit_enforced) {
         await completeGenerationMetering({ reservation, clientId, outcome: 'rate_limited', error: 'rate_limited' });
         return rateLimitedResponse(reservation);
       }
-      const job = await createPlanJob({ ...payload, client_id: clientId, request_id: requestId }, reservation);
+      const job = await createPlanJob({
+        ...personalization.payload,
+        client_id: clientId,
+        request_id: requestId,
+      }, reservation);
       await linkGenerationReservation(reservation, job.job_id);
       if (!reservation.duplicate) queuePlanJob(context, clientId, job.job_id);
       return json(clientVisiblePlanJob(job), 202);
@@ -6639,6 +6889,7 @@ export default async (request, context = {}) => {
       const clientId = planJobClientIdFrom(payload, url, request);
       if (!clientId) return json({ error: '生成下一轮建议需要 client_id' }, 400);
       if (clientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const personalization = await resolvePersonalizationForRequest(payload, clientId);
       const requestId = generationRequestId(payload);
       const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'customer-growth-advice' });
       if (reservation.would_rate_limit && reservation.rate_limit_enforced) {
@@ -6646,10 +6897,13 @@ export default async (request, context = {}) => {
         return rateLimitedResponse(reservation);
       }
       try {
-        const trustedPayload = modelPayloadForRequest(payload, internalAuthorized);
+        const trustedPayload = modelPayloadForRequest(personalization.payload, internalAuthorized);
         const result = await createCustomerGrowthAdvice(trustedPayload);
         await completeGenerationMetering({ reservation, clientId, jobId: requestId, result, outcome: 'completed' });
-        return json(result, 200, { internal: internalAuthorized });
+        return json({
+          ...result,
+          personalization_mode: personalization.settings.personalization_mode,
+        }, 200, { internal: internalAuthorized });
       } catch (error) {
         await completeGenerationMetering({ reservation, clientId, jobId: requestId, outcome: 'failed', error: error?.message || 'customer_growth_advice_failed' });
         throw error;

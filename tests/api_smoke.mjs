@@ -4,12 +4,12 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.115';
-const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.115';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.115';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.117';
+const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.117';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.117';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 process.env.BACKGROUND_GENERATION_TOKEN = BACKGROUND_GENERATION_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.115-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.117-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -140,7 +140,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.115', `expected app_version 1.6.115, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.117', `expected app_version 1.6.117, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -152,6 +152,98 @@ assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', '
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
+
+const personalizationSettingsClientId = 'personalization-smoke';
+const defaultPersonalizationSettingsResponse = await handler(request('GET', `user/settings?client_id=${personalizationSettingsClientId}`));
+assert(defaultPersonalizationSettingsResponse.status === 200, 'GET /user/settings should return default settings');
+const defaultPersonalizationSettings = await defaultPersonalizationSettingsResponse.json();
+assert(defaultPersonalizationSettings.personalized_recommendation_enabled === true, 'personalized recommendation should default to enabled');
+const disabledPersonalizationResponse = await handler(request('PATCH', 'user/settings', {
+  client_id: personalizationSettingsClientId,
+  personalized_recommendation_enabled: false,
+}));
+assert(disabledPersonalizationResponse.status === 200, 'PATCH /user/settings should save the personalization switch');
+const disabledPersonalizationSettings = await disabledPersonalizationResponse.json();
+assert(disabledPersonalizationSettings.personalized_recommendation_enabled === false, 'PATCH /user/settings should return false after opt-out');
+const refreshedPersonalizationSettings = await (await handler(request('GET', `user/settings?client_id=${personalizationSettingsClientId}`))).json();
+assert(refreshedPersonalizationSettings.personalized_recommendation_enabled === false, 'GET /user/settings should keep false after a simulated refresh');
+
+const personalizationMarker = 'PERSONALIZED-BENCHMARK-MARKER';
+let nonPersonalizedPlanJobPromise = null;
+const nonPersonalizedPlanJobResponse = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'non-personalized-plan-owner',
+  customer_key: 'non-personalized-plan-owner',
+  settings_client_id: personalizationSettingsClientId,
+  personalized_recommendation_enabled: true,
+  best_recent_content: personalizationMarker,
+  account_preference: personalizationMarker,
+  benchmark: {
+    platform: '小红书',
+    accounts: [personalizationMarker],
+    notes: personalizationMarker,
+    sample_content: personalizationMarker,
+  },
+  request_id: 'non-personalized-plan-request-0001',
+}), {
+  waitUntil(promise) { nonPersonalizedPlanJobPromise = promise; },
+});
+assert(nonPersonalizedPlanJobResponse.status === 202 && nonPersonalizedPlanJobPromise, 'non-personalized plan job should still generate basic service content');
+await nonPersonalizedPlanJobPromise;
+const nonPersonalizedPlanJobCreated = await nonPersonalizedPlanJobResponse.json();
+const nonPersonalizedPlanJob = await (await handler(request('GET', `plan-jobs/${encodeURIComponent(nonPersonalizedPlanJobCreated.job_id)}?client_id=non-personalized-plan-owner`))).json();
+assert(nonPersonalizedPlanJob.personalization_mode === 'non_personalized', 'stored opt-out must override a stale enabled request');
+assert(nonPersonalizedPlanJob.result?.personalization_mode === 'non_personalized', 'plan result should record non-personalized mode');
+assert(nonPersonalizedPlanJob.result?.assessment?.personalized_recommendation_enabled === false, 'assessment should record the effective opt-out');
+assert(nonPersonalizedPlanJob.result?.assessment?.best_recent_content === '' && nonPersonalizedPlanJob.result?.assessment?.account_preference === '', 'non-personalized generation must remove content and account preferences');
+assert((nonPersonalizedPlanJob.result?.assessment?.benchmark?.accounts || []).length === 0, 'non-personalized generation must remove benchmark profile signals');
+assert(!JSON.stringify(nonPersonalizedPlanJob.result).includes(personalizationMarker), 'non-personalized plan output must not use stripped personalization markers');
+
+const nonPersonalizedPlan = nonPersonalizedPlanJob.result.plans[0];
+const nonPersonalizedCurrentRecord = {
+  content_plan_id: nonPersonalizedPlan.id,
+  plan_topic: nonPersonalizedPlan.topic,
+  publish_link: 'https://example.com/non-personalized-current',
+  created_at: shanghaiDateIso(0) + ' 10:00:00',
+  views: 600,
+  engagement: 20,
+  consultations: 1,
+};
+const nonPersonalizedAdviceResponse = await handler(request('POST', 'customer-growth-advice', {
+  request_id: 'non-personalized-advice-request-0001',
+  client_id: 'non-personalized-plan-owner',
+  settings_client_id: personalizationSettingsClientId,
+  personalized_recommendation_enabled: true,
+  assessment: {
+    ...nonPersonalizedPlanJob.result.assessment,
+    best_recent_content: personalizationMarker,
+    benchmark: {platform:'小红书', accounts:[personalizationMarker], notes:personalizationMarker, sample_content:personalizationMarker},
+  },
+  diagnosis: nonPersonalizedPlanJob.result.diagnosis,
+  plans: nonPersonalizedPlanJob.result.plans,
+  previous_rounds: [{round_number:1, plans:[{topic:personalizationMarker}]}],
+  previous_plan_topics: [personalizationMarker],
+  records: [
+    nonPersonalizedCurrentRecord,
+    {
+      content_plan_id: 'historical-plan',
+      plan_topic: personalizationMarker,
+      publish_link: 'https://example.com/non-personalized-history',
+      created_at: shanghaiDateIso(-1) + ' 10:00:00',
+      views: 5000,
+      engagement: 500,
+      consultations: 80,
+    },
+  ],
+  record: nonPersonalizedCurrentRecord,
+  selected_plan_id: nonPersonalizedPlan.id,
+}));
+assert(nonPersonalizedAdviceResponse.status === 200, 'non-personalized customer advice should remain available');
+const nonPersonalizedAdvice = await nonPersonalizedAdviceResponse.json();
+assert(nonPersonalizedAdvice.personalization_mode === 'non_personalized', 'customer advice should expose the effective non-personalized mode');
+assert(nonPersonalizedAdvice.context_used.history_feedback_count === 0, 'non-personalized advice must not use historical feedback');
+assert(!JSON.stringify(nonPersonalizedAdvice).includes(personalizationMarker), 'non-personalized advice must not use previous-round or preference markers');
+
 let queuedPlanJobPromise = null;
 const planJobStartedAt = Date.now();
 const planJobCreateResponse = await handler(request('POST', 'plan-jobs', {
@@ -683,7 +775,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.115'") && appJs.includes("v1.6.115 · 生成流程收敛版"), 'app should expose the v1.6.115 internal generation flow release');
+assert(appJs.includes("const APP_VERSION = '1.6.117'") && appJs.includes("v1.6.117 · 个性化推荐控制版"), 'app should expose the v1.6.117 personalization controls release');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
@@ -773,12 +865,18 @@ assert(warRoomCss.includes('body.internal-mode:not(.generation-workbench-mode) #
 assert(indexHtml.includes('脚本 · Kimi K2.6') && indexHtml.includes('文案 · Kimi K2.6') && !indexHtml.includes('script · Claude Opus'), 'internal generation form should label the configured Kimi script and copy provider instead of the stale Claude label');
 assert(appJs.includes("script: 'Kimi (kimi-k2.6)'") && appJs.includes('function generationOutputTextForTask') && appJs.includes('function renderGenerationOutput') && appJs.includes('data-gw-action="copy-output"'), 'internal generation workbench should map Kimi tasks and render copyable output text from generated assets');
 assert(appJs.includes('function renderGenerationCompleteness') && appJs.includes('completeness_checked') && appJs.includes('continuation_rounds') && appJs.includes('regeneration_attempted'), 'internal task cards should progressively disclose Kimi completeness, continuation, and regeneration evidence');
-assert(appJs.includes("status === 'draft' ? '开始生成' : '重新生成'") && appJs.includes('请在下方点击“开始生成”') && appJs.includes("taskCard?.scrollIntoView({behavior:'smooth', block:'center'})"), 'creating an internal generation task should clearly explain and locate the separate model-submit action');
+assert(appJs.includes("submitButton.textContent = '正在创建并提交...'") && appJs.includes("api(`/api/generation-tasks/${encodeURIComponent(taskId)}/submit`") && appJs.includes("taskCard?.scrollIntoView({behavior:'smooth', block:'center'})"), 'creating an internal generation task should immediately submit it and locate the active task card');
 assert(warRoomCss.includes('v1.6.114 internal Kimi output preview') && warRoomCss.includes('body.internal-mode .generation-output-preview') && warRoomCss.includes('body.internal-mode .generation-completeness-grid'), 'internal dark-theme stylesheet should provide readable output and completeness panels without changing the customer shell');
 assert(appJs.includes('GENERATION_WORKBENCH_REFRESH_MS = 5000') && appJs.includes('function scheduleGenerationWorkbenchRefresh') && appJs.includes('function refreshGeneratingWorkbenchTasks') && appJs.includes('页面每 5 秒自动更新'), 'internal background generation should refresh automatically instead of leaving Kimi tasks visibly stuck in generating');
 assert(appJs.includes('function renderGenerationTaskActions') && appJs.includes('function renderGenerationTechnicalDetails') && appJs.includes('查看历史任务') && appJs.includes('generation-running-button'), 'internal task cards should expose only status-appropriate actions and collapse technical/history details');
-assert(appJs.includes("title: '内容生产工作台'") && indexHtml.includes('关联项目与更多设置') && indexHtml.includes('参考素材（可选）') && indexHtml.includes('技术与飞书调试'), 'internal generation workbench should prioritize prompt-to-output flow and collapse secondary operational panels');
+assert(appJs.includes("title: '内容生产工作台'") && indexHtml.includes('关联项目、参考素材与交付设置') && indexHtml.includes('参考素材（可选）') && indexHtml.includes('技术与飞书调试'), 'internal generation workbench should prioritize prompt-to-output flow and collapse secondary operational panels');
 assert(warRoomCss.includes('v1.6.115 internal generation flow focus') && warRoomCss.includes('body.internal-mode .generation-primary-fields') && warRoomCss.includes('body.internal-mode .generation-collapsible'), 'internal-only styles should support the simplified generation flow without changing the customer surface');
+for (const type of ['script', 'copy', 'video', 'cover', 'image']) {
+  assert(indexHtml.includes(`data-generation-fields="${type}"`), `generation form should expose dedicated ${type} fields`);
+}
+assert(appJs.includes('const GENERATION_TYPE_UI = {') && appJs.includes('function generationOutputSpecFor') && appJs.includes('data-generation-fields') && appJs.includes('generationOutputMediaForTask'), 'internal generation form should switch type-specific fields and render text/image/video outputs');
+assert(appJs.includes("data-gw-action=\"check-progress\"") && appJs.includes('generatingTasks.map((task)') && apiSource.includes('missingStartIsStale') && apiSource.includes('markBackgroundGenerationFailure'), 'generating tasks should support active progress checks, missed-trigger recovery and explicit background failure states');
+assert(warRoomCss.includes('v1.6.116 generation type fields and resilient progress') && warRoomCss.includes('.generation-type-field-group[hidden]') && warRoomCss.includes('.generation-running-state') && warRoomCss.includes('.generation-output-media'), 'internal-only styles should keep typed inputs, progress and media previews readable');
 assert(appJs.includes('function activateCustomerNextRound') && appJs.includes('data-customer-activate-round') && appJs.includes('previous_rounds') && appJs.includes('content_rounds'), 'customer client should support activating the next 7-day round and carrying prior round topics forward');
 assert(indexHtml.includes('id="customerRoundHistory"') && appJs.includes('function renderCustomerRoundHistory') && appJs.includes('customerArchivedPlanTopics') && appJs.includes('renderCustomerRoundHistory(nextState)'), 'customer client should expose content-round history and refresh it after round changes');
 assert(appJs.includes('function syncCustomerTrialCloudState') && appJs.includes('customer_public_cloud_sync') && appJs.includes('scheduleCustomerTrialCloudSync(generatedState)') && appJs.includes('scheduleCustomerTrialCloudSync(nextState)'), 'customer public flow should sync generated plans, feedback records and round changes to cloud project store');
@@ -857,11 +955,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.115') && indexHtml.includes('/styles.css?v=1.6.115') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.115'), 'customer page should cache-bust the v1.6.115 internal generation flow release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.117') && indexHtml.includes('/styles.css?v=1.6.117') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.117'), 'customer page should cache-bust the v1.6.117 personalization controls release while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.115') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.115') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.115') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.117') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.117') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.117') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -876,6 +974,10 @@ assert(indexHtml.includes('customer-footer-primary') && indexHtml.includes('cust
 assert(!indexHtml.includes('id="customerInfoPages"') && !indexHtml.includes('本地存储与云端同步') && !indexHtml.includes('AI 内容说明'), 'homepage should not inline long policy and agreement content');
 assert(aboutHtml.includes('南京尚下联信息科技有限公司') && contactHtml.includes('contact@fpmatrix.cn'), 'independent info pages should expose the service entity and complaint email');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
+assert(indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'customer navigation should expose a real personalization privacy switch');
+assert(appJs.includes("api('/api/user/settings'") && appJs.includes("method:'PATCH'") && appJs.includes('personalized_recommendation_enabled') && appJs.includes('USER_SETTINGS_STORAGE_PREFIX'), 'customer personalization setting should persist locally and through the backend settings API');
+assert(apiSourceIncludes("path === '/user/settings'") && apiSourceIncludes('applyPersonalizationPolicy') && apiSourceIncludes('nonPersonalizedAssessment') && apiSourceIncludes('personalization_mode'), 'backend recommendation routes should enforce personalized and non-personalized modes');
+assert(privacyHtml.includes('你可以在隐私设置中关闭个性化推荐/推送') && privacyHtml.includes('个人偏好、历史行为或用户画像'), 'privacy policy should explain how to disable personalized recommendation and push');
 assert(termsHtml.includes('AI 内容说明') && termsHtml.includes('禁止行为') && termsHtml.includes('内容效果和责任限制') && termsHtml.includes('不承诺固定流量、咨询量、成交量或商业结果') && termsHtml.includes('投诉与争议处理'), 'terms should cover AI content, prohibited behavior, effect disclaimer and complaint handling');
 assert(redirects.includes('/about /about/index.html 200') && redirects.includes('/privacy /privacy/index.html 200') && redirects.includes('/terms /terms/index.html 200') && redirects.includes('/contact /contact/index.html 200'), 'customer info pages should rewrite to independent static pages');
 assert(indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('让每一次发布，都成为下一次增长的依据') && indexHtml.includes('customer-first-screen') && indexHtml.includes('customer-first-form-shell') && !indexHtml.includes('给篮球培训客户的全平台内容矩阵'), 'default customer page should use the approved Huoke Compass brand proposition, not a single-customer static page title');
@@ -1397,7 +1499,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.115' && health.version_label === 'v1.6.115 · 生成流程收敛版', 'health should expose the v1.6.115 internal generation flow release');
+assert(health.version === '1.6.117' && health.version_label === 'v1.6.117 · 个性化推荐控制版', 'health should expose the v1.6.117 personalization controls release');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
@@ -1888,13 +1990,14 @@ const videoTaskRes = await handler(internalRequest('POST', 'generation-tasks', {
   generation_type: 'video',
   requested_model: 'Seedance 2.0',
   prompt: '生成一条项目化素材验收短视频 mock',
-  output_spec: { size: '1080x1920', duration: '6s', style: '真实工作台演示', client_visible: true },
+  output_spec: { size: '1080x1920', duration: '6s', ratio: '9:16', generate_audio: true, style: '真实工作台演示', client_visible: true },
   input_asset_ids: [assetData.asset.asset_id],
 }));
 if (videoTaskRes.status !== 201) throw new Error(`POST /generation-tasks video should create task, got ${videoTaskRes.status}: ${await videoTaskRes.text()}`);
 const videoTask = (await videoTaskRes.json()).task;
 assert(videoTask.status === 'draft', 'video task should start as draft');
 assert(videoTask.requested_model === 'Seedance 2.0', 'video task requested_model should be Seedance 2.0');
+assert(videoTask.output_spec.ratio === '9:16' && videoTask.output_spec.generate_audio === true, 'video task should preserve ratio and audio settings');
 
 const submittedVideo = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedVideo.task.status === 'generating', 'video submit should enter generating, not wait for final output');
@@ -1975,9 +2078,10 @@ const coverTask = await (await handler(internalRequest('POST', 'generation-tasks
   generation_type: 'cover',
   requested_model: 'GPT-Image-2',
   prompt: '生成一张项目化素材验收封面图 mock',
-  output_spec: { size: '1024x1024', style: '清晰专业', client_visible: true },
+  output_spec: { size: '1024x1024', cover_text: '项目化素材验收', style: '清晰专业', client_visible: true },
 }))).json();
 assert(coverTask.task.requested_model === 'GPT-Image-2', 'cover task should request GPT-Image-2');
+assert(coverTask.task.output_spec.cover_text === '项目化素材验收', 'cover task should preserve the cover headline');
 const submittedCover = await (await handler(internalRequest('POST', `generation-tasks/${coverTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedCover.task.status === 'qa_pending', 'cover task should synchronously generate and enter qa_pending');
 assert(submittedCover.task.actual_model === 'GPT-Image-2' && submittedCover.task.provider === 'openai-image', 'cover task should use openai-image mock adapter');
@@ -2018,6 +2122,7 @@ process.env.SAFE_TO_RUN = 'true';
 process.env.URL = 'https://background-smoke.example';
 let backgroundTriggerRequest = null;
 let kimiGenerationCalls = 0;
+let lastKimiUserPrompt = '';
 const kimiGeneratedText = '安标系统短视频脚本：先说明企业最容易忽略的合规节点，再给出现场可执行的检查清单。';
 let kimiResponseQueue = [];
 globalThis.fetch = async (url, options = {}) => {
@@ -2032,6 +2137,8 @@ globalThis.fetch = async (url, options = {}) => {
   }
   if (requestUrl.endsWith('/chat/completions')) {
     kimiGenerationCalls += 1;
+    const requestBody = JSON.parse(String(options.body || '{}'));
+    lastKimiUserPrompt = String(requestBody.messages?.filter((item) => item.role === 'user')?.[0]?.content || '');
     const queued = kimiResponseQueue.shift() || {};
     return new Response(JSON.stringify({
       model: 'kimi-k2.6',
@@ -2053,11 +2160,12 @@ const kimiTaskResponse = await handler(internalRequest('POST', 'generation-tasks
   content_type: '脚本',
   generation_type: 'script',
   prompt: '为安标系统生成一条负责人能直接录制的短视频脚本',
-  output_spec: { style: '负责人专业口播', client_visible: false },
+  output_spec: { format: '口播脚本', target_duration: '60秒', must_include: '合规节点、检查清单', style: '负责人专业口播', client_visible: false },
 }));
 assert(kimiTaskResponse.status === 201, 'Kimi background task should be created');
 const kimiTask = (await kimiTaskResponse.json()).task;
 assert(kimiTask.provider === 'kimi-text' && kimiTask.requested_model.includes('kimi-k2.6'), 'configured Kimi should own script generation');
+assert(kimiTask.output_spec.format === '口播脚本' && kimiTask.output_spec.target_duration === '60秒' && kimiTask.output_spec.must_include.includes('检查清单'), 'script task should preserve type-specific production settings');
 const submittedKimiResponse = await handler(internalRequest('POST', `generation-tasks/${kimiTask.task_id}/submit`, { client_id: qaClientId }));
 assert(submittedKimiResponse.status === 200, 'Kimi background task submit should return immediately');
 const submittedKimi = (await submittedKimiResponse.json()).task;
@@ -2093,6 +2201,7 @@ const kimiAssetsResponse = await handler(internalRequest('GET', `assets?client_i
 const kimiAssets = (await kimiAssetsResponse.json()).assets;
 const kimiOutputAsset = kimiAssets.find((asset) => asset.asset_id === polledKimi.task.output_asset_ids[0]);
 assert(kimiOutputAsset?.notes === kimiGeneratedText, 'generated Kimi script should be readable from the output asset notes field');
+assert(lastKimiUserPrompt.includes('内容形式：口播脚本') && lastKimiUserPrompt.includes('目标时长：60秒') && lastKimiUserPrompt.includes('必须包含：合规节点、检查清单'), 'Kimi should receive the structured script settings in its model prompt');
 assert(polledKimi.task.adapter_manifest?.output?.completeness_checked === true && polledKimi.task.adapter_manifest?.output?.completeness_passed === true, 'complete Kimi text should retain positive completeness evidence');
 assert(polledKimi.task.adapter_manifest?.output?.continuation_rounds === 0 && polledKimi.task.adapter_manifest?.output?.regeneration_attempted === false, 'complete Kimi text should not spend continuation or regeneration calls');
 const repeatedBackgroundResponse = await backgroundGenerationHandler(authorizedBackgroundRequest());

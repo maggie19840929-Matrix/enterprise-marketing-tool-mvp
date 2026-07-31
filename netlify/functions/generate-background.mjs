@@ -1,4 +1,8 @@
-import { hasValidBackgroundGenerationAuth, runBackgroundGeneration } from './api.mjs';
+import {
+  hasValidBackgroundGenerationAuth,
+  markBackgroundGenerationFailure,
+  runBackgroundGeneration,
+} from './api.mjs';
 
 export default async (request) => {
   const json = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -21,6 +25,11 @@ export default async (request) => {
     return json({ ok: true, task_id: task.task_id, status: task.status });
   } catch (error) {
     console.error(JSON.stringify({ event: 'generate_background_failed', task_id: body?.task_id || '', reason: error?.message || 'unknown' }));
+    await markBackgroundGenerationFailure({
+      client_id: body?.client_id || '',
+      task_id: body?.task_id || '',
+      error: error?.message || 'background_generation_failed',
+    }).catch(() => null);
     return json({ ok: false, task_id: body?.task_id || '', error: error?.message || 'background_generation_failed' }, 500);
   }
 };

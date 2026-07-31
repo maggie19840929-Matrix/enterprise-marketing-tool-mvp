@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.115" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.115" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.115" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.117" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.117" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.117" />
 </head>
 <body class="customer-mode">
   <script>
@@ -24,7 +24,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.115" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.117" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -34,6 +34,7 @@
       <div class="customer-site-links">
         <a href="/#customerFormCard">使用工具</a>
         <a href="/about">关于我们</a>
+        <button id="customerPrivacySettingsBtn" type="button">隐私设置</button>
         <a href="/contact">联系我们</a>
       </div>
     </nav>
@@ -54,7 +55,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.115" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.117" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -453,7 +454,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.115" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.117" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -472,11 +473,35 @@
         <a class="customer-filing-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">苏ICP备2026037570号</a>
       </div>
     </footer>
+
+    <section id="customerPrivacySettings" class="customer-privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="customerPrivacySettingsTitle" hidden>
+      <div class="customer-privacy-card">
+        <div class="customer-privacy-head">
+          <div>
+            <p>PRIVACY SETTINGS</p>
+            <h2 id="customerPrivacySettingsTitle">隐私设置</h2>
+          </div>
+          <button id="customerPrivacySettingsClose" class="customer-privacy-close" type="button" aria-label="关闭隐私设置">×</button>
+        </div>
+        <div class="customer-privacy-option">
+          <div>
+            <strong>个性化推荐/推送</strong>
+            <p>关闭后，我们将不再基于你的使用行为、偏好或历史记录提供个性化推荐或推送，仍会提供基础服务内容。</p>
+          </div>
+          <label class="customer-privacy-switch">
+            <input id="personalizedRecommendationToggle" type="checkbox" aria-label="个性化推荐/推送" checked />
+            <span aria-hidden="true"></span>
+          </label>
+        </div>
+        <p id="customerPrivacySettingsMessage" class="customer-privacy-message" role="status" aria-live="polite" hidden></p>
+        <p class="customer-privacy-note">关闭后仍可使用通用内容、用户主动选择的模板与当前项目内容。</p>
+      </div>
+    </section>
   </div>
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.115" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.117" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -568,7 +593,7 @@
       <form id="generationTaskForm" class="generation-panel generation-form generation-primary-form">
         <div class="generation-panel-head">
           <h3>创建内容</h3>
-          <span>先选择平台和内容类型，再把需要 Kimi 完成的要求写进生成需求。</span>
+          <span>选择内容类型后，只填写这一类内容真正需要的设置。</span>
         </div>
         <div class="generation-primary-fields">
           <label>平台
@@ -588,28 +613,129 @@
               <option value="image">图文 · GPT-Image-2</option>
             </select>
           </label>
-          <label class="wide-field generation-prompt-field">生成需求 *
+          <div id="generationTypeGuidance" class="generation-type-guidance wide-field" aria-live="polite">
+            <strong id="generationTypeGuidanceTitle">脚本需要补充什么</strong>
+            <span id="generationTypeGuidanceText">说明主题、受众和希望观众看完后采取的动作。</span>
+          </div>
+          <div id="generationTypeFields" class="generation-type-fields wide-field">
+            <div class="generation-type-field-group" data-generation-fields="script">
+              <label>脚本形式
+                <select name="script_format">
+                  <option>口播脚本</option>
+                  <option>情景对话</option>
+                  <option>访谈提纲</option>
+                  <option>知识讲解</option>
+                </select>
+              </label>
+              <label>目标时长
+                <select name="script_duration">
+                  <option>60秒</option>
+                  <option>30秒</option>
+                  <option>90秒</option>
+                </select>
+              </label>
+              <label>必须包含
+                <input name="script_must_include" placeholder="如：真实案例、3个要点、咨询引导" />
+              </label>
+            </div>
+            <div class="generation-type-field-group" data-generation-fields="copy" hidden>
+              <label>文案形式
+                <select name="copy_format">
+                  <option>小红书笔记</option>
+                  <option>抖音发布文案</option>
+                  <option>视频号配文</option>
+                  <option>朋友圈文案</option>
+                </select>
+              </label>
+              <label>目标长度
+                <select name="copy_length">
+                  <option>标准（300-500字）</option>
+                  <option>短（80-150字）</option>
+                  <option>长（600-900字）</option>
+                </select>
+              </label>
+              <label>行动引导
+                <input name="copy_cta" placeholder="如：主页咨询、预约体验、保存清单" />
+              </label>
+            </div>
+            <div class="generation-type-field-group" data-generation-fields="video" hidden>
+              <label>画面比例
+                <select name="video_ratio">
+                  <option value="9:16">竖屏 9:16</option>
+                  <option value="16:9">横屏 16:9</option>
+                  <option value="1:1">方形 1:1</option>
+                </select>
+              </label>
+              <label>视频时长
+                <select name="video_duration">
+                  <option value="6s">6 秒</option>
+                  <option value="10s">10 秒</option>
+                  <option value="15s">15 秒</option>
+                </select>
+              </label>
+              <label>画面风格
+                <input name="video_style" placeholder="如：真实门店、自然光、纪实感" />
+              </label>
+              <label class="generation-inline-check">
+                <input name="video_generate_audio" type="checkbox" checked />
+                同时生成声音
+              </label>
+            </div>
+            <div class="generation-type-field-group" data-generation-fields="cover" hidden>
+              <label>封面尺寸
+                <select name="cover_size">
+                  <option value="1024x1536">竖版 1024×1536</option>
+                  <option value="1024x1024">方形 1024×1024</option>
+                  <option value="1536x1024">横版 1536×1024</option>
+                </select>
+              </label>
+              <label>封面主标题
+                <input name="cover_text" placeholder="如：新手妈妈拍满月照的3个坑" />
+              </label>
+              <label>视觉风格
+                <input name="cover_style" placeholder="如：真实、留白、杂志感" />
+              </label>
+            </div>
+            <div class="generation-type-field-group" data-generation-fields="image" hidden>
+              <label>图片尺寸
+                <select name="image_size">
+                  <option value="1024x1536">竖版 1024×1536</option>
+                  <option value="1024x1024">方形 1024×1024</option>
+                  <option value="1536x1024">横版 1536×1024</option>
+                </select>
+              </label>
+              <label>图片用途
+                <select name="image_usage">
+                  <option>内容配图</option>
+                  <option>产品展示</option>
+                  <option>服务场景</option>
+                  <option>步骤示意</option>
+                </select>
+              </label>
+              <label>视觉风格
+                <input name="image_style" placeholder="如：真实摄影、自然光、简洁专业" />
+              </label>
+            </div>
+          </div>
+          <label class="wide-field generation-prompt-field"><span id="generationPromptLabel">脚本主题与具体要求 *</span>
             <textarea name="prompt" required placeholder="例如：为少儿篮球训练营写一篇小红书口播脚本，面向附近 6-12 岁孩子家长，重点说明体验课能解决什么问题，包含标题、开场、正文和结尾咨询引导。"></textarea>
           </label>
         </div>
 
         <details class="generation-advanced">
-          <summary>关联项目与更多设置</summary>
+          <summary>关联项目、参考素材与交付设置</summary>
           <div class="generation-advanced-grid">
             <label>项目 ID *<input name="project_id" required value="qa_project_generation" /></label>
             <label>客户 ID *<input name="client_id" required value="internal" /></label>
             <label>内容计划记录 ID *<input name="content_plan_record_id" required value="qa_content_plan_001" /></label>
             <input name="content_type" type="hidden" value="脚本" />
             <label>实际模型<input name="requested_model" id="generationRequestedModel" value="Kimi (kimi-k2.6)" readonly /></label>
-            <label>尺寸<input name="size" placeholder="1080x1920 / 1024x1024" value="1080x1920" /></label>
-            <label>时长<input name="duration" placeholder="视频时长，例如 6s" value="6s" /></label>
-            <label>风格<input name="style" placeholder="如：真实门店感、清爽专业" /></label>
             <label class="wide-field">选择参考素材<div id="generationAssetPicker" class="generation-picker empty">没有素材也可以直接生成。</div></label>
             <label class="generation-check wide-field"><input name="client_visible" type="checkbox" checked /> QA 通过后允许进入客户交付区</label>
           </div>
         </details>
 
-        <button class="generation-create-button" type="submit">创建任务</button>
+        <button class="generation-create-button" type="submit">生成脚本</button>
         <div id="generationTaskMessage" class="customer-message success" hidden></div>
       </form>
 
@@ -905,6 +1031,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.115"></script>
+  <script src="/app.js?v=1.6.117"></script>
 </body>
 </html>

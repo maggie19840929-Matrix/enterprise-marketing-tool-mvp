@@ -3165,3 +3165,295 @@ body.internal-mode .generation-technical-panel .generation-json{
     width:100%!important;
   }
 }
+
+/* v1.6.116 generation type fields and resilient progress */
+body.internal-mode .generation-type-guidance{
+  display:flex!important;
+  align-items:baseline!important;
+  gap:10px!important;
+  padding:11px 13px!important;
+  border:1px solid rgba(143,147,255,.2)!important;
+  border-radius:12px!important;
+  background:rgba(94,106,210,.07)!important;
+}
+body.internal-mode .generation-type-guidance strong{
+  color:#d9dbff!important;
+  font-size:13px!important;
+  white-space:nowrap!important;
+}
+body.internal-mode .generation-type-guidance span{
+  color:var(--war-muted)!important;
+  font-size:13px!important;
+  line-height:1.5!important;
+}
+body.internal-mode .generation-type-fields{
+  min-width:0!important;
+}
+body.internal-mode .generation-type-field-group{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:12px!important;
+}
+body.internal-mode .generation-type-field-group[hidden]{
+  display:none!important;
+}
+body.internal-mode .generation-inline-check{
+  display:flex!important;
+  align-items:center!important;
+  align-self:end!important;
+  min-height:44px!important;
+  gap:9px!important;
+  padding:0 4px!important;
+}
+body.internal-mode .generation-inline-check input{
+  width:18px!important;
+  height:18px!important;
+  margin:0!important;
+}
+body.internal-mode .generation-create-button:disabled{
+  cursor:wait!important;
+  opacity:.68!important;
+}
+body.internal-mode .generation-running-state{
+  display:grid!important;
+  gap:7px!important;
+  padding:11px 12px!important;
+  border:1px solid rgba(143,147,255,.2)!important;
+  border-radius:12px!important;
+  background:rgba(94,106,210,.07)!important;
+}
+body.internal-mode .generation-running-state>span{
+  position:relative!important;
+  display:block!important;
+  height:4px!important;
+  overflow:hidden!important;
+  border-radius:99px!important;
+  background:rgba(255,255,255,.08)!important;
+}
+body.internal-mode .generation-running-state>span>i{
+  position:absolute!important;
+  inset:0 auto 0 -35%!important;
+  width:35%!important;
+  border-radius:inherit!important;
+  background:#8f93ff!important;
+  animation:generation-running-progress 1.5s ease-in-out infinite!important;
+}
+body.internal-mode .generation-running-state small{
+  color:var(--war-muted)!important;
+  font-size:12px!important;
+}
+@keyframes generation-running-progress{
+  0%{transform:translateX(0)}
+  100%{transform:translateX(390%)}
+}
+body.internal-mode .generation-media-preview{
+  max-width:760px!important;
+}
+body.internal-mode .generation-output-media{
+  display:block!important;
+  width:100%!important;
+  max-height:560px!important;
+  object-fit:contain!important;
+  border:1px solid var(--war-line)!important;
+  border-radius:14px!important;
+  background:#08090a!important;
+}
+body.internal-mode .generation-output-placeholder{
+  display:grid!important;
+  gap:6px!important;
+  min-height:160px!important;
+  place-content:center!important;
+  padding:24px!important;
+  border:1px dashed rgba(143,147,255,.3)!important;
+  border-radius:14px!important;
+  background:#0b0c0e!important;
+  text-align:center!important;
+}
+body.internal-mode .generation-output-placeholder strong{
+  color:var(--war-text)!important;
+}
+body.internal-mode .generation-output-placeholder span{
+  max-width:480px!important;
+  color:var(--war-muted)!important;
+  font-size:13px!important;
+  line-height:1.6!important;
+}
+@media(max-width:900px){
+  body.internal-mode .generation-type-field-group{
+    grid-template-columns:1fr!important;
+  }
+  body.internal-mode .generation-type-guidance{
+    align-items:flex-start!important;
+    flex-direction:column!important;
+    gap:4px!important;
+  }
+}
+
+/* privacy setting: use the existing customer visual language without changing the main flow */
+body.customer-mode .customer-site-links button{
+  min-height:auto!important;
+  margin:0!important;
+  padding:8px 0!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  color:#5f636b!important;
+  font-family:inherit!important;
+  font-size:13px!important;
+  font-weight:600!important;
+  line-height:1.4!important;
+  cursor:pointer!important;
+}
+body.customer-mode .customer-site-links button:hover,
+body.customer-mode .customer-site-links button:focus-visible{
+  color:#111214!important;
+}
+.customer-privacy-dialog[hidden]{
+  display:none!important;
+}
+.customer-privacy-dialog{
+  position:fixed!important;
+  z-index:1000!important;
+  inset:0!important;
+  display:grid!important;
+  place-items:center!important;
+  padding:20px!important;
+  background:rgba(17,24,39,.42)!important;
+}
+.customer-privacy-card{
+  width:min(100%,560px)!important;
+  padding:24px!important;
+  border:.5px solid rgba(17,24,39,.12)!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 20px 60px rgba(17,24,39,.16)!important;
+  color:#1a1c24!important;
+}
+.customer-privacy-head,
+.customer-privacy-option{
+  display:flex!important;
+  align-items:flex-start!important;
+  justify-content:space-between!important;
+  gap:20px!important;
+}
+.customer-privacy-head{
+  padding-bottom:18px!important;
+  border-bottom:1px solid rgba(17,24,39,.08)!important;
+}
+.customer-privacy-head p{
+  margin:0 0 6px!important;
+  color:#808080!important;
+  font-size:10px!important;
+  font-weight:700!important;
+  letter-spacing:.14em!important;
+}
+.customer-privacy-head h2{
+  margin:0!important;
+  font-size:22px!important;
+  line-height:1.25!important;
+}
+.customer-privacy-close{
+  width:34px!important;
+  height:34px!important;
+  padding:0!important;
+  border:1px solid rgba(17,24,39,.1)!important;
+  border-radius:50%!important;
+  background:#fff!important;
+  color:#667085!important;
+  font-size:22px!important;
+  line-height:1!important;
+  cursor:pointer!important;
+}
+.customer-privacy-option{
+  padding:22px 0 16px!important;
+}
+.customer-privacy-option strong{
+  display:block!important;
+  margin-bottom:7px!important;
+  font-size:15px!important;
+}
+.customer-privacy-option p,
+.customer-privacy-note,
+.customer-privacy-message{
+  margin:0!important;
+  color:#667085!important;
+  font-size:13px!important;
+  line-height:1.65!important;
+}
+.customer-privacy-option>div{
+  max-width:420px!important;
+}
+.customer-privacy-switch{
+  position:relative!important;
+  flex:0 0 auto!important;
+  display:inline-flex!important;
+  width:46px!important;
+  height:26px!important;
+  cursor:pointer!important;
+}
+.customer-privacy-switch input{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  opacity:0!important;
+}
+.customer-privacy-switch span{
+  width:100%!important;
+  height:100%!important;
+  border-radius:999px!important;
+  background:#cfd4dc!important;
+  transition:background .18s ease!important;
+}
+.customer-privacy-switch span::after{
+  content:""!important;
+  position:absolute!important;
+  top:3px!important;
+  left:3px!important;
+  width:20px!important;
+  height:20px!important;
+  border-radius:50%!important;
+  background:#fff!important;
+  box-shadow:0 1px 3px rgba(17,24,39,.24)!important;
+  transition:transform .18s ease!important;
+}
+.customer-privacy-switch input:checked+span{
+  background:#0f766e!important;
+}
+.customer-privacy-switch input:checked+span::after{
+  transform:translateX(20px)!important;
+}
+.customer-privacy-switch input:focus-visible+span{
+  outline:3px solid rgba(15,118,110,.2)!important;
+  outline-offset:2px!important;
+}
+.customer-privacy-message{
+  margin-bottom:10px!important;
+  color:#065f46!important;
+}
+.customer-privacy-message.error{
+  color:#9f1239!important;
+}
+.customer-privacy-note{
+  padding-top:14px!important;
+  border-top:1px solid rgba(17,24,39,.08)!important;
+  font-size:12px!important;
+}
+body.customer-privacy-open{
+  overflow:hidden!important;
+}
+@media(max-width:620px){
+  body.customer-mode .customer-site-links a[href="/about"],
+  body.customer-mode .customer-site-links a[href="/contact"]{
+    display:none!important;
+  }
+  .customer-privacy-dialog{
+    align-items:end!important;
+    padding:12px!important;
+  }
+  .customer-privacy-card{
+    padding:20px!important;
+  }
+  .customer-privacy-option{
+    gap:14px!important;
+  }
+}

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.115';
-const VERSION_LABEL = 'v1.6.115 · 生成流程收敛版';
+const APP_VERSION = '1.6.117';
+const VERSION_LABEL = 'v1.6.117 · 个性化推荐控制版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -10,6 +10,7 @@ const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const USER_SETTINGS_STORAGE_PREFIX = 'enterpriseMarketingUserSettings.v1';
 const CUSTOMER_ANALYTICS_SESSION_KEY = 'enterpriseMarketingAnalyticsSession.v1';
 const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken';
 const INTERNAL_CLIENT_ID = 'internal';
@@ -1046,6 +1047,49 @@ function customerClientId(){
   return explicitCustomerClientId() || (isInternalDataScope() ? INTERNAL_CLIENT_ID : readSessionClientId());
 }
 
+function userSettingsClientId(){
+  return isInternalDataScope() ? INTERNAL_CLIENT_ID : readSessionClientId();
+}
+
+function userSettingsStorageKey(clientId = userSettingsClientId()){
+  return `${USER_SETTINGS_STORAGE_PREFIX}.${normalizeClientId(clientId) || 'anonymous-fallback'}`;
+}
+
+function readLocalUserSettings(){
+  const fallback = {
+    personalized_recommendation_enabled: true,
+    personalization_mode: 'personalized',
+  };
+  try {
+    const parsed = JSON.parse(window.localStorage?.getItem(userSettingsStorageKey()) || 'null');
+    if (!parsed || typeof parsed !== 'object') return fallback;
+    const enabled = parsed.personalized_recommendation_enabled !== false;
+    return {
+      personalized_recommendation_enabled: enabled,
+      personalization_mode: enabled ? 'personalized' : 'non_personalized',
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalUserSettings(enabled = true){
+  const normalized = enabled !== false;
+  const settings = {
+    personalized_recommendation_enabled: normalized,
+    personalization_mode: normalized ? 'personalized' : 'non_personalized',
+    updated_at: localTimestamp(),
+  };
+  try {
+    window.localStorage?.setItem(userSettingsStorageKey(), JSON.stringify(settings));
+  } catch {}
+  return settings;
+}
+
+function personalizedRecommendationEnabled(){
+  return readLocalUserSettings().personalized_recommendation_enabled !== false;
+}
+
 function customerTrialStorageKey(clientId = customerClientId()){
   return `enterpriseMarketingCustomerTrial.${normalizeClientId(clientId) || 'anonymous-fallback'}.v1`;
 }
@@ -1067,6 +1111,8 @@ function customerScopedPayload(payload = {}){
     ...payload,
     client_id,
     customer_key,
+    settings_client_id: userSettingsClientId(),
+    personalized_recommendation_enabled: personalizedRecommendationEnabled(),
   });
 }
 
@@ -3050,6 +3096,8 @@ async function requestCustomerDailyAdvice(saved = {}, record = {}){
     body: JSON.stringify({
       request_id: requestId,
       client_id: customerClientId(),
+      settings_client_id: userSettingsClientId(),
+      personalized_recommendation_enabled: personalizedRecommendationEnabled(),
       assessment: saved.assessment || clientState.assessment || {},
       diagnosis: saved.diagnosis || clientState.diagnosis || {},
       plans: customerPlans(saved),
@@ -3464,7 +3512,117 @@ async function copyCustomerSuggestion(){
   toast('已复制，可以粘贴使用');
 }
 
+function hasLocalUserSettings(){
+  try {
+    return Boolean(window.localStorage?.getItem(userSettingsStorageKey()));
+  } catch {
+    return false;
+  }
+}
+
+function renderCustomerPrivacySettings(settings = readLocalUserSettings()){
+  const toggle = $('#personalizedRecommendationToggle');
+  if (toggle) toggle.checked = settings.personalized_recommendation_enabled !== false;
+}
+
+function setCustomerPrivacySettingsMessage(message = '', kind = 'success'){
+  const box = $('#customerPrivacySettingsMessage');
+  if (!box) return;
+  box.textContent = message;
+  box.classList.toggle('error', kind === 'error');
+  box.hidden = !message;
+}
+
+async function loadCustomerPrivacySettings(){
+  const localWasExplicit = hasLocalUserSettings();
+  const local = readLocalUserSettings();
+  renderCustomerPrivacySettings(local);
+  try {
+    const clientId = userSettingsClientId();
+    const remote = await api(`/api/user/settings?client_id=${encodeURIComponent(clientId)}`, {timeoutMs:10000});
+    const enabled = localWasExplicit
+      ? local.personalized_recommendation_enabled !== false
+      : remote.personalized_recommendation_enabled !== false;
+    const settings = writeLocalUserSettings(enabled);
+    renderCustomerPrivacySettings(settings);
+    if (localWasExplicit && remote.personalized_recommendation_enabled !== enabled) {
+      await api('/api/user/settings', {
+        method:'PATCH',
+        timeoutMs:10000,
+        body:JSON.stringify({
+          client_id: clientId,
+          personalized_recommendation_enabled: enabled,
+        }),
+      });
+    }
+    return settings;
+  } catch {
+    return local;
+  }
+}
+
+async function saveCustomerPrivacySettings(enabled = true){
+  const settings = writeLocalUserSettings(enabled);
+  renderCustomerPrivacySettings(settings);
+  setCustomerPrivacySettingsMessage('正在保存...');
+  try {
+    const saved = await api('/api/user/settings', {
+      method:'PATCH',
+      timeoutMs:10000,
+      body:JSON.stringify({
+        client_id: userSettingsClientId(),
+        personalized_recommendation_enabled: settings.personalized_recommendation_enabled,
+      }),
+    });
+    writeLocalUserSettings(saved.personalized_recommendation_enabled !== false);
+    renderCustomerPrivacySettings(saved);
+    setCustomerPrivacySettingsMessage(saved.personalized_recommendation_enabled === false
+      ? '已关闭。后续建议将只使用通用规则和你主动选择的当前项目信息。'
+      : '已开启个性化推荐/推送。');
+  } catch {
+    setCustomerPrivacySettingsMessage('云端暂时未同步，但当前浏览器已保存此设置。', 'error');
+  }
+}
+
+function openCustomerPrivacySettings(){
+  const dialog = $('#customerPrivacySettings');
+  if (!dialog) return;
+  renderCustomerPrivacySettings();
+  setCustomerPrivacySettingsMessage('');
+  dialog.hidden = false;
+  document.body.classList.add('customer-privacy-open');
+  window.setTimeout(() => $('#personalizedRecommendationToggle')?.focus(), 80);
+}
+
+function closeCustomerPrivacySettings(){
+  const dialog = $('#customerPrivacySettings');
+  if (!dialog) return;
+  dialog.hidden = true;
+  document.body.classList.remove('customer-privacy-open');
+  $('#customerPrivacySettingsBtn')?.focus();
+}
+
+function initCustomerPrivacySettings(){
+  renderCustomerPrivacySettings();
+  loadCustomerPrivacySettings();
+  $('#customerPrivacySettingsBtn')?.addEventListener('click', openCustomerPrivacySettings);
+  $('#customerPrivacySettingsClose')?.addEventListener('click', closeCustomerPrivacySettings);
+  $('#customerPrivacySettings')?.addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeCustomerPrivacySettings();
+  });
+  $('#personalizedRecommendationToggle')?.addEventListener('change', async (event) => {
+    const toggle = event.currentTarget;
+    toggle.disabled = true;
+    await saveCustomerPrivacySettings(toggle.checked);
+    toggle.disabled = false;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('#customerPrivacySettings')?.hidden) closeCustomerPrivacySettings();
+  });
+}
+
 function initCustomerTrial(){
+  initCustomerPrivacySettings();
   trackCustomerEventOnce('home_view', {source:'customer_public'});
   initCustomerChoices('[data-customer-platforms]', 'current_channels');
   initCustomerChoices('[data-customer-content-mode]', 'content_mode');
@@ -5264,6 +5422,66 @@ const GENERATION_MODEL_BY_TYPE = {
   script: 'Kimi (kimi-k2.6)',
   copy: 'Kimi (kimi-k2.6)',
 };
+const GENERATION_TYPE_UI = {
+  script: {
+    contentType: '脚本',
+    guidanceTitle: '脚本需要补充什么',
+    guidanceText: '说明主题、受众和希望观众看完后采取的动作。',
+    promptLabel: '脚本主题与具体要求 *',
+    placeholder: '例如：为少儿篮球训练营写一条 60 秒口播脚本，面向附近 6-12 岁孩子家长，说明体验课能解决什么问题，结尾引导预约体验。',
+    submitLabel: '生成脚本',
+  },
+  copy: {
+    contentType: '文案',
+    guidanceTitle: '文案需要补充什么',
+    guidanceText: '说清发布场景、核心观点和希望读者采取的动作。',
+    promptLabel: '文案主题与具体要求 *',
+    placeholder: '例如：写一篇小红书笔记，面向附近想做通勤款美甲的女性，解释有浏览没咨询的原因，并自然引导预约。',
+    submitLabel: '生成文案',
+  },
+  video: {
+    contentType: '视频',
+    guidanceTitle: '视频需要补充什么',
+    guidanceText: '描述主体、场景、动作和镜头变化；参考图可在下方折叠区选择。',
+    promptLabel: '视频画面与动作要求 *',
+    placeholder: '例如：真实篮球馆内，一名教练带 8 岁孩子完成运球训练；镜头先展示全景，再跟拍动作细节，画面自然、有现场感。',
+    submitLabel: '生成视频',
+  },
+  cover: {
+    contentType: '封面',
+    guidanceTitle: '封面需要补充什么',
+    guidanceText: '写清主视觉、标题层级和想传达的第一印象。',
+    promptLabel: '封面画面与排版要求 *',
+    placeholder: '例如：小红书竖版封面，真实儿童摄影场景，标题醒目但不遮挡人物，整体高级、克制、可信。',
+    submitLabel: '生成封面',
+  },
+  image: {
+    contentType: '图文',
+    guidanceTitle: '图片需要补充什么',
+    guidanceText: '描述画面主体、使用场景、构图和必须避免的元素。',
+    promptLabel: '图片画面与用途要求 *',
+    placeholder: '例如：为口腔门诊小红书笔记生成一张真实诊室配图，突出儿童检查场景，干净专业，不出现夸张医疗承诺。',
+    submitLabel: '生成图片',
+  },
+};
+const GENERATION_OUTPUT_SPEC_FIELDS = [
+  'script_format',
+  'script_duration',
+  'script_must_include',
+  'copy_format',
+  'copy_length',
+  'copy_cta',
+  'video_ratio',
+  'video_duration',
+  'video_style',
+  'video_generate_audio',
+  'cover_size',
+  'cover_text',
+  'cover_style',
+  'image_size',
+  'image_usage',
+  'image_style',
+];
 let generationWorkbenchState = { assets: [], tasks: [], clientTasks: [] };
 let generationWorkbenchRefreshTimer = 0;
 let generationWorkbenchRefreshBusy = false;
@@ -5288,11 +5506,60 @@ function generationModelFor(type){
 }
 
 function updateGenerationRequestedModel(){
-  const type = $('#generationTypeSelect')?.value || 'video';
+  const type = $('#generationTypeSelect')?.value || 'script';
+  const ui = GENERATION_TYPE_UI[type] || GENERATION_TYPE_UI.script;
   const input = $('#generationRequestedModel');
   if (input) input.value = generationModelFor(type);
   const contentType = $('#generationTaskForm [name="content_type"]');
-  if (contentType) contentType.value = type === 'video' ? '视频' : type === 'cover' ? '封面' : type === 'image' ? '图文' : '脚本';
+  if (contentType) contentType.value = ui.contentType;
+  const guidanceTitle = $('#generationTypeGuidanceTitle');
+  const guidanceText = $('#generationTypeGuidanceText');
+  const promptLabel = $('#generationPromptLabel');
+  const prompt = $('#generationTaskForm [name="prompt"]');
+  const submitButton = $('#generationTaskForm button[type="submit"]');
+  if (guidanceTitle) guidanceTitle.textContent = ui.guidanceTitle;
+  if (guidanceText) guidanceText.textContent = ui.guidanceText;
+  if (promptLabel) promptLabel.textContent = ui.promptLabel;
+  if (prompt) prompt.placeholder = ui.placeholder;
+  if (submitButton && !submitButton.disabled) submitButton.textContent = ui.submitLabel;
+  $$('#generationTypeFields [data-generation-fields]').forEach((group) => {
+    const active = group.dataset.generationFields === type;
+    group.hidden = !active;
+    Array.from(group.querySelectorAll('input, select, textarea')).forEach((control) => {
+      control.disabled = !active;
+    });
+  });
+}
+
+function generationOutputSpecFor(data = {}, form){
+  const type = data.generation_type || 'script';
+  const outputSpec = {
+    client_visible: Boolean(form.querySelector('[name="client_visible"]')?.checked),
+  };
+  if (type === 'script') {
+    outputSpec.format = data.script_format || '口播脚本';
+    outputSpec.target_duration = data.script_duration || '60秒';
+    outputSpec.must_include = data.script_must_include || '';
+  } else if (type === 'copy') {
+    outputSpec.format = data.copy_format || '小红书笔记';
+    outputSpec.target_length = data.copy_length || '标准（300-500字）';
+    outputSpec.cta = data.copy_cta || '';
+  } else if (type === 'video') {
+    outputSpec.ratio = data.video_ratio || '9:16';
+    outputSpec.duration = data.video_duration || '6s';
+    outputSpec.size = outputSpec.ratio === '16:9' ? '1920x1080' : outputSpec.ratio === '1:1' ? '1080x1080' : '1080x1920';
+    outputSpec.style = data.video_style || '';
+    outputSpec.generate_audio = Boolean(form.querySelector('[name="video_generate_audio"]')?.checked);
+  } else if (type === 'cover') {
+    outputSpec.size = data.cover_size || '1024x1536';
+    outputSpec.cover_text = data.cover_text || '';
+    outputSpec.style = data.cover_style || '';
+  } else if (type === 'image') {
+    outputSpec.size = data.image_size || '1024x1536';
+    outputSpec.usage = data.image_usage || '内容配图';
+    outputSpec.style = data.image_style || '';
+  }
+  return outputSpec;
 }
 
 function readFileAsBase64(file){
@@ -5379,6 +5646,17 @@ function generationTaskProgressText(task = {}){
   return '任务状态已更新。';
 }
 
+function renderGenerationRunningState(task = {}){
+  if (task.status !== 'generating') return '';
+  const elapsedSeconds = Math.max(1, Math.round(generationTaskAgeMs(task) / 1000));
+  return `
+    <div class="generation-running-state" role="status" aria-live="polite">
+      <span><i></i></span>
+      <small>已等待约 ${esc(elapsedSeconds)} 秒 · 后台继续运行，离开页面也不会中断</small>
+    </div>
+  `;
+}
+
 function generationOutputAssetsForTask(task = {}){
   const outputIds = new Set((task.output_asset_ids || []).map((id) => String(id)));
   if (!outputIds.size) return [];
@@ -5391,6 +5669,18 @@ function generationOutputTextForTask(task = {}){
     .map((asset) => String(asset.notes || '').trim())
     .filter(Boolean)
     .join('\n\n');
+}
+
+function generationOutputMediaForTask(task = {}){
+  return generationOutputAssetsForTask(task).find((asset) => {
+    const mime = String(asset.mime_type || '');
+    return mime.startsWith('image/') || mime.startsWith('video/');
+  }) || null;
+}
+
+function generationRenderableMediaUrl(asset = {}){
+  const url = String(asset.storage_url || '').trim();
+  return /^(?:https?:|blob:|data:(?:image|video)\/)/i.test(url) ? url : '';
 }
 
 const GENERATION_COMPLETENESS_REASON_LABELS = {
@@ -5433,7 +5723,32 @@ function renderGenerationCompleteness(task = {}){
 
 function renderGenerationOutput(task = {}){
   const text = generationOutputTextForTask(task);
-  if (!text) return '';
+  const media = generationOutputMediaForTask(task);
+  const mediaUrl = generationRenderableMediaUrl(media);
+  if (!text && !media) return '';
+  if (media) {
+    const isVideo = String(media.mime_type || '').startsWith('video/');
+    const mediaMarkup = mediaUrl
+      ? (isVideo
+        ? `<video class="generation-output-media" src="${esc(mediaUrl)}" controls preload="metadata"></video>`
+        : `<img class="generation-output-media" src="${esc(mediaUrl)}" alt="${esc(media.original_filename || '生成图片')}" />`)
+      : `<div class="generation-output-placeholder">
+          <strong>${isVideo ? '视频任务已生成' : '图片任务已生成'}</strong>
+          <span>${String(media.storage_url || '').startsWith('mock://') ? '当前是模型适配器的模拟产物，接入真实模型后会在这里显示成品。' : '成品地址暂时不可直接预览，请查看技术信息。'}</span>
+        </div>`;
+    return `
+      <section class="generation-output-preview generation-media-preview">
+        <div class="generation-output-head">
+          <div>
+            <span>生成成品</span>
+            <strong>${esc(media.resolution || task.output_spec?.size || '尺寸未标注')}${media.duration ? ` · ${esc(media.duration)}` : ''}</strong>
+          </div>
+          ${mediaUrl ? `<button type="button" data-gw-action="copy-asset-link" data-task-id="${esc(task.task_id)}">复制成品链接</button>` : ''}
+        </div>
+        ${mediaMarkup}
+      </section>
+    `;
+  }
   return `
     <section class="generation-output-preview">
       <div class="generation-output-head">
@@ -5458,6 +5773,7 @@ function renderGenerationTaskActions(task = {}){
   }
   if (status === 'generating') {
     buttons.push('<button type="button" class="generation-running-button" disabled><span aria-hidden="true"></span>正在生成</button>');
+    buttons.push(`<button type="button" class="secondary" data-gw-action="check-progress" data-task-id="${taskId}">检查进度</button>`);
   }
   if (['generated', 'qa_pending'].includes(status)) {
     buttons.push(`<button type="button" data-gw-action="qa-pass" data-task-id="${taskId}">验收通过</button>`);
@@ -5497,6 +5813,7 @@ function renderGenerationTaskCard(task = {}){
         <span class="generation-status" data-status="${esc(task.status || 'draft')}">${esc(generationStatusLabel(task.status))}</span>
       </div>
       ${task.error ? `<p class="generation-error">${esc(task.error)}</p>` : ''}
+      ${renderGenerationRunningState(task)}
       ${renderGenerationOutput(task)}
       ${renderGenerationTaskActions(task)}
       <details class="generation-prompt-details">
@@ -5582,11 +5899,11 @@ async function refreshGeneratingWorkbenchTasks(){
   clearGenerationWorkbenchRefresh();
   try {
     const client_id = generationClientId();
-    const videoTasks = (generationWorkbenchState.tasks || []).filter((task) =>
-      task.status === 'generating' && task.generation_type === 'video' && task.provider_job_id
-    );
-    if (videoTasks.length) {
-      await Promise.allSettled(videoTasks.map((task) =>
+    const generatingTasks = (generationWorkbenchState.tasks || [])
+      .filter((task) => task.status === 'generating')
+      .slice(0, 8);
+    if (generatingTasks.length) {
+      await Promise.allSettled(generatingTasks.map((task) =>
         api(`/api/generation-tasks/${encodeURIComponent(task.task_id)}/poll`, {
           method: 'POST',
           body: JSON.stringify({client_id}),
@@ -5702,22 +6019,37 @@ async function handleGenerationTaskSubmit(form){
   const data = formData(form);
   const selectedAssets = $$('#generationAssetPicker input[type="checkbox"]:checked').map((input)=>input.value);
   data.input_asset_ids = selectedAssets;
-  data.output_spec = {
-    size: data.size || '',
-    duration: data.duration || '',
-    style: data.style || '',
-    client_visible: Boolean(form.querySelector('[name="client_visible"]')?.checked),
-  };
-  delete data.size;
-  delete data.duration;
-  delete data.style;
+  data.output_spec = generationOutputSpecFor(data, form);
+  GENERATION_OUTPUT_SPEC_FIELDS.forEach((field) => delete data[field]);
   delete data.client_visible;
-  const result = await api('/api/generation-tasks', {method:'POST', body: JSON.stringify(data)});
-  const taskId = result.task?.task_id || '';
-  setGenerationMessage('#generationTaskMessage', `任务已创建：${taskId}。请在下方点击“开始生成”。`);
-  await loadGenerationWorkbench();
-  const taskCard = document.querySelector(`.generation-task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
-  taskCard?.scrollIntoView({behavior:'smooth', block:'center'});
+  const submitButton = form.querySelector('button[type="submit"]');
+  const idleLabel = GENERATION_TYPE_UI[data.generation_type]?.submitLabel || '生成内容';
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = '正在创建并提交...';
+  }
+  try {
+    const created = await api('/api/generation-tasks', {method:'POST', body: JSON.stringify(data)});
+    const taskId = created.task?.task_id || '';
+    const submitted = await api(`/api/generation-tasks/${encodeURIComponent(taskId)}/submit`, {
+      method: 'POST',
+      body: JSON.stringify({client_id: data.client_id}),
+    });
+    setGenerationMessage(
+      '#generationTaskMessage',
+      submitted.task?.status === 'generating'
+        ? '任务已进入后台生成。通常需要 30-90 秒，页面会自动更新，离开本页也不会中断。'
+        : '成品已经生成，请在下方直接查看并验收。'
+    );
+    await loadGenerationWorkbench();
+    const taskCard = document.querySelector(`.generation-task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
+    taskCard?.scrollIntoView({behavior:'smooth', block:'center'});
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = idleLabel;
+    }
+  }
 }
 
 async function runGenerationTaskAction(action, taskId){
@@ -5766,6 +6098,27 @@ async function copyGenerationTaskOutput(taskId){
   toast('成稿已复制，可以粘贴使用');
 }
 
+async function copyGenerationTaskAssetLink(taskId){
+  const task = (generationWorkbenchState.tasks || []).find((item) => String(item.task_id) === String(taskId));
+  const asset = generationOutputMediaForTask(task);
+  const url = generationRenderableMediaUrl(asset);
+  if (!url) throw new Error('这条任务还没有可复制的成品链接');
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(url);
+  } else {
+    const textarea = document.createElement('textarea');
+    textarea.value = url;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+  toast('成品链接已复制');
+}
+
 async function showGenerationFeishuPayload(){
   const task = (generationWorkbenchState.tasks || [])[0];
   const box = $('#generationFeishuPayload');
@@ -5810,6 +6163,14 @@ function initGenerationWorkbench(){
     if (!button) return;
     if (button.dataset.gwAction === 'copy-output') {
       copyGenerationTaskOutput(button.dataset.taskId).catch((error)=>toast(error.message || '复制成稿失败'));
+      return;
+    }
+    if (button.dataset.gwAction === 'copy-asset-link') {
+      copyGenerationTaskAssetLink(button.dataset.taskId).catch((error)=>toast(error.message || '复制成品链接失败'));
+      return;
+    }
+    if (button.dataset.gwAction === 'check-progress') {
+      refreshGeneratingWorkbenchTasks().catch((error)=>toast(error.message || '检查进度失败'));
       return;
     }
     runGenerationTaskAction(button.dataset.gwAction, button.dataset.taskId).catch((error)=>toast(error.message || '任务操作失败'));
