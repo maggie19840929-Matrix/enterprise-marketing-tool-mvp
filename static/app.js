@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.117';
-const VERSION_LABEL = 'v1.6.117 · 个性化推荐控制版';
+const APP_VERSION = '1.6.118';
+const VERSION_LABEL = 'v1.6.118 · 多类型素材生成稳定版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -5679,7 +5679,7 @@ function generationOutputMediaForTask(task = {}){
 }
 
 function generationRenderableMediaUrl(asset = {}){
-  const url = String(asset.storage_url || '').trim();
+  const url = String(asset?.storage_url || '').trim();
   return /^(?:https?:|blob:|data:(?:image|video)\/)/i.test(url) ? url : '';
 }
 

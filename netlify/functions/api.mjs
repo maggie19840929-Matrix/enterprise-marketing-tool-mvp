@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.117';
-const VERSION_LABEL = 'v1.6.117 · 个性化推荐控制版';
+const APP_VERSION = '1.6.118';
+const VERSION_LABEL = 'v1.6.118 · 多类型素材生成稳定版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -4353,6 +4353,22 @@ const providerForGeneration = (generationType = '') => {
   return kimiApiKey() ? 'kimi-text' : 'claude-text';
 };
 
+const GENERATION_CONTENT_TYPES = {
+  script: '脚本',
+  copy: '文案',
+  video: '视频',
+  cover: '封面',
+  image: '图文',
+};
+
+const generationTypeForContent = (contentType = '') => {
+  const normalized = String(contentType || '').trim();
+  return Object.entries(GENERATION_CONTENT_TYPES).find(([, label]) => label === normalized)?.[0] || '';
+};
+
+const contentTypeForGeneration = (generationType = '') =>
+  GENERATION_CONTENT_TYPES[generationType] || '其他';
+
 const statusEvent = (status, note = '') => ({ status, note, at: nowIso() });
 const withStatus = (task, status, note = '') => ({
   ...task,
@@ -4365,7 +4381,7 @@ const createGenerationTask = async (payload = {}) => {
   const client_id = normalizeClientId(payload.client_id);
   const missing = ['project_id', 'client_id', 'content_plan_record_id'].filter((key) => !String(payload[key] || '').trim());
   if (missing.length || !client_id) throw new Error(`创建生成任务缺少必填归属字段：${missing.join(', ') || 'client_id'}`);
-  const generation_type = payload.generation_type || (payload.content_type === '视频' ? 'video' : payload.content_type === '封面' ? 'cover' : 'copy');
+  const generation_type = payload.generation_type || generationTypeForContent(payload.content_type) || 'copy';
   const requested_model = payload.requested_model || requestedModelForGeneration(generation_type);
   const task = {
     task_id: payload.task_id || makeId('task'),
@@ -4374,7 +4390,7 @@ const createGenerationTask = async (payload = {}) => {
     client_name: payload.client_name || '',
     content_plan_record_id: String(payload.content_plan_record_id),
     platform: payload.platform || '小红书',
-    content_type: payload.content_type || (generation_type === 'video' ? '视频' : generation_type === 'cover' ? '封面' : '脚本'),
+    content_type: payload.content_type || contentTypeForGeneration(generation_type),
     generation_type,
     requested_model,
     actual_model: payload.actual_model || '',
@@ -6706,6 +6722,9 @@ export default async (request, context = {}) => {
           kimi: Boolean(kimiApiKey()),
           kimi_model: KIMI_MODEL,
           ark: Boolean(arkApiKey()),
+          seedance_model: SEEDANCE_MODEL,
+          openai: Boolean(openaiApiKey()),
+          image_model: OPENAI_IMAGE_MODEL,
           anthropic: Boolean(anthropicApiKey()),
           glm: Boolean(glmApiKey()),
           script_provider: providerForGeneration('script'),
