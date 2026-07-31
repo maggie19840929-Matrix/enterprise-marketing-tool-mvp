@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.118';
-const VERSION_LABEL = 'v1.6.118 · 多类型素材生成稳定版';
+const APP_VERSION = '1.6.119';
+const VERSION_LABEL = 'v1.6.119 · 图片后台生成稳定版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -30,6 +30,7 @@ const KIMI_MAX_TOKENS = Math.min(Math.max(Number(process.env.KIMI_MAX_TOKENS || 
 const KIMI_CONTINUATION_MAX_TOKENS = Math.min(Math.max(Number(process.env.KIMI_CONTINUATION_MAX_TOKENS || 1200), 400), 4000);
 const KIMI_COMPLETENESS_REPAIR_ROUNDS = Math.min(Math.max(Number(process.env.KIMI_COMPLETENESS_REPAIR_ROUNDS || 2), 1), 3);
 const KIMI_REGENERATION_MAX_TOKENS = Math.min(Math.max(Number(process.env.KIMI_REGENERATION_MAX_TOKENS || 2400), 800), 6000);
+const IMAGE_BG_TIMEOUT_MS = Math.min(Math.max(Number(process.env.IMAGE_BG_TIMEOUT_MS || 180000), 30000), 600000);
 const BACKGROUND_GENERATION_LOCK_MS = Math.min(
   Math.max(Number(process.env.BACKGROUND_GENERATION_LOCK_MS || 14 * 60 * 1000), 60 * 1000),
   15 * 60 * 1000,
@@ -4629,7 +4630,7 @@ const pollSeedanceVideo = async ({ task, provider_job_id }) => {
   return { status: 'generating', poll_count: count, backoff_ms: Math.min(60000, 3000 * (2 ** Math.min(count - 1, 5))) };
 };
 
-const submitOpenAIImage = async ({ task }) => {
+const submitOpenAIImage = async ({ task }, { timeoutMs = MODEL_TIMEOUT_MS } = {}) => {
   const prompt = generationModelPrompt(task) || 'marketing asset image';
   const output = { storage_url: `mock://openai-image/${task.task_id}.png`, mime_type: 'image/png', resolution: task.output_spec?.size || '1024x1024', summary: `OpenAI image mock: ${prompt}` };
   if (!openaiApiKey()) return mockAdapterResult({ task, provider: 'openai-image', reason: 'MOCK_KEY_MISSING', output });
@@ -4640,7 +4641,7 @@ const submitOpenAIImage = async ({ task }) => {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${openaiApiKey()}` },
     body: JSON.stringify({ model, prompt, size: task.output_spec?.size || '1024x1024', n: 1 }),
-  });
+  }, timeoutMs);
   const image = data?.data?.[0] || {};
   const storageUrl = image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : '');
   return {
@@ -4994,6 +4995,7 @@ const generationAdapters = {
   'openai-image': {
     name: 'openai-image',
     isAsync: false,
+    isBackground: true,
     submit: submitOpenAIImage,
   },
   'claude-text': {
@@ -5021,6 +5023,8 @@ const generationAdapters = {
 };
 
 const adapterForTask = (task = {}) => generationAdapters[task.provider] || generationAdapters[providerForGeneration(task.generation_type)] || generationAdapters['claude-text'];
+const shouldRunAdapterInBackground = (adapter = {}) =>
+  Boolean(adapter.isBackground && (adapter.name !== 'openai-image' || openaiApiKey()));
 
 const validateTaskAssets = async (task) => {
   const ids = ensureArray(task.input_asset_ids).map(String).filter(Boolean);
@@ -5097,7 +5101,10 @@ export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } =
   await saveTask(task);
   let submitted;
   try {
-    submitted = await adapter.submit({ task, outputSpec: task.output_spec }, { timeoutMs: KIMI_BG_TIMEOUT_MS, retries: KIMI_MAX_RETRIES });
+    const backgroundOptions = adapter.name === 'openai-image'
+      ? { timeoutMs: IMAGE_BG_TIMEOUT_MS, retries: 0 }
+      : { timeoutMs: KIMI_BG_TIMEOUT_MS, retries: KIMI_MAX_RETRIES };
+    submitted = await adapter.submit({ task, outputSpec: task.output_spec }, backgroundOptions);
   } catch (error) {
     submitted = { ok: false, provider: adapter.name, actual_model: 'rule_template', fallback_reason: error?.message || 'adapter_failed', error: error?.message || 'adapter_failed' };
   }
@@ -5177,7 +5184,7 @@ const submitGenerationTask = async (clientId, taskId) => {
     task = withStatus({ ...task, actual_model: 'rule_template', fallback: true, fallback_reason: 'missing_provider_key', error: '模型鉴权失败' }, 'blocked_model_auth', 'mock 鉴权失败');
     return saveTask(task);
   }
-  if (adapter.isBackground) {
+  if (shouldRunAdapterInBackground(adapter)) {
     const queuedAt = nowIso();
     task = withStatus({
       ...task,
@@ -6725,6 +6732,7 @@ export default async (request, context = {}) => {
           seedance_model: SEEDANCE_MODEL,
           openai: Boolean(openaiApiKey()),
           image_model: OPENAI_IMAGE_MODEL,
+          image_background: true,
           anthropic: Boolean(anthropicApiKey()),
           glm: Boolean(glmApiKey()),
           script_provider: providerForGeneration('script'),
