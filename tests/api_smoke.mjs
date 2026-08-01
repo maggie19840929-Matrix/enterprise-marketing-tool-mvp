@@ -4,12 +4,12 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.119';
-const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.119';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.119';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.121';
+const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.121';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.121';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 process.env.BACKGROUND_GENERATION_TOKEN = BACKGROUND_GENERATION_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.119-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.121-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -140,7 +140,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.119', `expected app_version 1.6.119, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.121', `expected app_version 1.6.121, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -775,8 +775,9 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.119'") && appJs.includes("v1.6.119 · 图片后台生成稳定版"), 'app should expose the v1.6.119 background image generation release');
+assert(appJs.includes("const APP_VERSION = '1.6.121'") && appJs.includes("v1.6.121 · GPT Image 2 图片预览修复版"), 'app should expose the v1.6.121 GPT Image 2 preview fix');
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
+assert(appJs.includes("if (/^data:(?:image|video)\\//i.test(raw)) return raw;") && apiSource.includes("if (/^data:(?:image|video)\\//i.test(raw)) return raw;"), 'customer sanitizers must preserve embedded image and video data URLs byte-for-byte');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
 assert(apiSource.includes("'视频号': '更适合负责人/老板口播、真实案例复盘和信任建立") && apiSource.includes('好内容可被转发到群/朋友圈并经好友社交推荐') && apiSource.includes('公众号/社群/企业微信/私信等私域入口'), 'Video Account platform rule should cover mature-audience trust, social forwarding, and private-domain conversion');
@@ -957,11 +958,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.119') && indexHtml.includes('/styles.css?v=1.6.119') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.119'), 'customer page should cache-bust the v1.6.119 background image generation release while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.121') && indexHtml.includes('/styles.css?v=1.6.121') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.121'), 'customer page should cache-bust the v1.6.121 GPT Image 2 preview fix while preserving the first-paint fix');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.119') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.119') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.119') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.121') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.121') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.121') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1501,12 +1502,12 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.119' && health.version_label === 'v1.6.119 · 图片后台生成稳定版', 'health should expose the v1.6.119 background image generation release');
+assert(health.version === '1.6.121' && health.version_label === 'v1.6.121 · GPT Image 2 图片预览修复版', 'health should expose the v1.6.121 GPT Image 2 preview fix');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
 assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_bitable_pull_v1') && health.features.includes('feishu_bitable_push_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound, stage-B pull, stage-C push and webhook capabilities');
-assert(health.providers?.openai === false && health.providers?.image_model === 'gpt-image-1' && health.providers?.image_background === true, 'health should expose non-secret image provider readiness, model and background execution evidence');
+assert(health.providers?.openai === false && health.providers?.image_model === 'gpt-image-2' && health.providers?.image_background === true, 'health should expose non-secret image provider readiness, model and background execution evidence');
 assert(health.providers?.ark === false && health.providers?.seedance_model === 'doubao-seedance-2-0-260128', 'health should expose non-secret video provider readiness and model evidence');
 
 const timestampProject = ({ id, name, updatedAt, marker }) => ({
@@ -2388,8 +2389,8 @@ globalThis.fetch = async (url, options = {}) => {
   if (requestUrl.endsWith('/images/generations')) {
     openAiImageCalls += 1;
     return new Response(JSON.stringify({
-      model: 'gpt-image-1',
-      data: [{ b64_json: 'aW1hZ2U=' }],
+      model: 'gpt-image-2',
+      data: [{ b64_json: 'AAAAAP01MatrixPTEAAAA=' }],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   }
   throw new Error(`unexpected OpenAI image smoke fetch: ${requestUrl}`);
@@ -2419,7 +2420,10 @@ const generatedBackgroundCoverResponse = await backgroundGenerationHandler(new R
 assert(generatedBackgroundCoverResponse.status === 200, 'background image generation should complete through the background function');
 const generatedBackgroundCover = (await (await handler(internalRequest('POST', `generation-tasks/${backgroundCoverTask.task_id}/poll`, { client_id: qaClientId }))).json()).task;
 assert(generatedBackgroundCover.status === 'qa_pending' && generatedBackgroundCover.fallback === false, 'real background image output should enter QA without fallback');
-assert(generatedBackgroundCover.actual_model === 'gpt-image-1' && generatedBackgroundCover.output_asset_ids.length === 1, 'background image output should preserve real-model evidence and one output asset');
+assert(generatedBackgroundCover.actual_model === 'gpt-image-2' && generatedBackgroundCover.output_asset_ids.length === 1, 'background image output should preserve real-model evidence and one output asset');
+const backgroundCoverAssets = (await (await handler(internalRequest('GET', `assets?client_id=${qaClientId}&project_id=${qaProjectId}`))).json()).assets;
+const generatedBackgroundCoverAsset = backgroundCoverAssets.find((asset) => asset.asset_id === generatedBackgroundCover.output_asset_ids[0]);
+assert(generatedBackgroundCoverAsset?.storage_url === 'data:image/png;base64,AAAAAP01MatrixPTEAAAA=', 'customer sanitizer must not alter embedded image data URLs');
 assert(openAiImageCalls === 1, 'completed background image tasks should call the image provider exactly once');
 globalThis.fetch = originalFetch;
 delete process.env.OPENAI_API_KEY;

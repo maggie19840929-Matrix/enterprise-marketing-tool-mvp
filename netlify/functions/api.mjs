@@ -8,8 +8,8 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 
-const APP_VERSION = '1.6.119';
-const VERSION_LABEL = 'v1.6.119 · 图片后台生成稳定版';
+const APP_VERSION = '1.6.121';
+const VERSION_LABEL = 'v1.6.121 · GPT Image 2 图片预览修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -17,7 +17,7 @@ const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUD
 const ARK_BASE_URL = process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
 const SEEDANCE_MODEL = process.env.SEEDANCE_MODEL || process.env.ARK_VIDEO_MODEL || 'doubao-seedance-2-0-260128';
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
 const CLAUDE_SCRIPT_MODEL = process.env.CLAUDE_SCRIPT_MODEL || 'claude-opus-4-8';
 const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
@@ -113,7 +113,9 @@ const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
 
 const CUSTOMER_PUBLIC_BRAND_PLACEHOLDER = '__fp_public_brand__';
 const sanitizeCustomerText = (value = '') => {
-  const withPublicBrandProtected = String(value).replace(
+  const raw = String(value);
+  if (/^data:(?:image|video)\//i.test(raw)) return raw;
+  const withPublicBrandProtected = raw.replace(
     forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'),
     CUSTOMER_PUBLIC_BRAND_PLACEHOLDER,
   );

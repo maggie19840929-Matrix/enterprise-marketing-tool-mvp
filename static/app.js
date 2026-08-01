@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.119';
-const VERSION_LABEL = 'v1.6.119 · 图片后台生成稳定版';
+const APP_VERSION = '1.6.121';
+const VERSION_LABEL = 'v1.6.121 · GPT Image 2 图片预览修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -75,7 +75,9 @@ const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
 ];
 const CUSTOMER_PUBLIC_BRAND_PLACEHOLDER = '__fp_public_brand__';
 const sanitizeCustomerText = (value = '') => {
-  const withPublicBrandProtected = String(value).replace(
+  const raw = String(value);
+  if (/^data:(?:image|video)\//i.test(raw)) return raw;
+  const withPublicBrandProtected = raw.replace(
     forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'),
     CUSTOMER_PUBLIC_BRAND_PLACEHOLDER,
   );
