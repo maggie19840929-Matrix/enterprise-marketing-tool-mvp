@@ -4,12 +4,12 @@ import { createHash } from 'node:crypto';
 ['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
-const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.121';
-const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.121';
-const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.121';
+const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.122';
+const BACKGROUND_GENERATION_TOKEN = 'smoke-background-token-1.6.122';
+const FEISHU_INBOUND_TOKEN = 'smoke-feishu-inbound-token-1.6.122';
 process.env.INTERNAL_ACCESS_TOKEN = INTERNAL_ACCESS_TOKEN;
 process.env.BACKGROUND_GENERATION_TOKEN = BACKGROUND_GENERATION_TOKEN;
-process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.121-not-production';
+process.env.METERING_HASH_SECRET = 'smoke-metering-secret-v1.6.122-not-production';
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_WINDOW_SECONDS = '60';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -140,7 +140,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.121', `expected app_version 1.6.121, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.121', `public diagnosis should remain on app_version 1.6.121, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -640,6 +640,207 @@ for (const protectedPath of ['dashboard', 'diagnoses?client_id=dental', 'plans?c
 }
 const anonymousTaskDetail = await handler(request('GET', 'generation-tasks/nonexistent?client_id=internal'));
 assert(anonymousTaskDetail.status === 401, 'anonymous generation task detail must be rejected before existence is disclosed');
+for (const protectedPath of ['delivery-profiles', 'delivery-projects?client_id=delivery-p0-professional', 'delivery-cycles?client_id=delivery-p0-professional', 'collaboration-tasks?client_id=delivery-p0-professional', 'weekly-reports?client_id=delivery-p0-professional']) {
+  const protectedResponse = await handler(request('GET', protectedPath));
+  assert(protectedResponse.status === 401, `anonymous GET /${protectedPath} must be rejected`);
+}
+const deliveryProfilesResponse = await handler(internalRequest('GET', 'delivery-profiles'));
+assert(deliveryProfilesResponse.status === 200, 'authorized GET /delivery-profiles should succeed');
+const deliveryProfilesPayload = await deliveryProfilesResponse.json();
+assert(deliveryProfilesPayload.audience === 'internal_only', 'delivery collaboration profiles must declare their internal-only audience');
+assert(deliveryProfilesPayload.profiles.some((item) => item.id === 'professional_project' && item.example === '安标检测'), 'delivery profiles should include the professional project template');
+assert(deliveryProfilesPayload.profiles.some((item) => item.id === 'local_growth_operation' && item.example === '伊美德儿'), 'delivery profiles should include the local growth operations template');
+assert(deliveryProfilesPayload.feishu_phase === 'binding_only', 'P0 Feishu collaboration must remain binding-only');
+assert(deliveryProfilesPayload.field_ownership.system.includes('status_events'), 'delivery profiles should expose field ownership rules');
+
+const createDeliverySmokeResource = async (kind, body) => {
+  const response = await handler(internalRequest('POST', kind, body));
+  if (response.status !== 201) throw new Error(`POST /${kind} should succeed, got ${response.status}: ${await response.text()}`);
+  return (await response.json()).resource;
+};
+const patchDeliverySmokeResource = async (kind, id, body) => {
+  const response = await handler(internalRequest('PATCH', `${kind}/${encodeURIComponent(id)}`, body));
+  if (response.status !== 200) throw new Error(`PATCH /${kind}/${id} should succeed, got ${response.status}: ${await response.text()}`);
+  return (await response.json()).resource;
+};
+
+const professionalDeliveryClientId = 'delivery-p0-professional';
+const professionalProjectId = 'project-anbiao-p0';
+const professionalStateBefore = await (await handler(request('GET', `state?client_id=${professionalDeliveryClientId}`))).json();
+const professionalDeliveryProject = await createDeliverySmokeResource('delivery-projects', {
+  client_id: professionalDeliveryClientId,
+  project_id: professionalProjectId,
+  project_name: '安标检测内容交付项目',
+  client_name: '安标检测',
+  delivery_profile: 'professional_project',
+  internal_owner: '项目运营',
+  weekly_target: { videos: 2, report: 1 },
+});
+assert(professionalDeliveryProject.delivery_profile === 'professional_project', 'professional delivery project should keep its profile');
+const professionalCycle = await createDeliverySmokeResource('delivery-cycles', {
+  client_id: professionalDeliveryClientId,
+  project_id: professionalProjectId,
+  delivery_project_id: professionalDeliveryProject.delivery_project_id,
+  week_start: '2026-08-03',
+  week_end: '2026-08-09',
+  goals: ['完成两条专业视频', '约客户现场拍摄'],
+  target_deliverables: [{ type: 'video', count: 2 }, { type: 'weekly_report', count: 1 }],
+});
+const activeProfessionalCycle = await patchDeliverySmokeResource('delivery-cycles', professionalCycle.cycle_id, {
+  client_id: professionalDeliveryClientId,
+  status: 'active',
+  status_note: '本周项目启动',
+});
+assert(activeProfessionalCycle.status === 'active' && activeProfessionalCycle.status_events.length === 2, 'delivery cycle should record valid status transitions');
+const professionalTask = await createDeliverySmokeResource('collaboration-tasks', {
+  client_id: professionalDeliveryClientId,
+  project_id: professionalProjectId,
+  delivery_project_id: professionalDeliveryProject.delivery_project_id,
+  cycle_id: professionalCycle.cycle_id,
+  task_type: 'technical_review',
+  title: 'V2 脚本技术审核',
+  description: '确认术语、口径和现场可拍内容',
+  assignee_role: 'technical_reviewer',
+  deadline: '2026-08-05',
+});
+const plannedProfessionalTask = await patchDeliverySmokeResource('collaboration-tasks', professionalTask.collaboration_task_id, {
+  client_id: professionalDeliveryClientId,
+  status: 'planned',
+});
+assert(plannedProfessionalTask.status === 'planned', 'collaboration task should enter planned');
+const clientAnnotatedTask = await patchDeliverySmokeResource('collaboration-tasks', professionalTask.collaboration_task_id, {
+  client_id: professionalDeliveryClientId,
+  actor_role: 'client_reviewer',
+  actor_name: '客户审核人',
+  client_feedback: '术语已确认，现场补拍设备操作镜头',
+});
+assert(clientAnnotatedTask.client_feedback.includes('现场补拍'), 'client reviewer should be able to write client feedback');
+const forbiddenClientUpdate = await handler(internalRequest('PATCH', `collaboration-tasks/${encodeURIComponent(professionalTask.collaboration_task_id)}`, {
+  client_id: professionalDeliveryClientId,
+  actor_role: 'client_reviewer',
+  internal_notes: '客户不应修改内部备注',
+}));
+assert(forbiddenClientUpdate.status === 400, 'field ownership should reject client changes to internal notes');
+const professionalApproval = await createDeliverySmokeResource('collaboration-approvals', {
+  client_id: professionalDeliveryClientId,
+  project_id: professionalProjectId,
+  delivery_project_id: professionalDeliveryProject.delivery_project_id,
+  cycle_id: professionalCycle.cycle_id,
+  task_id: professionalTask.collaboration_task_id,
+  approval_type: 'technical_review',
+  reviewer_role: 'technical_reviewer',
+  reviewer_name: '技术审核人',
+});
+const passedProfessionalApproval = await patchDeliverySmokeResource('collaboration-approvals', professionalApproval.approval_id, {
+  client_id: professionalDeliveryClientId,
+  status: 'passed',
+  notes: '术语和合规表述通过',
+});
+assert(passedProfessionalApproval.status === 'passed' && passedProfessionalApproval.decided_at, 'approval should record its decision time');
+const professionalShooting = await createDeliverySmokeResource('shooting-schedules', {
+  client_id: professionalDeliveryClientId,
+  project_id: professionalProjectId,
+  delivery_project_id: professionalDeliveryProject.delivery_project_id,
+  cycle_id: professionalCycle.cycle_id,
+  task_id: professionalTask.collaboration_task_id,
+  proposed_slots: ['2026-08-06 14:00', '2026-08-07 10:00'],
+  location: '客户现场',
+  scenes: ['检测设备操作', '工程师讲解'],
+  asset_checklist: ['设备全景', '操作特写', '工程师口播'],
+});
+const confirmedProfessionalShooting = await patchDeliverySmokeResource('shooting-schedules', professionalShooting.shooting_schedule_id, {
+  client_id: professionalDeliveryClientId,
+  status: 'confirmed',
+  confirmed_at: '2026-08-06 14:00',
+});
+assert(confirmedProfessionalShooting.status === 'confirmed', 'shooting schedule should support client-confirmed slots');
+const professionalReport = await createDeliverySmokeResource('weekly-reports', {
+  client_id: professionalDeliveryClientId,
+  project_id: professionalProjectId,
+  delivery_project_id: professionalDeliveryProject.delivery_project_id,
+  cycle_id: professionalCycle.cycle_id,
+  title: '安标检测 2026-08-03 至 2026-08-09 周报',
+  completed_items: ['V2 脚本技术审核完成'],
+  next_week_tasks: ['现场拍摄', '完成两条视频'],
+  client_actions: ['确认拍摄联系人'],
+  metrics: { completed_scripts: 1, planned_videos: 2 },
+});
+assert(professionalReport.status === 'draft', 'weekly report should start as draft');
+const professionalFeishuBinding = await createDeliverySmokeResource('delivery-feishu-bindings', {
+  client_id: professionalDeliveryClientId,
+  project_id: professionalProjectId,
+  delivery_project_id: professionalDeliveryProject.delivery_project_id,
+  workspace_url: 'https://example.feishu.cn/base/anbiao',
+  base_app_token: 'app-token-placeholder',
+  tables: { tasks: 'tblTasks', approvals: 'tblApprovals', weekly_reports: 'tblReports' },
+  sync_mode: 'binding_only',
+});
+assert(professionalFeishuBinding.sync_mode === 'binding_only' && !professionalFeishuBinding.cycle_id, 'P0 Feishu binding should stay project-scoped and not perform sync');
+const forbiddenFeishuSyncMode = await handler(internalRequest('PATCH', `delivery-feishu-bindings/${encodeURIComponent(professionalFeishuBinding.feishu_binding_id)}`, {
+  client_id: professionalDeliveryClientId,
+  sync_mode: 'automatic',
+}));
+assert(forbiddenFeishuSyncMode.status === 400, 'P0 should reject attempts to present a Feishu binding as active synchronization');
+const forbiddenDeliveryProfile = await handler(internalRequest('PATCH', `delivery-projects/${encodeURIComponent(professionalDeliveryProject.delivery_project_id)}`, {
+  client_id: professionalDeliveryClientId,
+  delivery_profile: 'unknown_profile',
+}));
+assert(forbiddenDeliveryProfile.status === 400, 'delivery projects should reject unknown profile changes');
+const invalidCycleRange = await handler(internalRequest('PATCH', `delivery-cycles/${encodeURIComponent(professionalCycle.cycle_id)}`, {
+  client_id: professionalDeliveryClientId,
+  week_start: '2026-08-10',
+  week_end: '2026-08-09',
+}));
+assert(invalidCycleRange.status === 400, 'delivery cycles should reject an inverted date range on update');
+const forbiddenSystemIdUpdate = await handler(internalRequest('PATCH', `collaboration-tasks/${encodeURIComponent(professionalTask.collaboration_task_id)}`, {
+  client_id: professionalDeliveryClientId,
+  collaboration_task_id: 'replacement-id',
+}));
+assert(forbiddenSystemIdUpdate.status === 400, 'delivery resources should reject changes to system-owned IDs');
+const professionalTaskList = await (await handler(internalRequest('GET', `collaboration-tasks?client_id=${professionalDeliveryClientId}&project_id=${professionalProjectId}&cycle_id=${professionalCycle.cycle_id}`))).json();
+assert(professionalTaskList.tasks.length === 1 && professionalTaskList.storage_key === `collaboration-tasks/${professionalDeliveryClientId}`, 'collaboration task list should be client-scoped and use an independent blob key');
+const professionalStateAfter = await (await handler(request('GET', `state?client_id=${professionalDeliveryClientId}`))).json();
+assert(JSON.stringify(professionalStateAfter.project_store) === JSON.stringify(professionalStateBefore.project_store), 'P0 delivery records must not mutate the existing project_store');
+
+const localDeliveryClientId = 'delivery-p0-local-growth';
+const localProjectId = 'project-yimeideer-p0';
+const localDeliveryProject = await createDeliverySmokeResource('delivery-projects', {
+  client_id: localDeliveryClientId,
+  project_id: localProjectId,
+  project_name: '伊美德儿持续增长运营',
+  client_name: '伊美德儿',
+  delivery_profile: 'local_growth_operation',
+});
+const localCycle = await createDeliverySmokeResource('delivery-cycles', {
+  client_id: localDeliveryClientId,
+  project_id: localProjectId,
+  delivery_project_id: localDeliveryProject.delivery_project_id,
+  week_start: '2026-08-03',
+  week_end: '2026-08-09',
+  goals: ['发布内容并记录咨询与预约'],
+});
+const localTask = await createDeliverySmokeResource('collaboration-tasks', {
+  client_id: localDeliveryClientId,
+  project_id: localProjectId,
+  delivery_project_id: localDeliveryProject.delivery_project_id,
+  cycle_id: localCycle.cycle_id,
+  task_type: 'content_production',
+  title: '本周门店内容制作',
+});
+const invalidTaskTransition = await handler(internalRequest('PATCH', `collaboration-tasks/${encodeURIComponent(localTask.collaboration_task_id)}`, {
+  client_id: localDeliveryClientId,
+  status: 'completed',
+}));
+assert(invalidTaskTransition.status === 400, 'delivery status machine should reject draft-to-completed shortcuts');
+const localTaskList = await (await handler(internalRequest('GET', `collaboration-tasks?client_id=${localDeliveryClientId}`))).json();
+assert(localTaskList.tasks.length === 1 && localTaskList.tasks[0].delivery_profile === 'local_growth_operation', 'local growth profile should keep its own collaboration task');
+const crossClientTaskList = await (await handler(internalRequest('GET', `collaboration-tasks?client_id=${localDeliveryClientId}&project_id=${professionalProjectId}`))).json();
+assert(crossClientTaskList.tasks.length === 0, 'delivery collections must not expose another client project');
+const missingDeliveryOwnership = await handler(internalRequest('POST', 'collaboration-tasks', {
+  client_id: localDeliveryClientId,
+  title: '缺少归属的任务',
+}));
+assert(missingDeliveryOwnership.status === 400, 'delivery task creation should reject missing project/cycle ownership');
 const customersInternalGet = await handler(internalRequest('GET', 'customers?mode=internal'));
 assert(customersInternalGet.status === 200, `authorized GET /customers should succeed, got ${customersInternalGet.status}`);
 const customersBearerGet = await handler(request('GET', 'customers', undefined, { headers: { authorization: `Bearer ${INTERNAL_ACCESS_TOKEN}` } }));
@@ -775,7 +976,10 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.121'") && appJs.includes("v1.6.121 · GPT Image 2 图片预览修复版"), 'app should expose the v1.6.121 GPT Image 2 preview fix');
+assert(appJs.includes("const APP_VERSION = '1.6.121'") && appJs.includes("v1.6.121 · GPT Image 2 图片预览修复版"), 'public app should remain on the reviewed v1.6.121 client build');
+['delivery-profiles', 'delivery-projects', 'delivery-cycles', 'collaboration-tasks', 'collaboration-approvals', 'shooting-schedules', 'weekly-reports', 'delivery-feishu-bindings'].forEach((routeName) => {
+  assert(!appJs.includes(`/api/${routeName}`) && !indexHtml.includes(routeName), `P0 internal API ${routeName} must not be wired into the shared customer UI`);
+});
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(appJs.includes("if (/^data:(?:image|video)\\//i.test(raw)) return raw;") && apiSource.includes("if (/^data:(?:image|video)\\//i.test(raw)) return raw;"), 'customer sanitizers must preserve embedded image and video data URLs byte-for-byte');
 assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
@@ -958,7 +1162,7 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.121') && indexHtml.includes('/styles.css?v=1.6.121') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.121'), 'customer page should cache-bust the v1.6.121 GPT Image 2 preview fix while preserving the first-paint fix');
+assert(indexHtml.includes('/app.js?v=1.6.121') && indexHtml.includes('/styles.css?v=1.6.121') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.121'), 'public customer page should remain byte-compatible with the reviewed v1.6.121 asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
 assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.121') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.121') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
@@ -1502,7 +1706,8 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.121' && health.version_label === 'v1.6.121 · GPT Image 2 图片预览修复版', 'health should expose the v1.6.121 GPT Image 2 preview fix');
+assert(health.version === '1.6.121' && health.version_label === 'v1.6.121 · GPT Image 2 图片预览修复版', 'public application health version should remain on v1.6.121');
+assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
@@ -2835,6 +3040,19 @@ console.log(JSON.stringify({
     update_calls: feishuPlanUpdateCalls,
     permission_denied_status: deniedFeishuPush.status,
     status_plan_record_count: feishuStatusBody.plan_record_count,
+  },
+  delivery_collaboration_p0: {
+    profiles: deliveryProfilesPayload.profiles.map((item) => item.id),
+    professional_project_id: professionalDeliveryProject.delivery_project_id,
+    professional_cycle_status: activeProfessionalCycle.status,
+    professional_task_status: clientAnnotatedTask.status,
+    technical_approval_status: passedProfessionalApproval.status,
+    shooting_status: confirmedProfessionalShooting.status,
+    weekly_report_status: professionalReport.status,
+    feishu_sync_mode: professionalFeishuBinding.sync_mode,
+    local_profile: localDeliveryProject.delivery_profile,
+    cross_client_task_count: crossClientTaskList.tasks.length,
+    existing_project_store_unchanged: JSON.stringify(professionalStateAfter.project_store) === JSON.stringify(professionalStateBefore.project_store),
   },
   generation_workbench: {
     asset_sha256: assetData.asset.sha256,

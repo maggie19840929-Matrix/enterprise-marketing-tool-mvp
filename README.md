@@ -36,6 +36,13 @@ npm run dev
 - `global-project-store.<clientId>`：按客户/内部视图分隔的项目状态。
 - `assets/<client_id>`：内部素材工作台素材集合。
 - `tasks/<client_id>`：内部生成任务集合。
+- `delivery-projects/<client_id>`：交付项目及其交付模板。
+- `delivery-cycles/<client_id>`：按周推进的交付周期。
+- `collaboration-tasks/<client_id>`：内部、客户与外包协作任务。
+- `collaboration-approvals/<client_id>`：技术审核、内部 QA 与客户确认记录。
+- `shooting-schedules/<client_id>`：现场拍摄时段与素材清单。
+- `weekly-reports/<client_id>`：项目周报结构化记录。
+- `delivery-feishu-bindings/<client_id>`：项目与飞书工作区/表格的绑定关系。
 
 ## API
 
@@ -56,6 +63,15 @@ npm run dev
 - `POST /api/generation-tasks/:id/qa`
 - `POST /api/generation-tasks/:id/deliver`
 - `POST /api/feishu/sync`
+- `GET /api/delivery-profiles`
+- `GET|POST /api/delivery-projects`
+- `GET|POST /api/delivery-cycles`
+- `GET|POST /api/collaboration-tasks`
+- `GET|POST /api/collaboration-approvals`
+- `GET|POST /api/shooting-schedules`
+- `GET|POST /api/weekly-reports`
+- `GET|POST /api/delivery-feishu-bindings`
+- `PATCH /api/<上述协同资源>/:id`
 
 ## 验证
 
@@ -145,6 +161,28 @@ v1.6.48 起，客户公开页会在关键节点同步云端项目态：
 - 启用下一轮：同步当前轮次和历史内容周期。
 
 云端同步用于内部端“全部客户”列表和行业品类样本沉淀；如果同步失败，客户本地流程仍继续可用。
+
+### 项目交付协同 P0
+
+P0 为不同客户交付方式建立统一数据地基，不改变客户公开页，也不迁移现有 `global-project-store.*` 数据。
+
+两套交付模板：
+
+| 模板 | 典型客户 | 适用流程 |
+| --- | --- | --- |
+| `professional_project` | 安标检测 | 内容规划 → 技术审核 → 客户确认 → 现场拍摄 → 外包制作 → 内部 QA → 客户交付 → 发布与周报 |
+| `local_growth_operation` | 伊美德儿 | 内容规划 → 轻确认 → 素材收集 → 内容制作 → 发布 → 效果记录 → 下一轮优化 |
+
+每条协同记录必须同时归属 `client_id + project_id`；周期内资源还必须归属 `delivery_project_id + cycle_id`。任务、审批、拍摄和周报分别使用独立 Blob key，避免和客户内容计划、反馈或素材生成任务混写。状态变更会追加 `status_events`，非法跨阶段跳转会被拒绝。
+
+字段所有权分为：
+
+- 系统：ID、归属关系、创建/更新时间和状态历史；
+- 内部团队：项目目标、脚本、要求、负责人、QA、周报和状态；
+- 外包团队：制作状态、草稿/成品地址、素材和制作备注；
+- 客户：确认意见、拍摄时间、发布数据和客户反馈。
+
+P0 所有 `/api/delivery-*`、`/api/collaboration-*`、`/api/shooting-schedules`、`/api/weekly-reports` 接口均要求 `INTERNAL_ACCESS_TOKEN`，公开客户不能枚举或修改协同数据。飞书本期仅保存项目级绑定关系，`sync_mode=binding_only`；真正的多维表格读写、字段映射和外部角色入口放到 P1，不会冒充已同步。
 
 ### 项目化素材生成与验收工作台 V1
 

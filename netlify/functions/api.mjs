@@ -7,10 +7,12 @@ const memoryAssetStates = new Map();
 const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
+const memoryDeliveryCollectionStates = new Map();
 
 const APP_VERSION = '1.6.121';
 const VERSION_LABEL = 'v1.6.121 · GPT Image 2 图片预览修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
+const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
 const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUDE_OPUS_MODEL || 'claude-3-opus-20240229';
@@ -3862,8 +3864,34 @@ const writeCloudState = async (payload = {}, clientId = clientIdFrom(payload)) =
 };
 
 const collectionKey = (kind, clientId = 'anonymous') => `${kind}/${normalizeClientId(clientId) || 'anonymous'}`;
-const collectionField = (kind) => (kind === 'assets' ? 'assets' : kind === 'plan-jobs' ? 'jobs' : 'tasks');
-const memoryCollectionMap = (kind) => (kind === 'assets' ? memoryAssetStates : kind === 'plan-jobs' ? memoryPlanJobStates : memoryGenerationTaskStates);
+const COLLECTION_FIELDS = Object.freeze({
+  assets: 'assets',
+  tasks: 'tasks',
+  'plan-jobs': 'jobs',
+  'delivery-projects': 'projects',
+  'delivery-cycles': 'cycles',
+  'collaboration-tasks': 'tasks',
+  'collaboration-approvals': 'approvals',
+  'shooting-schedules': 'schedules',
+  'weekly-reports': 'reports',
+  'delivery-feishu-bindings': 'bindings',
+});
+const DELIVERY_COLLECTION_KINDS = new Set([
+  'delivery-projects',
+  'delivery-cycles',
+  'collaboration-tasks',
+  'collaboration-approvals',
+  'shooting-schedules',
+  'weekly-reports',
+  'delivery-feishu-bindings',
+]);
+const collectionField = (kind) => COLLECTION_FIELDS[kind] || 'tasks';
+const memoryCollectionMap = (kind) => {
+  if (kind === 'assets') return memoryAssetStates;
+  if (kind === 'plan-jobs') return memoryPlanJobStates;
+  if (DELIVERY_COLLECTION_KINDS.has(kind)) return memoryDeliveryCollectionStates;
+  return memoryGenerationTaskStates;
+};
 const sha256Hex = (value) => createHash('sha256').update(value).digest('hex');
 const ensureArray = (value) => Array.isArray(value) ? value : [];
 const makeId = (prefix) => `${prefix}_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
@@ -4379,6 +4407,465 @@ const withStatus = (task, status, note = '') => ({
   status_events: [...ensureArray(task.status_events), statusEvent(status, note)],
   updated_at: nowIso(),
 });
+
+const DELIVERY_PROFILES = Object.freeze({
+  professional_project: {
+    id: 'professional_project',
+    label: '专业项目交付型',
+    example: '安标检测',
+    cadence: 'weekly',
+    description: '适合需要技术审核、现场拍摄、外包制作和正式周报的专业服务项目。',
+    roles: ['internal_operator', 'technical_reviewer', 'client_reviewer', 'outsourced_worker'],
+    workflow: [
+      'content_planning',
+      'technical_review',
+      'client_confirmation',
+      'shooting',
+      'outsourced_production',
+      'internal_qa',
+      'client_delivery',
+      'publishing',
+      'data_collection',
+      'weekly_report',
+    ],
+    required_approvals: ['technical_review', 'internal_qa', 'client_confirmation'],
+    weekly_report_sections: ['本周完成', '内容与制作进度', '发布与数据', '风险与待确认', '下周任务'],
+    metrics: ['deliverable_count', 'published_count', 'views', 'engagement', 'consultations'],
+  },
+  local_growth_operation: {
+    id: 'local_growth_operation',
+    label: '持续增长运营型',
+    example: '伊美德儿',
+    cadence: 'rolling_weekly',
+    description: '适合门店持续发布、记录咨询与预约，并滚动优化下一轮内容的运营项目。',
+    roles: ['internal_operator', 'client_operator', 'content_producer'],
+    workflow: [
+      'content_planning',
+      'light_confirmation',
+      'asset_collection',
+      'content_production',
+      'publishing',
+      'data_collection',
+      'next_cycle_optimization',
+    ],
+    required_approvals: ['internal_qa'],
+    weekly_report_sections: ['本周发布', '真实效果', '客户反馈', '下一轮判断', '下周动作'],
+    metrics: ['published_count', 'views', 'engagement', 'consultations', 'appointments', 'arrivals', 'revenue'],
+  },
+});
+
+const DELIVERY_FIELD_OWNERSHIP = Object.freeze({
+  system: [
+    'client_id',
+    'project_id',
+    'delivery_project_id',
+    'cycle_id',
+    'created_at',
+    'updated_at',
+    'status_events',
+  ],
+  internal_team: [
+    'delivery_profile',
+    'title',
+    'description',
+    'goals',
+    'target_deliverables',
+    'brief',
+    'script',
+    'delivery_requirements',
+    'priority',
+    'assignee_role',
+    'assignee_name',
+    'deadline',
+    'internal_notes',
+    'qa_notes',
+    'weekly_report',
+    'status',
+  ],
+  outsourced_team: ['status', 'draft_url', 'final_url', 'production_notes', 'asset_ids', 'blocked_reason'],
+  client: [
+    'status',
+    'client_feedback',
+    'approval_status',
+    'approval_notes',
+    'proposed_slots',
+    'confirmed_at',
+    'publish_data',
+  ],
+});
+
+const DELIVERY_STATUS_MACHINES = Object.freeze({
+  project: {
+    active: ['paused', 'completed'],
+    paused: ['active', 'completed'],
+    completed: [],
+  },
+  cycle: {
+    draft: ['active'],
+    active: ['awaiting_report'],
+    awaiting_report: ['report_draft'],
+    report_draft: ['active', 'report_approved'],
+    report_approved: ['completed'],
+    completed: [],
+  },
+  task: {
+    draft: ['planned', 'cancelled'],
+    planned: ['waiting_client', 'waiting_shoot', 'assigned', 'producing', 'internal_qa', 'client_confirmation', 'blocked', 'cancelled'],
+    waiting_client: ['planned', 'waiting_shoot', 'assigned', 'client_confirmation', 'blocked', 'cancelled'],
+    waiting_shoot: ['assigned', 'producing', 'blocked', 'cancelled'],
+    assigned: ['producing', 'blocked', 'cancelled'],
+    producing: ['internal_qa', 'blocked', 'cancelled'],
+    internal_qa: ['revision_requested', 'client_confirmation', 'client_ready', 'blocked'],
+    revision_requested: ['assigned', 'producing', 'internal_qa', 'cancelled'],
+    client_confirmation: ['revision_requested', 'client_ready', 'published', 'blocked'],
+    client_ready: ['published', 'data_pending', 'completed'],
+    published: ['data_pending', 'reviewed', 'completed'],
+    data_pending: ['reviewed', 'completed', 'blocked'],
+    reviewed: ['completed', 'planned'],
+    blocked: ['planned', 'waiting_client', 'waiting_shoot', 'assigned', 'producing', 'cancelled'],
+    completed: [],
+    cancelled: [],
+  },
+  approval: {
+    pending: ['passed', 'changes_requested'],
+    changes_requested: ['pending', 'passed'],
+    passed: [],
+  },
+  shooting: {
+    proposed: ['confirmed', 'cancelled'],
+    confirmed: ['completed', 'cancelled'],
+    completed: [],
+    cancelled: [],
+  },
+  report: {
+    draft: ['approved'],
+    approved: ['delivered'],
+    delivered: [],
+  },
+  binding: {
+    active: ['paused', 'error'],
+    paused: ['active', 'error'],
+    error: ['active', 'paused'],
+  },
+});
+
+const DELIVERY_RESOURCE_CONFIG = Object.freeze({
+  'delivery-projects': {
+    idField: 'delivery_project_id',
+    prefix: 'delivery_project',
+    machine: 'project',
+    defaultStatus: 'active',
+    updatable: ['project_name', 'client_name', 'delivery_profile', 'status', 'internal_owner', 'client_contacts', 'outsourced_team', 'weekly_target', 'current_cycle_id', 'feishu_binding_id', 'notes'],
+  },
+  'delivery-cycles': {
+    idField: 'cycle_id',
+    prefix: 'delivery_cycle',
+    machine: 'cycle',
+    defaultStatus: 'draft',
+    updatable: ['cycle_label', 'week_start', 'week_end', 'goals', 'target_deliverables', 'status', 'completed_summary', 'next_actions', 'notes'],
+  },
+  'collaboration-tasks': {
+    idField: 'collaboration_task_id',
+    prefix: 'collaboration_task',
+    machine: 'task',
+    defaultStatus: 'draft',
+    updatable: ['task_type', 'title', 'description', 'status', 'priority', 'assignee_role', 'assignee_name', 'deadline', 'content_plan_record_id', 'generation_task_id', 'script', 'brief', 'delivery_requirements', 'asset_ids', 'draft_url', 'final_url', 'client_feedback', 'internal_notes', 'production_notes', 'blocked_reason', 'publish_data'],
+  },
+  'collaboration-approvals': {
+    idField: 'approval_id',
+    prefix: 'collaboration_approval',
+    machine: 'approval',
+    defaultStatus: 'pending',
+    updatable: ['approval_type', 'reviewer_role', 'reviewer_name', 'status', 'notes', 'evidence_urls'],
+  },
+  'shooting-schedules': {
+    idField: 'shooting_schedule_id',
+    prefix: 'shooting_schedule',
+    machine: 'shooting',
+    defaultStatus: 'proposed',
+    updatable: ['status', 'proposed_slots', 'confirmed_at', 'location', 'contact', 'people', 'scenes', 'asset_checklist', 'notes'],
+  },
+  'weekly-reports': {
+    idField: 'weekly_report_id',
+    prefix: 'weekly_report',
+    machine: 'report',
+    defaultStatus: 'draft',
+    updatable: ['status', 'title', 'completed_items', 'next_week_tasks', 'client_actions', 'risks', 'metrics', 'summary', 'pdf_url', 'feishu_record_id', 'notes'],
+  },
+  'delivery-feishu-bindings': {
+    idField: 'feishu_binding_id',
+    prefix: 'delivery_feishu_binding',
+    machine: 'binding',
+    defaultStatus: 'active',
+    updatable: ['status', 'workspace_url', 'base_app_token', 'tables', 'field_mapping', 'notes'],
+  },
+});
+
+const deliveryClientIdFrom = (payload = {}, url = null, request = null) => normalizeClientId(
+  payload.client_id
+  || url?.searchParams?.get('client_id')
+  || request?.headers?.get('x-client-id')
+  || ''
+);
+const deliveryText = (value = '') => String(value || '').trim();
+const deliveryStringArray = (value) => ensureArray(value).map((item) => deliveryText(item)).filter(Boolean);
+const deliveryObject = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+const deliveryStatusEvent = (status, note = '', actor = 'internal_admin') => ({ status, note, actor, at: nowIso() });
+const deliveryMachineStatuses = (machine = '') => {
+  const transitions = DELIVERY_STATUS_MACHINES[machine] || {};
+  return new Set([...Object.keys(transitions), ...Object.values(transitions).flat()]);
+};
+const assertDeliveryStatus = (machine, status) => {
+  if (!deliveryMachineStatuses(machine).has(status)) throw new Error(`不支持的协同状态：${status}`);
+};
+const assertDeliveryTransition = (machine, currentStatus, nextStatus) => {
+  if (!nextStatus || currentStatus === nextStatus) return;
+  const allowed = DELIVERY_STATUS_MACHINES[machine]?.[currentStatus] || [];
+  if (!allowed.includes(nextStatus)) throw new Error(`不允许从 ${currentStatus} 直接变更为 ${nextStatus}`);
+};
+const requireDeliveryFields = (payload, fields, label) => {
+  const missing = fields.filter((field) => !deliveryText(payload[field]));
+  if (missing.length) throw new Error(`${label}缺少必填字段：${missing.join(', ')}`);
+};
+const deliveryActor = (payload = {}) => ({
+  role: deliveryText(payload.actor_role) || 'internal_admin',
+  name: deliveryText(payload.actor_name) || '内部团队',
+});
+const assertDeliveryFieldOwnership = (config, payload = {}) => {
+  const actor = deliveryActor(payload);
+  if (actor.role === 'internal_admin') return actor;
+  const group = actor.role === 'outsourced_worker'
+    ? 'outsourced_team'
+    : ['client_reviewer', 'client_operator'].includes(actor.role) ? 'client' : 'internal_team';
+  const allowed = new Set(DELIVERY_FIELD_OWNERSHIP[group] || []);
+  const requested = Object.keys(payload).filter((key) => config.updatable.includes(key));
+  const forbidden = requested.filter((key) => !allowed.has(key));
+  if (forbidden.length) throw new Error(`${actor.role} 无权修改字段：${forbidden.join(', ')}`);
+  return actor;
+};
+const findDeliveryResource = async (kind, clientId, id) => {
+  const config = DELIVERY_RESOURCE_CONFIG[kind];
+  const state = await readCloudCollection(kind, clientId);
+  const field = collectionField(kind);
+  return ensureArray(state[field]).find((item) => String(item[config.idField]) === String(id)) || null;
+};
+const assertDeliveryParent = async (kind, clientId, id, projectId, label) => {
+  const item = await findDeliveryResource(kind, clientId, id);
+  if (!item || (projectId && String(item.project_id) !== String(projectId))) throw new Error(`${label}不存在或不属于当前项目`);
+  return item;
+};
+const deliveryBase = ({ payload, config, clientId, projectId, status, actor }) => ({
+  [config.idField]: makeId(config.prefix),
+  client_id: clientId,
+  project_id: projectId,
+  status,
+  created_at: nowIso(),
+  updated_at: nowIso(),
+  created_by: actor.name,
+  updated_by: actor.name,
+  status_events: [deliveryStatusEvent(status, '记录创建', actor.role)],
+});
+
+const createDeliveryResource = async (kind, payload = {}) => {
+  const config = DELIVERY_RESOURCE_CONFIG[kind];
+  if (!config) throw new Error('不支持的协同资源');
+  const clientId = deliveryClientIdFrom(payload);
+  requireDeliveryFields({ ...payload, client_id: clientId }, ['client_id', 'project_id'], '创建协同记录');
+  const projectId = deliveryText(payload.project_id);
+  const actor = assertDeliveryFieldOwnership(config, payload);
+  const status = deliveryText(payload.status) || config.defaultStatus;
+  assertDeliveryStatus(config.machine, status);
+  let item;
+
+  if (kind === 'delivery-projects') {
+    requireDeliveryFields(payload, ['project_name', 'client_name', 'delivery_profile'], '创建交付项目');
+    if (!DELIVERY_PROFILES[payload.delivery_profile]) throw new Error('未知交付模板');
+    item = {
+      ...deliveryBase({ payload, config, clientId, projectId, status, actor }),
+      project_name: deliveryText(payload.project_name),
+      client_name: deliveryText(payload.client_name),
+      delivery_profile: deliveryText(payload.delivery_profile),
+      internal_owner: deliveryText(payload.internal_owner),
+      client_contacts: ensureArray(payload.client_contacts),
+      outsourced_team: ensureArray(payload.outsourced_team),
+      weekly_target: deliveryObject(payload.weekly_target),
+      current_cycle_id: deliveryText(payload.current_cycle_id),
+      feishu_binding_id: deliveryText(payload.feishu_binding_id),
+      notes: deliveryText(payload.notes),
+    };
+  } else {
+    requireDeliveryFields(payload, ['delivery_project_id'], '创建协同记录');
+    const deliveryProject = await assertDeliveryParent('delivery-projects', clientId, payload.delivery_project_id, projectId, '交付项目');
+    const shared = {
+      ...deliveryBase({ payload, config, clientId, projectId, status, actor }),
+      delivery_project_id: deliveryText(payload.delivery_project_id),
+      delivery_profile: deliveryProject.delivery_profile,
+    };
+    if (kind === 'delivery-cycles') {
+      requireDeliveryFields(payload, ['week_start', 'week_end'], '创建交付周期');
+      if (deliveryText(payload.week_start) > deliveryText(payload.week_end)) throw new Error('周期开始日期不能晚于结束日期');
+      item = {
+        ...shared,
+        cycle_label: deliveryText(payload.cycle_label) || `${payload.week_start} - ${payload.week_end}`,
+        week_start: deliveryText(payload.week_start),
+        week_end: deliveryText(payload.week_end),
+        goals: deliveryStringArray(payload.goals),
+        target_deliverables: ensureArray(payload.target_deliverables),
+        completed_summary: deliveryText(payload.completed_summary),
+        next_actions: deliveryStringArray(payload.next_actions),
+        notes: deliveryText(payload.notes),
+      };
+    } else if (kind === 'delivery-feishu-bindings') {
+      item = {
+        ...shared,
+        workspace_url: deliveryText(payload.workspace_url),
+        base_app_token: deliveryText(payload.base_app_token),
+        tables: deliveryObject(payload.tables),
+        field_mapping: deliveryObject(payload.field_mapping),
+        sync_mode: 'binding_only',
+        last_pull_at: '',
+        last_push_at: '',
+        last_error: '',
+        notes: deliveryText(payload.notes),
+      };
+    } else {
+      requireDeliveryFields(payload, ['cycle_id'], '创建协同记录');
+      const deliveryCycle = await assertDeliveryParent('delivery-cycles', clientId, payload.cycle_id, projectId, '交付周期');
+      if (String(deliveryCycle.delivery_project_id) !== String(payload.delivery_project_id)) throw new Error('交付周期不属于当前交付项目');
+      const cycleShared = { ...shared, cycle_id: deliveryText(payload.cycle_id) };
+      if (kind === 'collaboration-tasks') {
+        requireDeliveryFields(payload, ['task_type', 'title'], '创建协作任务');
+        item = {
+          ...cycleShared,
+          task_type: deliveryText(payload.task_type),
+          title: deliveryText(payload.title),
+          description: deliveryText(payload.description),
+          priority: deliveryText(payload.priority) || 'normal',
+          assignee_role: deliveryText(payload.assignee_role),
+          assignee_name: deliveryText(payload.assignee_name),
+          deadline: deliveryText(payload.deadline),
+          content_plan_record_id: deliveryText(payload.content_plan_record_id),
+          generation_task_id: deliveryText(payload.generation_task_id),
+          script: deliveryText(payload.script),
+          brief: deliveryText(payload.brief),
+          delivery_requirements: deliveryText(payload.delivery_requirements),
+          asset_ids: deliveryStringArray(payload.asset_ids),
+          draft_url: deliveryText(payload.draft_url),
+          final_url: deliveryText(payload.final_url),
+          client_feedback: deliveryText(payload.client_feedback),
+          internal_notes: deliveryText(payload.internal_notes),
+          production_notes: deliveryText(payload.production_notes),
+          blocked_reason: deliveryText(payload.blocked_reason),
+          publish_data: deliveryObject(payload.publish_data),
+        };
+      } else if (kind === 'collaboration-approvals') {
+        requireDeliveryFields(payload, ['task_id', 'approval_type', 'reviewer_role'], '创建审批记录');
+        const parentTask = await assertDeliveryParent('collaboration-tasks', clientId, payload.task_id, projectId, '协作任务');
+        if (String(parentTask.cycle_id) !== String(payload.cycle_id)) throw new Error('协作任务不属于当前交付周期');
+        item = {
+          ...cycleShared,
+          task_id: deliveryText(payload.task_id),
+          approval_type: deliveryText(payload.approval_type),
+          reviewer_role: deliveryText(payload.reviewer_role),
+          reviewer_name: deliveryText(payload.reviewer_name),
+          notes: deliveryText(payload.notes),
+          evidence_urls: deliveryStringArray(payload.evidence_urls),
+          decided_at: status === 'pending' ? '' : nowIso(),
+        };
+      } else if (kind === 'shooting-schedules') {
+        requireDeliveryFields(payload, ['task_id'], '创建拍摄安排');
+        const parentTask = await assertDeliveryParent('collaboration-tasks', clientId, payload.task_id, projectId, '协作任务');
+        if (String(parentTask.cycle_id) !== String(payload.cycle_id)) throw new Error('协作任务不属于当前交付周期');
+        item = {
+          ...cycleShared,
+          task_id: deliveryText(payload.task_id),
+          proposed_slots: deliveryStringArray(payload.proposed_slots),
+          confirmed_at: deliveryText(payload.confirmed_at),
+          location: deliveryText(payload.location),
+          contact: deliveryText(payload.contact),
+          people: deliveryStringArray(payload.people),
+          scenes: deliveryStringArray(payload.scenes),
+          asset_checklist: deliveryStringArray(payload.asset_checklist),
+          notes: deliveryText(payload.notes),
+        };
+      } else if (kind === 'weekly-reports') {
+        item = {
+          ...cycleShared,
+          title: deliveryText(payload.title) || `${deliveryProject.client_name} ${deliveryCycle.week_start} 至 ${deliveryCycle.week_end} 周报`,
+          completed_items: ensureArray(payload.completed_items),
+          next_week_tasks: ensureArray(payload.next_week_tasks),
+          client_actions: ensureArray(payload.client_actions),
+          risks: ensureArray(payload.risks),
+          metrics: deliveryObject(payload.metrics),
+          summary: deliveryText(payload.summary),
+          pdf_url: deliveryText(payload.pdf_url),
+          feishu_record_id: deliveryText(payload.feishu_record_id),
+          notes: deliveryText(payload.notes),
+          approved_at: '',
+          delivered_at: '',
+        };
+      }
+    }
+  }
+  if (!item) throw new Error('协同资源结构不完整');
+  await upsertCollectionItem(kind, clientId, item, config.idField);
+  return item;
+};
+
+const listDeliveryResources = async (kind, { clientId, filters = {} } = {}) => {
+  const config = DELIVERY_RESOURCE_CONFIG[kind];
+  const state = await readCloudCollection(kind, clientId);
+  const field = collectionField(kind);
+  const filterKeys = ['project_id', 'delivery_project_id', 'cycle_id', 'task_id', 'status'];
+  const items = ensureArray(state[field])
+    .filter((item) => filterKeys.every((key) => !deliveryText(filters[key]) || String(item[key] || '') === deliveryText(filters[key])))
+    .sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at));
+  return {
+    client_id: clientId,
+    storage_key: collectionKey(kind, clientId),
+    [field]: items,
+    id_field: config.idField,
+  };
+};
+
+const patchDeliveryResource = async (kind, clientId, id, payload = {}) => {
+  const config = DELIVERY_RESOURCE_CONFIG[kind];
+  const current = await findDeliveryResource(kind, clientId, id);
+  if (!current) throw new Error('协同记录不存在');
+  const patchMetadataFields = new Set(['client_id', 'actor_role', 'actor_name', 'status_note']);
+  const unsupportedFields = Object.keys(payload).filter((key) => !patchMetadataFields.has(key) && !config.updatable.includes(key));
+  if (unsupportedFields.length) throw new Error(`不可修改系统字段：${unsupportedFields.join(', ')}`);
+  const actor = assertDeliveryFieldOwnership(config, payload);
+  const changes = Object.fromEntries(config.updatable
+    .filter((key) => Object.prototype.hasOwnProperty.call(payload, key))
+    .map((key) => [key, payload[key]]));
+  const nextStatus = deliveryText(changes.status) || current.status;
+  if (kind === 'delivery-projects' && changes.delivery_profile && !DELIVERY_PROFILES[changes.delivery_profile]) throw new Error('未知交付模板');
+  if (kind === 'delivery-cycles') {
+    const weekStart = deliveryText(changes.week_start) || current.week_start;
+    const weekEnd = deliveryText(changes.week_end) || current.week_end;
+    if (weekStart > weekEnd) throw new Error('周期开始日期不能晚于结束日期');
+  }
+  assertDeliveryStatus(config.machine, nextStatus);
+  assertDeliveryTransition(config.machine, current.status, nextStatus);
+  const statusChanged = nextStatus !== current.status;
+  const updated = {
+    ...current,
+    ...changes,
+    status: nextStatus,
+    updated_at: nowIso(),
+    updated_by: actor.name,
+    status_events: statusChanged
+      ? [...ensureArray(current.status_events), deliveryStatusEvent(nextStatus, deliveryText(payload.status_note) || '状态更新', actor.role)]
+      : ensureArray(current.status_events),
+  };
+  if (kind === 'collaboration-approvals' && statusChanged && nextStatus !== 'pending') updated.decided_at = nowIso();
+  if (kind === 'weekly-reports' && statusChanged && nextStatus === 'approved') updated.approved_at = nowIso();
+  if (kind === 'weekly-reports' && statusChanged && nextStatus === 'delivered') updated.delivered_at = nowIso();
+  if (kind === 'delivery-cycles' && statusChanged && nextStatus === 'completed') updated.completed_at = nowIso();
+  await upsertCollectionItem(kind, clientId, updated, config.idField);
+  return updated;
+};
 
 const createGenerationTask = async (payload = {}) => {
   const client_id = normalizeClientId(payload.client_id);
@@ -6714,6 +7201,7 @@ export default async (request, context = {}) => {
   );
   const path = `/${route.replace(/^\/+/, '')}`;
   const internalAuthorized = hasValidInternalAuth(request);
+  const deliveryResourceMatch = path.match(/^\/(delivery-projects|delivery-cycles|collaboration-tasks|collaboration-approvals|shooting-schedules|weekly-reports|delivery-feishu-bindings)(?:\/([^/]+))?$/);
   try {
     const requestClientId = clientIdFrom({}, url, request);
     if (request.method === 'GET') {
@@ -6724,7 +7212,8 @@ export default async (request, context = {}) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings'],
+        delivery_module_version: DELIVERY_COLLABORATION_VERSION,
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -6740,6 +7229,33 @@ export default async (request, context = {}) => {
           script_provider: providerForGeneration('script'),
         },
       });
+      if (path === '/delivery-profiles') {
+        if (!internalAuthorized) return unauthorized();
+        return json({
+          audience: 'internal_only',
+          profiles: Object.values(DELIVERY_PROFILES),
+          field_ownership: DELIVERY_FIELD_OWNERSHIP,
+          status_machines: DELIVERY_STATUS_MACHINES,
+          feishu_phase: 'binding_only',
+        }, 200, { internal: true });
+      }
+      if (deliveryResourceMatch) {
+        if (!internalAuthorized) return unauthorized();
+        const [, kind, rawId] = deliveryResourceMatch;
+        const clientId = deliveryClientIdFrom({}, url, request);
+        if (!clientId) return json({ error: '读取协同数据需要 client_id' }, 400, { internal: true });
+        if (rawId) {
+          const resource = await findDeliveryResource(kind, clientId, decodeURIComponent(rawId));
+          return resource
+            ? json({ resource }, 200, { internal: true })
+            : json({ error: '协同记录不存在' }, 404, { internal: true });
+        }
+        return json(await listDeliveryResources(kind, {
+          clientId,
+          filters: Object.fromEntries(['project_id', 'delivery_project_id', 'cycle_id', 'task_id', 'status']
+            .map((key) => [key, url.searchParams.get(key) || ''])),
+        }), 200, { internal: true });
+      }
       if (path === '/user/settings') {
         const settingsClientId = userSettingsClientIdFrom({}, url, request);
         if (!settingsClientId) return json({ error: '读取隐私设置需要 client_id' }, 400);
@@ -6831,6 +7347,18 @@ export default async (request, context = {}) => {
     const payload = ['POST', 'PATCH'].includes(request.method) ? await request.json().catch(() => ({})) : {};
     const payloadClientId = clientIdFrom(payload, url, request);
     const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
+    if (deliveryResourceMatch && ['POST', 'PATCH'].includes(request.method)) {
+      if (!internalAuthorized) return unauthorized();
+      const [, kind, rawId] = deliveryResourceMatch;
+      const clientId = deliveryClientIdFrom(payload, url, request);
+      if (!clientId) return json({ error: '保存协同数据需要 client_id' }, 400, { internal: true });
+      if (request.method === 'POST') {
+        if (rawId) return json({ error: '创建协同记录时 URL 不应包含记录 ID' }, 400, { internal: true });
+        return json({ resource: await createDeliveryResource(kind, { ...payload, client_id: clientId }) }, 201, { internal: true });
+      }
+      if (!rawId) return json({ error: '更新协同记录需要记录 ID' }, 400, { internal: true });
+      return json({ resource: await patchDeliveryResource(kind, clientId, decodeURIComponent(rawId), payload) }, 200, { internal: true });
+    }
     if (request.method === 'PATCH' && path === '/user/settings') {
       const settingsClientId = userSettingsClientIdFrom(payload, url, request);
       if (!settingsClientId) return json({ error: '保存隐私设置需要 client_id' }, 400);
