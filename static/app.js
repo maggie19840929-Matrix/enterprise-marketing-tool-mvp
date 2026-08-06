@@ -4310,7 +4310,7 @@ function customerRecordLabel(record = {}, index = 0){
   const updated = String(record.updated_at || '').slice(0, 16);
   const count = Number(record.project_count || 0);
   const id = String(record.client_id || '');
-  return [updated || `记录 ${index + 1}`, count ? `${count}个项目` : '', id].filter(Boolean).join(' · ');
+  return [`记录 ${index + 1}`, updated || '无更新日期', count ? `${count} 个项目` : '', id].filter(Boolean).join(' · ');
 }
 
 function renderAllCustomersPanel(){
@@ -4325,6 +4325,8 @@ function renderAllCustomersPanel(){
   const errors = allCustomersState.errors || [];
   const realCustomers = customers.filter((c) => !c.is_test);
   const testCustomers = customers.filter((c) => c.is_test);
+  const multiGroups = customers.filter((customer) => Array.isArray(customer.records) && customer.records.length > 1);
+  const multiCount = multiGroups.length;
   if (status) {
     status.hidden = false;
     status.classList.toggle('error', Boolean(allCustomersState.error));
@@ -4332,7 +4334,13 @@ function renderAllCustomersPanel(){
     if (allCustomersState.loading) status.textContent = '正在读取全部客户...';
     else if (allCustomersState.error) status.textContent = `客户列表读取失败：${allCustomersState.error}`;
     else if (!customers.length) status.textContent = '暂无可显示客户。';
-    else status.textContent = `已读取 ${realCustomers.length} 个客户${testCustomers.length ? `（另有 ${testCustomers.length} 条测试/示例已折叠）` : ''}${errors.length ? `，${errors.length} 个键读取失败已跳过` : ''}。`;
+    else {
+      const parts = [`已读取 ${realCustomers.length} 个正式客户`];
+      if (multiCount) parts.push(`其中 ${multiCount} 组由多条同名记录合并（明细见下方）`);
+      if (testCustomers.length) parts.push(`另有 ${testCustomers.length} 个测试/示例`);
+      if (errors.length) parts.push(`${errors.length} 个键读取失败已跳过`);
+      status.textContent = `${parts.join('；')}。`;
+    }
   }
   if (!list) return;
   list.classList.toggle('empty', !customers.length);
@@ -4343,26 +4351,42 @@ function renderAllCustomersPanel(){
     const updated = String(customer.updated_at || '').slice(0, 10);
     const count = Number(customer.project_count || 0);
     const recordCount = Number(customer.record_count || customer.records?.length || 1);
-    const hint = [recordCount > 1 ? `${recordCount}条记录` : '', updated, count ? `${count}个项目` : ''].filter(Boolean).join(' · ');
+    const hint = [
+      recordCount > 1 ? `已合并 ${recordCount} 条记录` : '',
+      updated,
+      count ? `${count} 个项目` : '',
+    ].filter(Boolean).join(' · ');
     return `<option value="${esc(clientId)}">${esc(name)}${hint ? `（${esc(hint)}）` : ''}</option>`;
   };
-  const realOpts = realCustomers.length ? `<optgroup label="客户">${realCustomers.map(optFor).join('')}</optgroup>` : '';
-  const testOpts = testCustomers.length ? `<optgroup label="测试 / 示例">${testCustomers.map(optFor).join('')}</optgroup>` : '';
-  const multiGroups = customers.filter((customer) => Array.isArray(customer.records) && customer.records.length > 1);
-  const multiHtml = multiGroups.length
-    ? `<div class="all-customer-record-groups">${multiGroups.map((customer) => `
-      <details>
-        <summary>${esc(customerListDisplayName(customer))}（${customer.records.length} 条记录）</summary>
-        <div class="all-customer-record-list">
-          ${customer.records.map((record, index) => `<button type="button" data-all-customer-client="${esc(record.client_id)}">${esc(customerRecordLabel(record, index))}</button>`).join('')}
+  const realOpts = realCustomers.length ? `<optgroup label="客户（${realCustomers.length}）">${realCustomers.map(optFor).join('')}</optgroup>` : '';
+  const testOpts = testCustomers.length ? `<optgroup label="测试 / 示例（${testCustomers.length}）">${testCustomers.map(optFor).join('')}</optgroup>` : '';
+  const pickerHtml = `
+    <div class="all-customers-picker">
+      <div class="all-customers-picker-head">
+        <strong>客户名单</strong>
+        <span>共 ${realCustomers.length} 个正式客户${testCustomers.length ? ` / ${testCustomers.length} 个测试/示例` : ''}；下拉选择后进入对应运营项目。</span>
+      </div>
+      <select id="allCustomersSelect" aria-label="选择客户" style="width:100%;max-width:520px;padding:10px 12px;border-radius:12px;font-size:15px;border:1px solid var(--clean-line,#e2d9c9);background:#fff;color:var(--clean-ink,#2a1f12)">
+        <option value="" disabled selected>选择客户…（${realCustomers.length} 个正式${testCustomers.length ? ` / ${testCustomers.length} 测试` : ''}${multiCount ? `，${multiCount} 组已合并同名记录` : ''}）</option>
+        ${realOpts}${testOpts}
+      </select>
+    </div>`;
+  const multiHtml = multiCount
+    ? `<div class="all-customer-record-groups">
+        <div class="all-customer-record-groups-head">
+          <strong>同名客户已合并（${multiCount} 组）</strong>
+          <span>以下客户在下拉菜单中已合并为一个选项，这里列出的是各条原始记录；点击可切换到该条记录对应的运营项目。</span>
         </div>
-      </details>`).join('')}</div>`
+        ${multiGroups.map((customer) => `
+          <details>
+            <summary>${esc(customerListDisplayName(customer))}（已合并 ${customer.records.length} 条记录）</summary>
+            <div class="all-customer-record-list">
+              ${customer.records.map((record, index) => `<button type="button" data-all-customer-client="${esc(record.client_id)}">${esc(customerRecordLabel(record, index))}</button>`).join('')}
+            </div>
+          </details>`).join('')}
+      </div>`
     : '';
-  list.innerHTML = `<select id="allCustomersSelect" aria-label="选择客户" style="width:100%;max-width:520px;padding:10px 12px;border-radius:12px;font-size:15px;border:1px solid var(--clean-line,#e2d9c9);background:#fff;color:var(--clean-ink,#2a1f12)">
-      <option value="" disabled selected>选择客户…（${realCustomers.length} 个正式${testCustomers.length ? ` / ${testCustomers.length} 测试` : ''}）</option>
-      ${realOpts}${testOpts}
-    </select>
-    ${multiHtml}`;
+  list.innerHTML = pickerHtml + multiHtml;
 }
 
 function shouldReloadAllCustomers(){
