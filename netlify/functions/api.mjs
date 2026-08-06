@@ -7061,6 +7061,14 @@ const createPlanJob = async (payload = {}, reservation = {}) => {
     completed_at: '',
   };
   await upsertCollectionItem('plan-jobs', client_id, job, 'job_id', existing);
+  // Netlify Blobs 写读传播存在延迟：写入后短重试读回，避免下游轮询在任务刚创建时
+  // 因不可见而返回 404；确认失败也不抛错（任务已写入，由查询/处理路径的重试兜底）。
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const recheck = await readCloudCollection('plan-jobs', client_id);
+    if (ensureArray(recheck.jobs).some((item) => String(item.job_id) === String(job.job_id))) return job;
+    if (attempt < 4) await sleep(400);
+  }
+  console.warn(JSON.stringify({ event: 'plan_job_write_readback_unconfirmed', job_id: job.job_id, client_id }));
   return job;
 };
 
@@ -7068,6 +7076,15 @@ const getPlanJob = async (clientId = '', jobId = '') => {
   if (!clientId || !jobId) return null;
   const current = await readCloudCollection('plan-jobs', clientId);
   return ensureArray(current.jobs).find((job) => String(job.job_id) === String(jobId)) || null;
+};
+
+const readPlanJobWithRetry = async (clientId = '', jobId = '', { attempts = 6, delayMs = 400 } = {}) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const job = await getPlanJob(clientId, jobId);
+    if (job) return job;
+    if (attempt < attempts - 1) await sleep(delayMs);
+  }
+  return null;
 };
 
 const savePlanJob = async (job = {}) => {
@@ -7082,7 +7099,7 @@ const isPlanJobStale = (job = {}) => {
 };
 
 const processPlanJob = async (clientId = '', jobId = '') => {
-  let job = await getPlanJob(clientId, jobId);
+  let job = await readPlanJobWithRetry(clientId, jobId, { attempts: 6, delayMs: 400 });
   if (!job || ['completed', 'failed'].includes(job.status)) return job;
   if (job.status === 'generating' && !isPlanJobStale(job)) return job;
   job = {
@@ -7312,7 +7329,8 @@ export default async (request, context = {}) => {
         const clientId = planJobClientIdFrom({}, url, request);
         if (!clientId) return json({ error: '读取计划任务需要 client_id' }, 400);
         const jobId = decodeURIComponent(planJobDetailMatch[1]);
-        let job = await getPlanJob(clientId, jobId);
+        // 任务刚写入 Blobs 时存在短暂的写读传播延迟，短重试后再 404，避免误判任务不存在。
+        let job = await readPlanJobWithRetry(clientId, jobId, { attempts: 6, delayMs: 400 });
         if (!job) return json({ error: '计划任务不存在' }, 404);
         if (url.searchParams.get('fallback') === '1' && !['completed', 'failed'].includes(job.status)) {
           job = await forcePlanJobFallback(clientId, jobId);

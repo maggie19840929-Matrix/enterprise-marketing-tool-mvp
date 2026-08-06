@@ -34,6 +34,20 @@ const readInternalAccessToken = () => {
   try { return String(window.localStorage?.getItem(INTERNAL_ACCESS_TOKEN_STORAGE_KEY) || '').trim(); }
   catch { return ''; }
 };
+const readInternalAccessTokenFromUrl = () => {
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    const token = (
+      params.get('internal_token')
+      || params.get('internalToken')
+      || params.get('token')
+      || params.get('access_token')
+    );
+    return String(token || '').trim();
+  } catch {
+    return '';
+  }
+};
 const saveInternalAccessToken = (token = '') => {
   try {
     if (token) window.localStorage?.setItem(INTERNAL_ACCESS_TOKEN_STORAGE_KEY, String(token).trim());
@@ -98,7 +112,9 @@ const normalizeInternalEntry = () => {
   const rawPath = String(location.pathname || '');
   const path = rawPath.replace(/\/+$/, '');
   if (path === '/internal' && rawPath !== '/internal/') {
-    location.replace('/internal/');
+    const normalizedUrl = new URL(location.href);
+    normalizedUrl.pathname = '/internal/';
+    location.replace(`${normalizedUrl.pathname}${normalizedUrl.search}${normalizedUrl.hash}`);
   }
 };
 normalizeInternalEntry();
@@ -199,12 +215,21 @@ const blankClientState = () => ({
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
+let allCustomersLoadInFlight = null;
+let allCustomersLoadAt = 0;
+const ALL_CUSTOMERS_RELOAD_TTL_MS = 10000;
 let feishuCollaborationState = { scope: '', loading: false, error: '', status: null, result: null };
 let customerPendingCoCreationPayload = null;
 let lastCustomerGenerationPayload = null;
 
 const api = async (url, opts={}) => {
-  const {timeoutMs = 35000, internalToken = '', headers: requestedHeaders = {}, ...fetchOptions} = opts;
+  const {
+    timeoutMs = 35000,
+    internalToken = '',
+    suppressInternalUnauthorized = false,
+    headers: requestedHeaders = {},
+    ...fetchOptions
+  } = opts;
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -218,7 +243,9 @@ const api = async (url, opts={}) => {
       error.status = res.status;
       error.code = data.code || '';
       error.retry_after_seconds = Number(data.retry_after_seconds || 0);
-      if (res.status === 401 && isInternalProfile()) handleInternalUnauthorized();
+      if (res.status === 401 && isInternalProfile() && !suppressInternalUnauthorized) {
+        handleInternalUnauthorized();
+      }
       throw error;
     }
     return sanitizeCustomerPayload(data);
@@ -1492,6 +1519,9 @@ async function verifyInternalAccessToken(token = ''){
     const gate = $('#internalAccessGate');
     if (gate) gate.hidden = true;
     document.body.classList.remove('internal-auth-locked');
+    allCustomersState = { ...allCustomersState, customers: [], errors: [], loading: true, error: '' };
+    renderAllCustomersPanel();
+    refreshAllCustomers({ force: true }).catch(() => {});
     setAppShell();
     syncRouteState();
     return true;
@@ -1521,9 +1551,16 @@ function initInternalAccessGate(){
       verifyInternalAccessToken($('#internalAccessToken')?.value || '');
     });
   }
+  const urlToken = readInternalAccessTokenFromUrl();
   const stored = readInternalAccessToken();
-  if (stored) verifyInternalAccessToken(stored);
-  else {
+  if (urlToken) {
+    if ($('#internalAccessToken')) $('#internalAccessToken').value = urlToken;
+    saveInternalAccessToken(urlToken);
+  }
+  const initialToken = urlToken || stored;
+  if (initialToken) {
+    verifyInternalAccessToken(initialToken);
+  } else {
     setInternalAccessMessage('请输入内部访问口令。');
     window.setTimeout(() => $('#internalAccessToken')?.focus(), 0);
   }
@@ -1963,6 +2000,7 @@ function defaultCustomerCoCreation(payload = {}){
 }
 
 const CUSTOMER_PLAN_JOB_POLL_DELAYS = [700, 900, 1200, 1600, 2200, 3000, 4000, 5000, 5000, 5000];
+const CUSTOMER_PLAN_JOB_MAX_NOT_FOUND = 3;
 const waitForCustomerPlanJob = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 async function pollCustomerPlanJob(job = {}, clientId = ''){
@@ -1970,15 +2008,23 @@ async function pollCustomerPlanJob(job = {}, clientId = ''){
   const scopedClientId = normalizeClientId(clientId);
   if (!jobId || !scopedClientId) throw new Error('计划任务创建失败，请稍后重试');
   let lastError = null;
+  let notFoundCount = 0;
   for (const delay of CUSTOMER_PLAN_JOB_POLL_DELAYS) {
     await waitForCustomerPlanJob(delay);
     try {
       const current = await api(`/api/plan-jobs/${encodeURIComponent(jobId)}?client_id=${encodeURIComponent(scopedClientId)}`, { timeoutMs: 10000 });
+      notFoundCount = 0;
       if (current.status === 'completed' && current.result) return current.result;
       if (current.status === 'failed') throw new Error(current.error || '刚刚生成失败了，请稍后再试一次');
     } catch (error) {
       lastError = error;
-      if (error?.status === 404) throw error;
+      // 任务刚创建时 Netlify Blobs 写读传播有短暂延迟，可能先返回 404；
+      // 前几轮把 404 当可重试错误，避免客户第一次提交就直接失败。
+      if (error?.status === 404) {
+        notFoundCount += 1;
+        if (notFoundCount >= CUSTOMER_PLAN_JOB_MAX_NOT_FOUND) throw error;
+        continue;
+      }
     }
   }
   try {
@@ -4293,12 +4339,31 @@ function renderAllCustomersPanel(){
     ${multiHtml}`;
 }
 
+function shouldReloadAllCustomers(){
+  if (allCustomersLoadInFlight) return false;
+  if (!allCustomersState.error && Array.isArray(allCustomersState.customers) && allCustomersState.customers.length) {
+    return Date.now() - allCustomersLoadAt > ALL_CUSTOMERS_RELOAD_TTL_MS;
+  }
+  return true;
+}
+
+function refreshAllCustomers({ force = false } = {}){
+  if (!isInternalProfile()) return Promise.resolve();
+  if (allCustomersLoadInFlight) return allCustomersLoadInFlight;
+  if (!force && !shouldReloadAllCustomers()) return Promise.resolve();
+  allCustomersLoadInFlight = loadAllCustomers().finally(() => {
+    allCustomersLoadAt = Date.now();
+    allCustomersLoadInFlight = null;
+  });
+  return allCustomersLoadInFlight;
+}
+
 async function loadAllCustomers(){
-  if (!isInternalProfile() || !internalAuthVerified) return;
+  if (!isInternalProfile()) return;
   allCustomersState = { ...allCustomersState, loading: true, error: '' };
   renderAllCustomersPanel();
   try {
-    const result = await api('/api/customers?mode=internal&client_id=internal');
+    const result = await api('/api/customers?mode=internal&client_id=internal', { suppressInternalUnauthorized: true });
     allCustomersState = {
       customers: Array.isArray(result.customers) ? result.customers : [],
       errors: Array.isArray(result.errors) ? result.errors : [],
@@ -4306,6 +4371,11 @@ async function loadAllCustomers(){
       error: '',
     };
   } catch (error) {
+    if (error?.status === 401) {
+      allCustomersState = { customers: [], errors: [], loading: false, error: '未通过内部访问验证，请先在上方输入口令。' };
+      renderAllCustomersPanel();
+      return;
+    }
     allCustomersState = { customers: [], errors: [], loading: false, error: error.message || '请求失败' };
   }
   renderAllCustomersPanel();
@@ -5963,10 +6033,25 @@ function renderGenerationWorkbenchRoute(){
   }
   if (planLink) planLink.hidden = active;
   if (!isInternalProfile()) return;
-  ['#allCustomersPanel', '#feishuCollaborationPanel', '#diagnosisWorkflow', '#internalResultSection', '#planSection', '#feedbackHint', '#feedbackWorkflow', '.internal-debug-panel', '.internal-progress-strip'].forEach((selector) => {
+  const routeDependentElements = [
+    '#allCustomersPanel',
+    '#feishuCollaborationPanel',
+    '#diagnosisWorkflow',
+    '#internalResultSection',
+    '#planSection',
+    '#feedbackHint',
+    '#feedbackWorkflow',
+    '.internal-debug-panel',
+    '.internal-progress-strip'
+  ];
+  routeDependentElements.forEach((selector) => {
     const el = $(selector);
-    if (active && el) el.hidden = true;
+    if (!el) return;
+    el.hidden = active;
   });
+  if (!active) {
+    renderWorkflowVisibility();
+  }
 }
 
 function renderInternalWorkspaceShell(productionActive = isGenerationWorkbenchRoute()){
@@ -6186,6 +6271,7 @@ function syncRouteState(){
   setAppShell();
   if (isInternalProfile() && !internalAuthVerified) {
     initInternalAccessGate();
+    refreshAllCustomers({ force: true }).catch(() => {});
     return;
   }
   renderGenerationWorkbenchRoute();
@@ -6199,12 +6285,14 @@ function syncRouteState(){
   }
   if (clientChanged && !isGenerationWorkbenchRoute()) {
     loadAll().catch((error)=>toast(error.message));
+    refreshAllCustomers({ force: true }).catch(() => {});
     return;
   }
   if (isGenerationWorkbenchRoute()) {
     initGenerationWorkbench();
   } else {
     renderAllFromClient();
+    refreshAllCustomers().catch(() => {});
   }
 }
 
@@ -6364,7 +6452,7 @@ function initInternalApp(){
   loadAll()
     .then(()=>loadFeishuCollaborationStatus())
     .catch(err=>toast(err.message));
-  loadAllCustomers().catch((error)=>toast(error.message || '客户列表读取失败'));
+  refreshAllCustomers({ force: true }).catch((error)=>toast(error.message || '客户列表读取失败'));
 }
 
 setAppShell();
