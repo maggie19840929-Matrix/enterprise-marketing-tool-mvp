@@ -3560,6 +3560,31 @@ async function copyCustomerSuggestion(){
   toast('已复制，可以粘贴使用');
 }
 
+async function saveCustomerLink(){
+  const clientId = customerClientId();
+  if (!clientId) return toast('暂无法生成保存链接，请刷新页面后重试');
+  const url = new URL(window.location.origin + window.location.pathname);
+  const saved = loadCustomerTrialState();
+  url.search = '';
+  url.searchParams.set('client_id', clientId);
+  const customerKey = saved?.customer_key || '';
+  if (customerKey && normalizeClientId(customerKey) !== normalizeClientId(clientId)) {
+    url.searchParams.set('customer', customerKey);
+  }
+  const link = url.toString();
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = link;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+  toast('方案链接已复制：换设备或发给同事打开，即可继续这个项目');
+}
+
 function hasLocalUserSettings(){
   try {
     return Boolean(window.localStorage?.getItem(userSettingsStorageKey()));
@@ -3723,6 +3748,7 @@ function initCustomerTrial(){
   });
   $('#customerStartBlank')?.addEventListener('click', startBlankCustomerProject);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
+  $('#saveCustomerLinkBtn')?.addEventListener('click', saveCustomerLink);
   $('#customerRegenerateBtn')?.addEventListener('click', editCustomerAssessment);
   $('#customerAssessmentForm')?.addEventListener('input', hideStaleCustomerResultIfNeeded);
   $('#customerAssessmentForm')?.addEventListener('change', hideStaleCustomerResultIfNeeded);

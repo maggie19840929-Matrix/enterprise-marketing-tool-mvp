@@ -3502,21 +3502,32 @@ const withInternalProjectSeeds = (projectStore = {}, clientId = 'anonymous') => 
   return normalizeCloudProjectStore(stripGenericInternalCrossProjectSeeds(projectStore, clientId));
 };
 
+// 缓存 store 选择结果，避免每次请求都做探测；undefined=未检查，null=不可用。
+let cachedCloudStore = undefined;
 const cloudStore = async () => {
+  if (cachedCloudStore !== undefined) return cachedCloudStore;
   try {
     const mod = await import('@netlify/blobs');
     const getStore = mod.getStore || mod.default?.getStore;
-    if (!getStore) return null;
-    // 优先用显式凭证（解决 CLI/部分运行时不自动注入 blobs 上下文、退回内存导致数据不持久的问题）。
-    // 凭证缺失时回退到运行时自动注入模式。consistency:'strong' 保证多步流程 create 后立即可读。
+    if (!getStore) return (cachedCloudStore = null);
+    // 1) 优先运行时自动注入：支持 consistency:'strong' 的 uncachedEdgeURL 直读，
+    //    避免显式凭据路径走签名 URL 时出现的写读传播延迟（任务刚创建可能短暂读不到）。
+    try {
+      const runtimeStore = getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' });
+      await runtimeStore.get('__store_probe__', { type: 'text' });
+      return (cachedCloudStore = runtimeStore);
+    } catch {
+      // 运行时未注入上下文或强一致不可用时，继续尝试显式凭据保底。
+    }
+    // 2) 显式凭据（CLI/本地/部分运行时不自动注入的兜底），保证数据持久化。
     const siteID = envValue('NETLIFY_BLOBS_SITE_ID', 'NETLIFY_SITE_ID', 'SITE_ID');
     const token = envValue('NETLIFY_BLOBS_TOKEN', 'NETLIFY_API_TOKEN', 'NETLIFY_AUTH_TOKEN');
     if (siteID && token) {
-      return getStore({ name: CLOUD_STATE_STORE, siteID, token, consistency: 'strong' });
+      return (cachedCloudStore = getStore({ name: CLOUD_STATE_STORE, siteID, token, consistency: 'strong' }));
     }
-    return getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' });
+    return (cachedCloudStore = getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' }));
   } catch {
-    return null;
+    return (cachedCloudStore = null);
   }
 };
 
