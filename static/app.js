@@ -216,6 +216,7 @@ let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
 let customerDetailEditMode = false;
+let internalOpsTab = 'plans';
 let allCustomersLoadInFlight = null;
 let allCustomersLoadAt = 0;
 const ALL_CUSTOMERS_RELOAD_TTL_MS = 10000;
@@ -4296,6 +4297,8 @@ function renderAllFromClient(){
   renderTopReturnProjectAction();
   settleInternalHashTarget();
   renderGenerationWorkbenchRoute();
+  renderInternalOpsTabs();
+  document.body.classList.toggle('customer-edit-mode', isInternalProfile() && customerDetailEditMode);
 }
 
 function customerListDisplayName(customer = {}){
@@ -4380,9 +4383,17 @@ function renderCustomerDetailDashboard(){
   const body = $('#customerDetailBody');
   if (!body) return;
   const assessment = clientState.assessment || {};
+  const diagnosis = clientState.diagnosis || {};
   const name = visibleClientName() || customerDisplayName(assessment, clientState.project) || '未命名客户';
   const updated = cleanDisplayName(assessment.saved_at || clientState.saved_at || clientState.project?.updated_at) || '未知';
   const stage = clientState.project_stage || '未诊断';
+  const strategyRows = diagnosis
+    ? [
+        ['策略清晰度', diagnosis.strategy_score ?? diagnosis.score ? `${diagnosis.strategy_score ?? diagnosis.score}/100` : '未生成'],
+        ['核心判断', diagnosis.insight],
+        ['下一步动作', diagnosis.next_step || diagnosis.weekly_action],
+      ].map(([label, value]) => detailField(label, value)).join('')
+    : '';
   body.innerHTML = `
     <div class="customer-detail-meta">
       <div><span>客户</span><strong>${esc(name)}</strong><em>${esc(customerClientId())}</em></div>
@@ -4406,6 +4417,12 @@ function renderCustomerDetailDashboard(){
           ['服务区域', assessment.store_location],
           ['联系人', assessment.contact],
         ].map(([label, value]) => detailField(label, value)).join('')}</div>
+      </section>
+      <section class="customer-detail-card">
+        <div class="customer-detail-card-head"><strong>内容策略</strong><span>来源：系统诊断</span></div>
+        ${diagnosis
+          ? `<div class="kv-grid">${strategyRows}</div>${diagnosis.risk_warning ? `<div class="detail-note"><span>风险提醒</span><p>${esc(diagnosis.risk_warning)}</p></div>` : ''}`
+          : '<div class="empty">尚未生成内容诊断。点击"填写业务信息并生成"后，这里会显示策略判断与下一步动作。</div>'}
       </section>
       <section class="customer-detail-card">
         <div class="customer-detail-card-head"><strong>内容发布情况</strong><span>来源：内容计划</span></div>
@@ -4467,28 +4484,23 @@ function renderAllCustomersPanel(){
   const testOpts = testCustomers.length ? `<optgroup label="测试 / 示例（${testCustomers.length}）">${testCustomers.map(optFor).join('')}</optgroup>` : '';
   const pickerHtml = `
     <div class="all-customers-picker">
-      <div class="all-customers-picker-head">
-        <strong>客户名单</strong>
-        <span>共 ${realCustomers.length} 个正式客户${testCustomers.length ? ` / ${testCustomers.length} 个测试/示例` : ''}；下拉选择后进入对应运营项目。</span>
-      </div>
-      <select id="allCustomersSelect" aria-label="选择客户" style="width:100%;max-width:520px;padding:10px 12px;border-radius:12px;font-size:15px;border:1px solid var(--clean-line,#e2d9c9);background:#fff;color:var(--clean-ink,#2a1f12)">
+      <select id="allCustomersSelect" aria-label="选择客户" style="width:100%;padding:10px 12px;border-radius:12px;font-size:15px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#f7f8f8">
         <option value="" disabled selected>选择客户…（${realCustomers.length} 个正式${testCustomers.length ? ` / ${testCustomers.length} 测试` : ''}${multiCount ? `，${multiCount} 组已合并同名记录` : ''}）</option>
         ${realOpts}${testOpts}
       </select>
     </div>`;
   const multiHtml = multiCount
     ? `<div class="all-customer-record-groups">
-        <div class="all-customer-record-groups-head">
-          <strong>同名客户已合并（${multiCount} 组）</strong>
-          <span>以下客户在下拉菜单中已合并为一个选项，这里列出的是各条原始记录；点击可切换到该条记录对应的运营项目。</span>
-        </div>
-        ${multiGroups.map((customer) => `
-          <details>
-            <summary>${esc(customerListDisplayName(customer))}（已合并 ${customer.records.length} 条记录）</summary>
-            <div class="all-customer-record-list">
-              ${customer.records.map((record, index) => `<button type="button" data-all-customer-client="${esc(record.client_id)}">${esc(customerRecordLabel(record, index))}</button>`).join('')}
-            </div>
-          </details>`).join('')}
+        <details class="all-customer-merged-details">
+          <summary>同名客户合并明细（${multiCount} 组）：下拉中已合并为一个选项，展开可查看并切换各条原始记录</summary>
+          ${multiGroups.map((customer) => `
+            <details>
+              <summary>${esc(customerListDisplayName(customer))}（已合并 ${customer.records.length} 条记录）</summary>
+              <div class="all-customer-record-list">
+                ${customer.records.map((record, index) => `<button type="button" data-all-customer-client="${esc(record.client_id)}">${esc(customerRecordLabel(record, index))}</button>`).join('')}
+              </div>
+            </details>`).join('')}
+        </details>
       </div>`
     : '';
   list.innerHTML = pickerHtml + multiHtml;
@@ -4554,7 +4566,7 @@ function renderFeishuCollaborationPanel(){
   const panel = $('#feishuCollaborationPanel');
   if (!panel) return;
   const projectId = String(clientState.project?.id || '').trim();
-  const visible = isInternalProfile() && !isGenerationWorkbenchRoute() && Boolean(projectId);
+  const visible = isInternalProfile() && !isGenerationWorkbenchRoute() && Boolean(projectId) && internalOpsTab === 'feishu';
   panel.hidden = !visible;
   if (!visible) return;
 
@@ -4753,10 +4765,17 @@ function renderWorkflowVisibility(){
   const workflow = $('#feedbackWorkflow');
   const planSection = $('#planSection');
   const internalResult = $('#internalResultSection');
-  if (planSection) planSection.hidden = !hasPlans || clientState.project_stage === '未诊断';
-  if (internalResult) internalResult.hidden = !clientState.diagnosis || clientState.project_stage === '未诊断';
+  const dashboardVisible = isInternalProfile() && hasCustomerDetailState();
+  const detailPanel = $('#customerDetailDashboard');
+  if (detailPanel) detailPanel.hidden = !(isInternalProfile() && !isGenerationWorkbenchRoute() && hasCustomerDetailState());
+  if (planSection) {
+    planSection.hidden = isInternalProfile() ? true : (!hasPlans || clientState.project_stage === '未诊断');
+  }
+  if (internalResult) internalResult.hidden = !clientState.diagnosis || clientState.project_stage === '未诊断' || (isInternalProfile() && dashboardVisible);
   if (hint) hint.hidden = true;
-  if (workflow) workflow.hidden = !hasPlans || clientState.project_stage === '未诊断';
+  if (workflow) {
+    workflow.hidden = isInternalProfile() ? true : (!hasPlans || clientState.project_stage === '未诊断');
+  }
   const diagnosisWorkflow = $('#diagnosisWorkflow');
   if (diagnosisWorkflow) {
     if (isInternalProfile()) {
@@ -4774,6 +4793,64 @@ function renderWorkflowVisibility(){
       item.classList.toggle('cps-done', n < step);
       item.classList.toggle('cps-active', n === step);
     });
+  }
+}
+
+function internalOpsAvailable(){
+  const hasPlans = Array.isArray(clientState.plans) && clientState.plans.length > 0 && clientState.project_stage !== '未诊断';
+  return [
+    { key: 'plans', label: '内容计划', ok: hasPlans },
+    { key: 'feedback', label: '回填与复盘', ok: hasPlans },
+    { key: 'feishu', label: '飞书协同', ok: Boolean(clientState.project?.id) },
+  ];
+}
+
+function renderInternalOpsTabs(){
+  const tabbar = $('#internalOpsTabbar');
+  if (!tabbar) return;
+  const panels = [
+    ['plans', '#planSection'],
+    ['feedback', '#feedbackWorkflow'],
+    ['feishu', '#feishuCollaborationPanel'],
+  ];
+  if (!isInternalProfile() || isGenerationWorkbenchRoute()) {
+    tabbar.hidden = true;
+    panels.forEach(([, sel]) => {
+      const el = $(sel);
+      if (el) el.hidden = true;
+    });
+    return;
+  }
+  const tabs = internalOpsAvailable();
+  const available = tabs.filter((tab) => tab.ok);
+  if (!available.length) {
+    tabbar.hidden = true;
+    panels.forEach(([, sel]) => {
+      const el = $(sel);
+      if (el) el.hidden = true;
+    });
+    return;
+  }
+  const current = tabs.find((tab) => tab.key === internalOpsTab && tab.ok) || available[0];
+  internalOpsTab = current.key;
+  tabbar.hidden = false;
+  tabbar.innerHTML = tabs.map((tab) => `<button type="button" class="internal-ops-tab ${tab.key === internalOpsTab ? 'is-active' : ''}" data-ops-tab="${tab.key}" ${tab.ok ? '' : 'disabled'}>${esc(tab.label)}</button>`).join('');
+  panels.forEach(([key, sel]) => {
+    const el = $(sel);
+    if (el) el.hidden = key !== internalOpsTab;
+  });
+}
+
+function openInternalOpsTab(key, scrollSelector = ''){
+  if (!internalOpsAvailable().some((tab) => tab.key === key && tab.ok)) return;
+  internalOpsTab = key;
+  renderInternalOpsTabs();
+  if (scrollSelector) {
+    const el = document.querySelector(scrollSelector);
+    if (el) {
+      el.hidden = false;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 }
 
@@ -6198,6 +6275,8 @@ function renderGenerationWorkbenchRoute(){
   if (!isInternalProfile()) return;
   const routeDependentElements = [
     '#allCustomersPanel',
+    '#customerDetailDashboard',
+    '#internalOpsTabbar',
     '#feishuCollaborationPanel',
     '#diagnosisWorkflow',
     '#internalResultSection',
@@ -6442,7 +6521,10 @@ function syncRouteState(){
   const nextClientId = customerClientId();
   const clientChanged = Boolean(activeInternalRouteClientId && nextClientId !== activeInternalRouteClientId);
   activeInternalRouteClientId = nextClientId;
-  if (clientChanged) customerDetailEditMode = false;
+  if (clientChanged) {
+    customerDetailEditMode = false;
+    internalOpsTab = 'plans';
+  }
   if (!internalAppInitialized) {
     initInternalApp();
     return;
@@ -6472,7 +6554,11 @@ function initInternalRouteNavigation(){
     event.preventDefault();
     history.pushState({}, '', url.pathname + url.search + url.hash);
     syncRouteState();
-    if (url.hash) { try { document.querySelector(url.hash)?.scrollIntoView({behavior:'smooth', block:'start'}); } catch (e) {} }
+    if (url.hash) {
+      if (url.hash === '#planSection') openInternalOpsTab('plans');
+      else if (url.hash === '#feedbackWorkflow') openInternalOpsTab('feedback');
+      try { document.querySelector(url.hash)?.scrollIntoView({behavior:'smooth', block:'start'}); } catch (e) {}
+    }
   });
   window.addEventListener('popstate', syncRouteState);
   window.addEventListener('hashchange', syncRouteState);
@@ -6642,10 +6728,16 @@ $('#customerDetailDashboard')?.addEventListener('click', (event) => {
     renderAllFromClient();
     scrollToSection('#diagnosisWorkflow');
   } else if (action === 'plans') {
-    scrollToSection('#planSection');
+    openInternalOpsTab('plans', '#planSection');
   } else if (action === 'feedback') {
-    scrollToSection('#feedbackWorkflow');
+    openInternalOpsTab('feedback', '#feedbackWorkflow');
   }
+});
+$('#internalOpsTabbar')?.addEventListener('click', (event) => {
+  const button = event.target?.closest?.('[data-ops-tab]');
+  if (!button?.dataset?.opsTab || button.disabled) return;
+  internalOpsTab = button.dataset.opsTab;
+  renderInternalOpsTabs();
 });
 if (isInternalProfile()) {
   initInternalAccessGate();

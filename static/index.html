@@ -518,10 +518,11 @@
     <div class="customer-hero-copy">
       <p id="internalHeroKicker" class="customer-kicker">内测版 · 智能诊断内核</p>
       <h1 id="internalHeroTitle">获客罗盘</h1>
-      <p id="internalHeroDesc">主流程与客户版保持一致：先填写/确认业务信息，生成本轮内容建议，再记录发布效果；内部诊断、数据导入导出和清空能力收在调试面板里。</p>
+      <p id="internalHeroDesc">选中客户进入运营看板：客户资料、内容策略、发布进度和效果反馈一目了然；编辑生成、回填复盘与飞书协同集中在下方操作区。</p>
       <div class="customer-hero-actions">
         <a class="customer-hero-primary" href="/internal/#diagnosisWorkflow">客户运营工作区</a>
         <a class="customer-hero-secondary" href="/internal/#planSection">查看内容计划</a>
+        <a class="customer-hero-secondary" href="/internal/#feedbackWorkflow">回填与复盘</a>
         <a class="customer-hero-secondary" href="/internal/generation-workbench">素材生产工作台</a>
         <button id="topReturnProjectBtn" class="customer-hero-secondary top-return-project" type="button" onclick="returnToActiveProject()" hidden>返回当前运营项目</button>
       </div>
@@ -547,23 +548,31 @@
     </div>
 
     <section id="allCustomersPanel" class="customer-card all-customers-panel" hidden>
-      <div class="customer-section-head">
-        <p>INTERNAL · 全部客户</p>
-        <h2>全部客户</h2>
-        <span>只读聚合各 client_id 下的项目数据；同名客户会自动合并为一个选项，合并的明细和各条原始记录见下方；点击客户后切入对应运营项目，不迁移、不合并、不删除任何数据。</span>
+      <div class="customer-section-head all-customers-toolbar-head">
+        <div>
+          <p>INTERNAL · 全部客户</p>
+          <h2>全部客户</h2>
+          <span>只读聚合各 client_id 下的项目数据；同名客户自动合并为一个选项，合并明细可展开；点击客户后切入对应运营项目，不迁移、不合并、不删除任何数据。</span>
+        </div>
+        <div id="allCustomersList" class="all-customers-toolbar-main generation-list empty">暂无客户。</div>
       </div>
       <div id="allCustomersStatus" class="customer-message success">正在读取客户列表...</div>
-      <div id="allCustomersList" class="generation-list empty">暂无客户。</div>
     </section>
 
     <section id="customerDetailDashboard" class="customer-card customer-detail-dashboard" hidden>
       <div class="customer-section-head">
         <p>INTERNAL · 客户运营看板</p>
         <h2>客户运营看板</h2>
-        <span>选中客户后的只读概览：客户资料、内容发布进度与效果反馈集中在这里；编辑资料、生成内容和回填数据在下方操作区。</span>
+        <span>选中客户后的只读概览：客户资料、内容策略、发布进度与效果反馈集中在这里；编辑生成、回填复盘在下方操作区。</span>
       </div>
       <div id="customerDetailBody" class="customer-detail-body"></div>
     </section>
+
+    <nav id="internalOpsTabbar" class="internal-ops-tabbar" hidden aria-label="客户操作区">
+      <button type="button" class="internal-ops-tab" data-ops-tab="plans">内容计划</button>
+      <button type="button" class="internal-ops-tab" data-ops-tab="feedback">回填与复盘</button>
+      <button type="button" class="internal-ops-tab" data-ops-tab="feishu">飞书协同</button>
+    </nav>
 
     <section id="feishuCollaborationPanel" class="customer-card feishu-collaboration-panel" hidden>
       <div class="customer-section-head feishu-collaboration-head">
