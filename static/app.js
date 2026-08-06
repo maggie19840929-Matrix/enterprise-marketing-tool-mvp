@@ -215,6 +215,7 @@ const blankClientState = () => ({
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
+let customerDetailEditMode = false;
 let allCustomersLoadInFlight = null;
 let allCustomersLoadAt = 0;
 const ALL_CUSTOMERS_RELOAD_TTL_MS = 10000;
@@ -4277,6 +4278,7 @@ function renderAllFromClient(){
   hydrateInternalFormValuesFromState();
   renderInternalClientIdentity();
   renderAllCustomersPanel();
+  renderCustomerDetailDashboard();
   renderFeishuCollaborationPanel();
   renderLifecycleWorkbench();
   renderWorkflowVisibility();
@@ -4311,6 +4313,109 @@ function customerRecordLabel(record = {}, index = 0){
   const count = Number(record.project_count || 0);
   const id = String(record.client_id || '');
   return [`记录 ${index + 1}`, updated || '无更新日期', count ? `${count} 个项目` : '', id].filter(Boolean).join(' · ');
+}
+
+const hasCustomerDetailState = () => {
+  const assessment = clientState.assessment || {};
+  return Boolean(
+    clientState.project
+    || assessment.company_name
+    || assessment.industry
+    || assessment.main_goal
+    || clientState.diagnosis
+    || (Array.isArray(clientState.plans) && clientState.plans.length)
+    || (Array.isArray(clientState.feedback) && clientState.feedback.length)
+  );
+};
+
+const detailField = (label, value) => `<div class="kv"><span>${esc(label)}</span><strong>${esc(String(value || '').trim() || '未填写')}</strong></div>`;
+
+function customerDetailPlanRows(){
+  const plans = Array.isArray(clientState.plans) ? clientState.plans : [];
+  if (!plans.length) return '<div class="empty">暂无内容计划。生成第一轮内容建议后，这里会显示 7 天发布安排。</div>';
+  const published = plans.filter((plan) => plan.status === '已发布' || plan.publish_link || clientState.feedback.some((f) => samePlanId(f.content_plan_id, plan.id))).length;
+  const firstOpen = plans.find((plan) => !(plan.status === '已发布' || plan.publish_link || clientState.feedback.some((f) => samePlanId(f.content_plan_id, plan.id))));
+  const rows = plans.map((plan) => {
+    const meta = planUiMeta(plan, firstOpen?.id);
+    const link = normalizeExternalUrl(plan.publish_link);
+    return `<div class="detail-plan-row ${esc(meta.className)}">
+      <span class="detail-plan-index">#${esc(planDisplayNumber(plan))}</span>
+      <strong>${esc(plan.topic || '未命名内容')}</strong>
+      <span class="war-tag">${esc(plan.platform || '未标注平台')}</span>
+      <span class="war-tag ${meta.tone === 'orange' ? 'orange' : meta.tone === 'green' ? 'green' : ''}">${esc(meta.label)}</span>
+      <span class="detail-plan-date">${esc(plan.planned_date || '日期待定')}</span>
+      ${link ? `<a class="detail-plan-link" href="${esc(link)}" target="_blank" rel="noreferrer">查看链接</a>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="detail-summary-chips"><span>总计划 ${plans.length} 条</span><span>已发布 ${published} 条</span><span>待发布 ${plans.length - published} 条</span></div><div class="detail-plan-list">${rows}</div>`;
+}
+
+function customerDetailFeedbackRows(){
+  const items = (clientState.feedback || []).slice().sort((a, b) => compareTimestampDesc(a.created_at, b.created_at));
+  const review = clientState.review || autoReviewFromFeedback();
+  const reviewHtml = review
+    ? `<div class="detail-review"><strong>最新复盘判断</strong><p><span>胜出主题：</span>${esc(review.winner_topic || '暂无')}</p><p><span>瓶颈：</span>${esc(review.bottleneck || '未生成')}</p><p><span>下一步：</span>${esc((review.next_actions || '').replace('加码「」同类角度', '加码「最高咨询内容」同类角度'))}</p></div>`
+    : '';
+  if (!items.length) {
+    return `${reviewHtml}<div class="empty">暂无回填数据。内容发布后，在下方"内容数据回填"里记录曝光、互动和咨询，看板会自动更新。</div>`;
+  }
+  const rows = items.map((f) => {
+    const plan = internalPlanById(f.content_plan_id) || {};
+    const link = normalizeExternalUrl(f.publish_link || plan.publish_link || '');
+    return `<div class="detail-feedback-row">
+      <div class="detail-feedback-head"><strong>#${esc(planDisplayNumber(f.content_plan_id))} ${esc(f.plan_topic || plan.topic || '已回填内容')}</strong><span>${esc(f.feedback_stage || 'T+24')} · ${esc(f.created_at || '')}</span></div>
+      <div class="detail-feedback-metrics">${feedbackMetricSet(f)}</div>
+      <div class="detail-feedback-bottom"><p>${esc(feedbackConclusion(f))}</p>${link ? `<a href="${esc(link)}" target="_blank" rel="noreferrer">发布链接</a>` : ''}</div>
+    </div>`;
+  }).join('');
+  return `${reviewHtml}<div class="detail-feedback-list">${rows}</div>`;
+}
+
+function renderCustomerDetailDashboard(){
+  const panel = $('#customerDetailDashboard');
+  if (!panel) return;
+  const visible = isInternalProfile() && !isGenerationWorkbenchRoute() && hasCustomerDetailState();
+  panel.hidden = !visible;
+  if (!visible) return;
+  const body = $('#customerDetailBody');
+  if (!body) return;
+  const assessment = clientState.assessment || {};
+  const name = visibleClientName() || customerDisplayName(assessment, clientState.project) || '未命名客户';
+  const updated = cleanDisplayName(assessment.saved_at || clientState.saved_at || clientState.project?.updated_at) || '未知';
+  const stage = clientState.project_stage || '未诊断';
+  body.innerHTML = `
+    <div class="customer-detail-meta">
+      <div><span>客户</span><strong>${esc(name)}</strong><em>${esc(customerClientId())}</em></div>
+      <div><span>当前阶段</span><strong>${esc(stage)}</strong><em>更新于 ${esc(updated)}</em></div>
+      <div class="customer-detail-actions">
+        <button type="button" class="war-btn secondary" data-detail-action="edit">${clientState.diagnosis ? '编辑业务信息 / 重新生成' : '填写业务信息并生成'}</button>
+        <button type="button" class="war-btn secondary" data-detail-action="plans">查看内容计划</button>
+        <button type="button" class="war-btn secondary" data-detail-action="feedback">回填效果数据</button>
+      </div>
+    </div>
+    <div class="customer-detail-grid">
+      <section class="customer-detail-card">
+        <div class="customer-detail-card-head"><strong>客户信息</strong><span>来源：客户填写资料</span></div>
+        <div class="kv-grid">${[
+          ['行业 / 业务', assessment.industry],
+          ['主要目标', assessment.main_goal],
+          ['目标客户', assessment.target_customer],
+          ['发布平台', assessment.current_channels],
+          ['客户 / 门店名', assessment.company_name],
+          ['产品 / 服务', assessment.offer],
+          ['服务区域', assessment.store_location],
+          ['联系人', assessment.contact],
+        ].map(([label, value]) => detailField(label, value)).join('')}</div>
+      </section>
+      <section class="customer-detail-card">
+        <div class="customer-detail-card-head"><strong>内容发布情况</strong><span>来源：内容计划</span></div>
+        ${customerDetailPlanRows()}
+      </section>
+      <section class="customer-detail-card">
+        <div class="customer-detail-card-head"><strong>内容反馈</strong><span>来源：发布回填</span></div>
+        ${customerDetailFeedbackRows()}
+      </section>
+    </div>`;
 }
 
 function renderAllCustomersPanel(){
@@ -4653,7 +4758,15 @@ function renderWorkflowVisibility(){
   if (hint) hint.hidden = true;
   if (workflow) workflow.hidden = !hasPlans || clientState.project_stage === '未诊断';
   const diagnosisWorkflow = $('#diagnosisWorkflow');
-  if (diagnosisWorkflow) diagnosisWorkflow.hidden = clientState.project_stage !== '未诊断';
+  if (diagnosisWorkflow) {
+    if (isInternalProfile()) {
+      const detailVisible = hasCustomerDetailState();
+      const editRequested = customerDetailEditMode || String(location.hash || '') === '#diagnosisWorkflow';
+      diagnosisWorkflow.hidden = detailVisible && !editRequested;
+    } else {
+      diagnosisWorkflow.hidden = clientState.project_stage !== '未诊断';
+    }
+  }
   if (isInternalProfile()) {
     const step = clientState.project_stage === '未诊断' ? 1 : (clientState.feedback.length ? 3 : 2);
     document.querySelectorAll('#internalApp .customer-progress-strip .cps-item').forEach((item) => {
@@ -6329,6 +6442,7 @@ function syncRouteState(){
   const nextClientId = customerClientId();
   const clientChanged = Boolean(activeInternalRouteClientId && nextClientId !== activeInternalRouteClientId);
   activeInternalRouteClientId = nextClientId;
+  if (clientChanged) customerDetailEditMode = false;
   if (!internalAppInitialized) {
     initInternalApp();
     return;
@@ -6518,6 +6632,20 @@ $('#allCustomersPanel')?.addEventListener('click', (event) => {
   const button = event.target?.closest?.('[data-all-customer-client]');
   if (!button?.dataset?.allCustomerClient) return;
   window.location.href = '/internal/?client_id=' + encodeURIComponent(button.dataset.allCustomerClient);
+});
+$('#customerDetailDashboard')?.addEventListener('click', (event) => {
+  const button = event.target?.closest?.('[data-detail-action]');
+  const action = button?.dataset?.detailAction;
+  if (!action) return;
+  if (action === 'edit') {
+    customerDetailEditMode = true;
+    renderAllFromClient();
+    scrollToSection('#diagnosisWorkflow');
+  } else if (action === 'plans') {
+    scrollToSection('#planSection');
+  } else if (action === 'feedback') {
+    scrollToSection('#feedbackWorkflow');
+  }
 });
 if (isInternalProfile()) {
   initInternalAccessGate();
