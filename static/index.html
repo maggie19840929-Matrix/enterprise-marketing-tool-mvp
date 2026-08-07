@@ -66,7 +66,7 @@
         <div class="customer-hero-actions">
           <a class="customer-hero-primary" href="#customerFormCard" data-customer-step-link="intake">开始生成内容建议</a>
         </div>
-        <p class="customer-hero-microcopy">约 3 分钟 · 无需注册 · 内容保存在当前浏览器</p>
+        <p class="customer-hero-microcopy">约 3 分钟 · 无需注册 · 可保存链接，换设备继续</p>
       </div>
       <aside class="customer-hero-product" aria-label="产品能力预览" hidden>
         <div class="customer-product-top">
@@ -392,7 +392,6 @@
         </div>
         <form id="customerEffectForm" class="customer-effect-form">
           <input name="content_plan_id" type="hidden" required />
-          <input name="publish_link" type="hidden" />
           <input name="published_at" type="hidden" />
           <input name="favorites" type="hidden" value="0" />
           <input name="appointments" type="hidden" value="0" />
@@ -401,6 +400,10 @@
             <div>
               <h3>我发了哪一条</h3>
               <div id="customerSelectedPlan" class="customer-selected-plan" data-empty="true">先从上方内容计划中选择你实际发布的那一条。</div>
+              <label class="customer-effect-link">发布链接（可选）
+                <input name="publish_link" type="url" inputmode="url" placeholder="粘贴已发布内容的链接，便于复盘核对；不填也能保存" />
+              </label>
+              <p class="customer-effect-link-hint">不填也能保存；填了之后，换设备或发给同事时可以直接打开核对。</p>
             </div>
           </div>
           <div class="customer-effect-step customer-wide customer-effect-number-step">
