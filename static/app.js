@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.126';
-const VERSION_LABEL = 'v1.6.126 · 验证码重发时区修复版';
+const APP_VERSION = '1.6.127';
+const VERSION_LABEL = 'v1.6.127 · 账号与跨设备找回版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -10,6 +10,7 @@ const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const ACCOUNT_RESTORE_PROJECT_KEY = 'enterpriseMarketingAccountRestoreProject.v1';
 const CUSTOMER_ACCESS_TOKEN_STORAGE_PREFIX = 'enterpriseMarketingCustomerAccessToken.v1';
 const USER_SETTINGS_STORAGE_PREFIX = 'enterpriseMarketingUserSettings.v1';
 const CUSTOMER_ANALYTICS_SESSION_KEY = 'enterpriseMarketingAnalyticsSession.v1';
@@ -281,6 +282,15 @@ const blankClientState = () => ({
 
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
+let customerAccountState = {
+  loading: false,
+  enabled: false,
+  signed_in: false,
+  account: null,
+  clients: [],
+  challenge_id: '',
+  email: '',
+};
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
 let customerDetailEditMode = false;
 let internalOpsTab = 'plans';
@@ -3363,15 +3373,23 @@ function customerStateFromCloudProjectStore(store = {}){
 async function restoreCustomerTrialFromCloud({force = false} = {}){
   if (isInternalDataScope()) return null;
   const shareToken = customerShareTokenFromUrl();
+  let requestedProjectId = '';
+  try { requestedProjectId = String(window.sessionStorage?.getItem(ACCOUNT_RESTORE_PROJECT_KEY) || ''); } catch {}
   const localState = shareToken ? {} : loadCustomerTrialState({allowDedicatedFallback: true});
-  if (!force && customerHasGeneratedState(localState)) return localState;
+  if (!force && !requestedProjectId && customerHasGeneratedState(localState)) return localState;
   try {
     const result = shareToken
       ? await api(`/api/customer-shares/${encodeURIComponent(shareToken)}`)
       : await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}`);
     if (shareToken) setSharedCustomerClientId(result?.client_id || '');
-    const restored = customerStateFromCloudProjectStore(result?.project_store || {});
+    const cloudProjectStore = result?.project_store || {};
+    if (requestedProjectId && Array.isArray(cloudProjectStore.projects)
+      && cloudProjectStore.projects.some((project) => String(project?.id || '') === requestedProjectId)) {
+      cloudProjectStore.activeProjectId = requestedProjectId;
+    }
+    const restored = customerStateFromCloudProjectStore(cloudProjectStore);
     if (!restored) return null;
+    try { window.sessionStorage?.removeItem(ACCOUNT_RESTORE_PROJECT_KEY); } catch {}
     projectStore = restored.projectStore;
     saveProjectStore();
     clientState = restored.state;
@@ -3709,6 +3727,262 @@ async function saveCustomerLink(){
   toast('项目链接已复制：换设备或发给同事打开，即可继续这个项目');
 }
 
+function setCustomerAccountMessage(message = '', kind = 'success'){
+  const box = $('#customerAccountMessage');
+  if (!box) return;
+  box.textContent = message;
+  box.classList.toggle('error', kind === 'error');
+  box.hidden = !message;
+}
+
+function customerAccountPlanLabel(planCode = 'free'){
+  const labels = {free: 'Free', plus: 'Plus', pro: 'Pro'};
+  return labels[String(planCode || '').toLowerCase()] || 'Free';
+}
+
+function customerAccountProjectRows(){
+  return (Array.isArray(customerAccountState.clients) ? customerAccountState.clients : [])
+    .flatMap((client) => (Array.isArray(client?.projects) ? client.projects : []).map((project) => ({
+      client_id: String(client.client_id || ''),
+      id: String(project?.id || ''),
+      name: customerText(project?.name || '我的内容项目'),
+      stage: customerText(project?.stage || ''),
+      updated_at: customerText(project?.updated_at || ''),
+    })))
+    .filter((project) => project.client_id && project.id);
+}
+
+function renderCustomerAccountDialog(){
+  const loading = $('#customerAccountLoading');
+  const unavailable = $('#customerAccountUnavailable');
+  const signedOut = $('#customerAccountSignedOut');
+  const signedIn = $('#customerAccountSignedIn');
+  const accountBtn = $('#customerAccountBtn');
+  if (loading) loading.hidden = !customerAccountState.loading;
+  if (unavailable) unavailable.hidden = customerAccountState.loading || customerAccountState.enabled;
+  if (signedOut) signedOut.hidden = customerAccountState.loading || !customerAccountState.enabled || customerAccountState.signed_in;
+  if (signedIn) signedIn.hidden = customerAccountState.loading || !customerAccountState.signed_in;
+  if (accountBtn) accountBtn.textContent = customerAccountState.signed_in ? '我的项目' : '账号与项目';
+
+  const plan = $('#customerAccountPlan');
+  if (plan) plan.textContent = customerAccountPlanLabel(customerAccountState.account?.plan_code);
+  const saved = loadCustomerTrialState({allowDedicatedFallback: true});
+  const canBind = customerHasGeneratedState(saved);
+  const bindButton = $('#customerAccountBindCurrent');
+  const bindHint = $('#customerAccountBindHint');
+  if (bindButton) bindButton.disabled = !canBind;
+  if (bindHint) bindHint.textContent = canBind
+    ? '绑定后，可在其他设备登录并继续查看。'
+    : '当前还没有可绑定的内容项目，生成建议后即可绑定。';
+
+  const projects = customerAccountProjectRows();
+  const list = $('#customerAccountProjects');
+  if (list) {
+    list.innerHTML = projects.length
+      ? projects.map((project) => `<button class="customer-account-project" type="button" data-account-client="${esc(project.client_id)}" data-account-project="${esc(project.id)}"><span><strong>${esc(project.name)}</strong>${project.stage ? `<em>${esc(project.stage)}</em>` : ''}</span><small>${esc(project.updated_at || '已保存到账号')}</small><b>打开</b></button>`).join('')
+      : '<p class="customer-account-empty">还没有绑定项目。先生成一份内容建议，再绑定当前项目。</p>';
+  }
+}
+
+async function loadCustomerAccountSession({loadProjects = true} = {}){
+  customerAccountState.loading = true;
+  renderCustomerAccountDialog();
+  try {
+    const session = await api('/api/auth/session', {timeoutMs:10000});
+    customerAccountState.enabled = session.enabled === true;
+    customerAccountState.signed_in = session.signed_in === true;
+    customerAccountState.account = session.account || null;
+    customerAccountState.clients = [];
+    if (customerAccountState.signed_in && loadProjects) {
+      const projects = await api('/api/account/projects', {timeoutMs:10000});
+      customerAccountState.account = projects.account || customerAccountState.account;
+      customerAccountState.clients = Array.isArray(projects.clients) ? projects.clients : [];
+    }
+  } catch {
+    customerAccountState.enabled = false;
+    customerAccountState.signed_in = false;
+    customerAccountState.account = null;
+    customerAccountState.clients = [];
+  } finally {
+    customerAccountState.loading = false;
+    renderCustomerAccountDialog();
+  }
+  return customerAccountState;
+}
+
+function openCustomerAccountDialog(){
+  const dialog = $('#customerAccountDialog');
+  if (!dialog) return;
+  setCustomerAccountMessage('');
+  dialog.hidden = false;
+  document.body.classList.add('customer-privacy-open');
+  loadCustomerAccountSession().then(() => {
+    const focusTarget = customerAccountState.signed_in ? $('#customerAccountBindCurrent') : $('#customerAccountEmail');
+    window.setTimeout(() => focusTarget?.focus(), 50);
+  });
+}
+
+function closeCustomerAccountDialog(){
+  const dialog = $('#customerAccountDialog');
+  if (!dialog) return;
+  dialog.hidden = true;
+  document.body.classList.remove('customer-privacy-open');
+  $('#customerAccountBtn')?.focus();
+}
+
+async function startCustomerEmailVerification(email = ''){
+  const normalizedEmail = String(email || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    setCustomerAccountMessage('请输入有效的邮箱地址。', 'error');
+    return;
+  }
+  const button = $('#customerAccountSendCode');
+  if (button) { button.disabled = true; button.textContent = '正在发送...'; }
+  setCustomerAccountMessage('');
+  try {
+    const result = await api('/api/auth/email/start', {
+      method: 'POST',
+      timeoutMs: 12000,
+      body: JSON.stringify({email: normalizedEmail}),
+    });
+    customerAccountState.challenge_id = String(result.challenge_id || '');
+    customerAccountState.email = normalizedEmail;
+    $('#customerAccountEmailForm')?.setAttribute('hidden', '');
+    $('#customerAccountCodeForm')?.removeAttribute('hidden');
+    setCustomerAccountMessage('验证码已发送，请在 10 分钟内完成验证。');
+    window.setTimeout(() => $('#customerAccountCode')?.focus(), 50);
+  } catch (error) {
+    setCustomerAccountMessage(error?.message || '验证码暂时无法发送，请稍后再试。', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '获取验证码'; }
+  }
+}
+
+async function verifyCustomerEmailCode(code = ''){
+  const normalizedCode = String(code || '').trim();
+  if (!/^\d{6}$/.test(normalizedCode) || !customerAccountState.challenge_id || !customerAccountState.email) {
+    setCustomerAccountMessage('请输入邮件中的 6 位验证码。', 'error');
+    return;
+  }
+  const button = $('#customerAccountVerifyCode');
+  if (button) { button.disabled = true; button.textContent = '正在验证...'; }
+  setCustomerAccountMessage('');
+  try {
+    await api('/api/auth/email/verify', {
+      method: 'POST',
+      timeoutMs: 12000,
+      body: JSON.stringify({
+        email: customerAccountState.email,
+        code: normalizedCode,
+        challenge_id: customerAccountState.challenge_id,
+      }),
+    });
+    customerAccountState.challenge_id = '';
+    customerAccountState.email = '';
+    $('#customerAccountCodeForm')?.setAttribute('hidden', '');
+    $('#customerAccountEmailForm')?.removeAttribute('hidden');
+    $('#customerAccountCode') && ($('#customerAccountCode').value = '');
+    await loadCustomerAccountSession();
+    setCustomerAccountMessage('登录成功。你现在可以绑定或找回项目。');
+  } catch (error) {
+    setCustomerAccountMessage(error?.message || '验证码验证失败，请重新获取。', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '验证并登录'; }
+  }
+}
+
+async function bindCurrentCustomerProject(){
+  const saved = loadCustomerTrialState({allowDedicatedFallback: true});
+  if (!customerHasGeneratedState(saved)) {
+    setCustomerAccountMessage('请先生成一份内容建议，再绑定当前项目。', 'error');
+    return;
+  }
+  const button = $('#customerAccountBindCurrent');
+  if (button) { button.disabled = true; button.textContent = '正在绑定...'; }
+  setCustomerAccountMessage('');
+  try {
+    const synced = await syncCustomerTrialCloudState(saved, {silent: true});
+    if (!synced) throw new Error('当前项目尚未同步成功，请稍后再试。');
+    await api('/api/account/link-client', {
+      method: 'POST',
+      timeoutMs: 12000,
+      body: JSON.stringify({client_id: customerClientId()}),
+    });
+    await loadCustomerAccountSession();
+    setCustomerAccountMessage('当前项目已绑定，可在其他设备登录后找回。');
+  } catch (error) {
+    setCustomerAccountMessage(error?.message || '项目绑定失败，请稍后再试。', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '绑定当前项目'; }
+  }
+}
+
+function openCustomerAccountProject(clientId = '', projectId = ''){
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId || !projectId) return setCustomerAccountMessage('这个项目暂时无法打开。', 'error');
+  try {
+    window.localStorage?.setItem(CUSTOMER_SESSION_KEY, safeClientId);
+    window.sessionStorage?.setItem(ACCOUNT_RESTORE_PROJECT_KEY, String(projectId));
+    window.location.assign('/?account_restore=1');
+  } catch {
+    setCustomerAccountMessage('浏览器未允许保存项目，请检查隐私设置后重试。', 'error');
+  }
+}
+
+async function logoutCustomerAccount(){
+  const button = $('#customerAccountLogout');
+  if (button) button.disabled = true;
+  try {
+    await api('/api/auth/logout', {method: 'POST', timeoutMs: 10000});
+    customerAccountState = {...customerAccountState, signed_in: false, account: null, clients: [], challenge_id: '', email: ''};
+    renderCustomerAccountDialog();
+    setCustomerAccountMessage('已退出登录。当前浏览器里的项目仍然保留。');
+  } catch {
+    setCustomerAccountMessage('暂时无法退出，请稍后再试。', 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function initCustomerAccount(){
+  renderCustomerAccountDialog();
+  loadCustomerAccountSession();
+  $('#customerAccountBtn')?.addEventListener('click', openCustomerAccountDialog);
+  $('#customerAccountClose')?.addEventListener('click', closeCustomerAccountDialog);
+  $('#customerAccountDialog')?.addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeCustomerAccountDialog();
+  });
+  $('#customerAccountEmailForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await startCustomerEmailVerification(formData(event.currentTarget).email);
+  });
+  $('#customerAccountCodeForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await verifyCustomerEmailCode(formData(event.currentTarget).code);
+  });
+  $('#customerAccountChangeEmail')?.addEventListener('click', () => {
+    customerAccountState.challenge_id = '';
+    customerAccountState.email = '';
+    $('#customerAccountCodeForm')?.setAttribute('hidden', '');
+    $('#customerAccountEmailForm')?.removeAttribute('hidden');
+    setCustomerAccountMessage('');
+    $('#customerAccountEmail')?.focus();
+  });
+  $('#customerAccountBindCurrent')?.addEventListener('click', bindCurrentCustomerProject);
+  $('#customerAccountRefreshProjects')?.addEventListener('click', async () => {
+    await loadCustomerAccountSession();
+    setCustomerAccountMessage('项目列表已更新。');
+  });
+  $('#customerAccountProjects')?.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('[data-account-client][data-account-project]');
+    if (button) openCustomerAccountProject(button.dataset.accountClient, button.dataset.accountProject);
+  });
+  $('#customerAccountLogout')?.addEventListener('click', logoutCustomerAccount);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('#customerAccountDialog')?.hidden) closeCustomerAccountDialog();
+  });
+}
+
 function hasLocalUserSettings(){
   try {
     return Boolean(window.localStorage?.getItem(userSettingsStorageKey()));
@@ -3819,6 +4093,7 @@ function initCustomerPrivacySettings(){
 }
 
 function initCustomerTrial(){
+  initCustomerAccount();
   initCustomerPrivacySettings();
   trackCustomerEventOnce('home_view', {source:'customer_public'});
   initCustomerChoices('[data-customer-platforms]', 'current_channels');

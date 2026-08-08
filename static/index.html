@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.126" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.126" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.126" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.127" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.127" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.127" />
 </head>
 <body class="customer-mode">
   <script>
@@ -24,7 +24,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.126" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.127" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -34,6 +34,7 @@
       <div class="customer-site-links">
         <a href="/#customerFormCard">使用工具</a>
         <a href="/about">关于我们</a>
+        <button id="customerAccountBtn" type="button">账号与项目</button>
         <button id="customerPrivacySettingsBtn" type="button">隐私设置</button>
         <a href="/contact">联系我们</a>
       </div>
@@ -55,7 +56,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.126" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.127" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -458,7 +459,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.126" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.127" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -477,6 +478,57 @@
         <a class="customer-filing-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">苏ICP备2026037570号</a>
       </div>
     </footer>
+
+    <section id="customerAccountDialog" class="customer-privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="customerAccountTitle" hidden>
+      <div class="customer-privacy-card customer-account-card">
+        <div class="customer-privacy-head">
+          <div>
+            <p>ACCOUNT &amp; PROJECTS</p>
+            <h2 id="customerAccountTitle">账号与项目</h2>
+          </div>
+          <button id="customerAccountClose" class="customer-privacy-close" type="button" aria-label="关闭账号与项目">×</button>
+        </div>
+        <p class="customer-account-intro">邮箱验证后，可在其他设备找回已绑定项目。未登录也能继续使用。</p>
+
+        <div id="customerAccountLoading" class="customer-account-state" hidden>正在读取账号状态...</div>
+        <div id="customerAccountUnavailable" class="customer-account-state" hidden>账号找回暂未开放，不影响当前浏览器继续使用。</div>
+
+        <div id="customerAccountSignedOut" class="customer-account-section">
+          <form id="customerAccountEmailForm" class="customer-account-form" novalidate>
+            <label for="customerAccountEmail">邮箱地址</label>
+            <div class="customer-account-inline">
+              <input id="customerAccountEmail" name="email" type="email" autocomplete="email" placeholder="请输入常用邮箱" required />
+              <button id="customerAccountSendCode" type="submit">获取验证码</button>
+            </div>
+          </form>
+          <form id="customerAccountCodeForm" class="customer-account-form" novalidate hidden>
+            <label for="customerAccountCode">邮箱验证码</label>
+            <div class="customer-account-inline">
+              <input id="customerAccountCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6 位验证码" required />
+              <button id="customerAccountVerifyCode" type="submit">验证并登录</button>
+            </div>
+            <button id="customerAccountChangeEmail" class="customer-account-text-button" type="button">更换邮箱</button>
+          </form>
+        </div>
+
+        <div id="customerAccountSignedIn" class="customer-account-section" hidden>
+          <div class="customer-account-status-row">
+            <div><span>账号状态</span><strong>邮箱已验证</strong></div>
+            <span id="customerAccountPlan" class="customer-account-plan">Free</span>
+          </div>
+          <button id="customerAccountBindCurrent" class="customer-account-primary" type="button">绑定当前项目</button>
+          <p id="customerAccountBindHint" class="customer-account-hint">绑定后，可在其他设备登录并继续查看。</p>
+          <div class="customer-account-project-head">
+            <strong>已绑定项目</strong>
+            <button id="customerAccountRefreshProjects" class="customer-account-text-button" type="button">刷新</button>
+          </div>
+          <div id="customerAccountProjects" class="customer-account-projects"></div>
+          <button id="customerAccountLogout" class="customer-account-secondary" type="button">退出登录</button>
+        </div>
+
+        <p id="customerAccountMessage" class="customer-privacy-message" role="status" aria-live="polite" hidden></p>
+      </div>
+    </section>
 
     <section id="customerPrivacySettings" class="customer-privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="customerPrivacySettingsTitle" hidden>
       <div class="customer-privacy-card">
@@ -505,7 +557,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.126" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.127" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -1053,6 +1105,6 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/app.js?v=1.6.126"></script>
+  <script src="/app.js?v=1.6.127"></script>
 </body>
 </html>

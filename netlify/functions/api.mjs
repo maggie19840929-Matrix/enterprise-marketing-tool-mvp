@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.126';
-const VERSION_LABEL = 'v1.6.126 · 验证码重发时区修复版';
+const APP_VERSION = '1.6.127';
+const VERSION_LABEL = 'v1.6.127 · 账号与跨设备找回版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -4215,7 +4215,7 @@ const linkAccountClient = async ({ request = null, clientId = '', internalAuthor
     return { ok: false, response: json({ error: '当前项目不能绑定到客户账号。', code: 'invalid_client' }, 400) };
   }
   const access = await authorizeCustomerStateAccess({ request, clientId: safeClientId, internalAuthorized });
-  if (!access.ok || access.mode !== 'owner') {
+  if (!access.ok || !['owner', 'account'].includes(access.mode)) {
     return { ok: false, response: customerStateUnauthorized() };
   }
   const ownerKey = accountClientOwnerKey(safeClientId);
@@ -4323,6 +4323,11 @@ const authorizeCustomerStateAccess = async ({
     const share = await readCustomerShare(shareToken);
     if (!share || share.client_id !== safeClientId) return { ok: false, reason: 'invalid_share' };
     return { ok: true, mode: 'share', share };
+  }
+
+  const accountAuth = await readAccountSession(request);
+  if (accountAuth && ensureArray(accountAuth.account.client_ids).includes(safeClientId)) {
+    return { ok: true, mode: 'account', account_id: accountAuth.account.account_id };
   }
 
   const accessToken = customerAccessTokenFromRequest(request);

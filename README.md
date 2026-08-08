@@ -76,6 +76,13 @@ npm run dev
 - `GET|POST /api/collaboration-approvals`
 - `GET|POST /api/shooting-schedules`
 - `GET|POST /api/weekly-reports`
+
+### 可选账号与跨设备找回
+
+- 客户无需登录即可继续使用原有流程；邮箱账号只用于主动绑定和跨设备找回项目。
+- 客户页「账号与项目」通过邮箱验证码建立 HttpOnly 会话，可绑定当前已生成项目，并打开账号自身已绑定的云端项目。
+- 新设备读取项目时，服务端会校验账号会话与客户桶绑定关系；未绑定的 `client_id` 不可读取。
+- 生产环境需配置 `ACCOUNT_AUTH_ENABLED=true`、`ACCOUNT_AUTH_SECRET`、`EMAIL_PROVIDER=resend`、`RESEND_API_KEY` 与 `EMAIL_FROM`。
 - `GET|POST /api/delivery-feishu-bindings`
 - `PATCH /api/<上述协同资源>/:id`
 
