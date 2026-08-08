@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.121';
-const VERSION_LABEL = 'v1.6.121 · GPT Image 2 图片预览修复版';
+const APP_VERSION = '1.6.123';
+const VERSION_LABEL = 'v1.6.123 · 客户数据保护与生成等待修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -10,6 +10,7 @@ const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const CUSTOMER_ACCESS_TOKEN_STORAGE_PREFIX = 'enterpriseMarketingCustomerAccessToken.v1';
 const USER_SETTINGS_STORAGE_PREFIX = 'enterpriseMarketingUserSettings.v1';
 const CUSTOMER_ANALYTICS_SESSION_KEY = 'enterpriseMarketingAnalyticsSession.v1';
 const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken';
@@ -29,6 +30,72 @@ const newAnonymousClientId = () => {
     return `anonymous-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
   }
   throw new Error('secure_random_unavailable');
+};
+const newCustomerAccessToken = () => {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return `cat_${cryptoApi.randomUUID()}_${cryptoApi.randomUUID()}`;
+  if (cryptoApi?.getRandomValues) {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(32));
+    return `cat_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+  }
+  throw new Error('secure_random_unavailable');
+};
+const customerAccessTokenStorageKey = (clientId = '') =>
+  `${CUSTOMER_ACCESS_TOKEN_STORAGE_PREFIX}.${normalizeClientId(clientId) || 'anonymous-fallback'}`;
+const readCustomerAccessToken = (clientId = '') => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId || safeClientId === INTERNAL_CLIENT_ID) return '';
+  try { return String(window.localStorage?.getItem(customerAccessTokenStorageKey(safeClientId)) || '').trim(); }
+  catch { return ''; }
+};
+const ensureCustomerAccessToken = (clientId = '') => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId || safeClientId === INTERNAL_CLIENT_ID) return '';
+  const existing = readCustomerAccessToken(safeClientId);
+  if (existing) return existing;
+  try {
+    const next = newCustomerAccessToken();
+    window.localStorage?.setItem(customerAccessTokenStorageKey(safeClientId), next);
+    return next;
+  } catch {
+    return '';
+  }
+};
+const customerShareTokenFromUrl = () => {
+  try { return String(new URLSearchParams(window.location.search || '').get('share') || '').trim(); }
+  catch { return ''; }
+};
+let sharedCustomerClientId = '';
+const setSharedCustomerClientId = (clientId = '') => {
+  sharedCustomerClientId = normalizeClientId(clientId);
+  return sharedCustomerClientId;
+};
+const customerProjectAccessProofInput = (store = {}) => {
+  const projects = Array.isArray(store?.projects) ? store.projects : [];
+  const activeProjectId = String(store?.activeProjectId || '').trim();
+  const project = projects.find((item) => String(item?.id || '') === activeProjectId) || projects[0] || {};
+  const state = project?.state || {};
+  const assessment = state?.assessment || {};
+  return JSON.stringify({
+    id: String(project?.id || ''),
+    name: String(project?.name || ''),
+    industry: String(assessment?.industry || ''),
+    main_goal: String(assessment?.main_goal || ''),
+    target_customer: String(assessment?.target_customer || ''),
+    plan_topics: (Array.isArray(state?.plans) ? state.plans : []).slice(0, 7).map((plan) => [
+      String(plan?.id || plan?.content_plan_id || ''),
+      String(plan?.topic || plan?.title || ''),
+    ]),
+  });
+};
+const customerProjectAccessProof = async (store = {}) => {
+  try {
+    const bytes = new TextEncoder().encode(customerProjectAccessProofInput(store));
+    const digest = await globalThis.crypto?.subtle?.digest('SHA-256', bytes);
+    return digest ? Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('') : '';
+  } catch {
+    return '';
+  }
 };
 const readInternalAccessToken = () => {
   try { return String(window.localStorage?.getItem(INTERNAL_ACCESS_TOKEN_STORAGE_KEY) || '').trim(); }
@@ -223,6 +290,7 @@ const ALL_CUSTOMERS_RELOAD_TTL_MS = 10000;
 let feishuCollaborationState = { scope: '', loading: false, error: '', status: null, result: null };
 let customerPendingCoCreationPayload = null;
 let lastCustomerGenerationPayload = null;
+let pendingCustomerPlanJob = null;
 
 const api = async (url, opts={}) => {
   const {
@@ -238,6 +306,13 @@ const api = async (url, opts={}) => {
     const headers = {'Content-Type':'application/json', ...requestedHeaders};
     const token = String(internalToken || (isInternalProfile() ? readInternalAccessToken() : '')).trim();
     if (token) headers['x-internal-token'] = token;
+    if (!token && !isInternalDataScope()) {
+      const shareToken = customerShareTokenFromUrl();
+      const clientId = customerClientId();
+      const accessToken = ensureCustomerAccessToken(clientId);
+      if (shareToken) headers['x-customer-share-token'] = shareToken;
+      if (accessToken) headers['x-customer-access-token'] = accessToken;
+    }
     const res = await fetch(url, {...fetchOptions, headers, signal: controller.signal});
     const data = await res.json().catch(() => ({}));
     if(!res.ok) {
@@ -673,7 +748,8 @@ async function pullCloudProjectStore({silent = true} = {}){
 async function pushCloudProjectStore({silent = true} = {}){
   try {
     loadProjectStore();
-    await api('/api/state', {method:'POST', body: JSON.stringify({client_id: customerClientId(), project_store: projectStore})});
+    const legacy_state_proof = await customerProjectAccessProof(projectStore);
+    await api('/api/state', {method:'POST', body: JSON.stringify({client_id: customerClientId(), project_store: projectStore, legacy_state_proof})});
     if (!silent) toast('已同步到云端，手机和电脑刷新后可见');
     return true;
   } catch (error) {
@@ -834,6 +910,7 @@ async function syncCustomerTrialCloudState(saved = {}, {silent = true} = {}){
   const projectStorePayload = customerCloudProjectStore(saved);
   if (!projectStorePayload) return false;
   try {
+    const legacy_state_proof = await customerProjectAccessProof(projectStorePayload);
     await api('/api/state', {
       method: 'POST',
       body: JSON.stringify({
@@ -841,6 +918,7 @@ async function syncCustomerTrialCloudState(saved = {}, {silent = true} = {}){
         source: 'customer_public_cloud_sync',
         sync_version: APP_VERSION,
         project_store: projectStorePayload,
+        legacy_state_proof,
       }),
     });
     if (!silent) toast('已同步到云端，团队可在内部端查看。');
@@ -1075,7 +1153,7 @@ function explicitCustomerClientId(){
 }
 
 function customerClientId(){
-  return explicitCustomerClientId() || (isInternalDataScope() ? INTERNAL_CLIENT_ID : readSessionClientId());
+  return sharedCustomerClientId || explicitCustomerClientId() || (isInternalDataScope() ? INTERNAL_CLIENT_ID : readSessionClientId());
 }
 
 function userSettingsClientId(){
@@ -1794,10 +1872,11 @@ function setCustomerMessage(id, message, tone = 'success'){
   el.hidden = !message;
 }
 
-function setCustomerGenerationRetryVisible(visible){
+function setCustomerGenerationRetryVisible(visible, label = ''){
   const button = $('#customerGenerationRetry');
   if (!button) return;
   button.hidden = !visible || !lastCustomerGenerationPayload;
+  button.textContent = label || (pendingCustomerPlanJob ? '继续获取结果' : '重新尝试生成');
 }
 
 function customerNeedsOfferDetail(payload = {}){
@@ -2001,8 +2080,8 @@ function defaultCustomerCoCreation(payload = {}){
   });
 }
 
-const CUSTOMER_PLAN_JOB_POLL_DELAYS = [700, 900, 1200, 1600, 2200, 3000, 4000, 5000, 5000, 5000];
-const CUSTOMER_PLAN_JOB_MAX_NOT_FOUND = 3;
+const CUSTOMER_PLAN_JOB_POLL_DELAYS = [700, 900, 1200, 1600, 2200, 3000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
+const CUSTOMER_PLAN_JOB_MAX_NOT_FOUND = 5;
 const waitForCustomerPlanJob = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 async function pollCustomerPlanJob(job = {}, clientId = ''){
@@ -2029,13 +2108,47 @@ async function pollCustomerPlanJob(job = {}, clientId = ''){
       }
     }
   }
-  try {
-    const fallback = await api(`/api/plan-jobs/${encodeURIComponent(jobId)}?client_id=${encodeURIComponent(scopedClientId)}&fallback=1`, { timeoutMs: 10000 });
-    if (fallback.status === 'completed' && fallback.result) return fallback.result;
-  } catch (error) {
-    lastError = error;
-  }
-  throw new Error(lastError?.message || '生成时间较长，请稍后再试一次');
+  const pendingError = new Error(lastError?.message || '内容建议仍在生成中，请稍后继续获取结果。');
+  pendingError.code = 'plan_job_pending';
+  pendingError.job = job;
+  pendingError.clientId = scopedClientId;
+  throw pendingError;
+}
+
+function applyCustomerPlanJobResult(result = {}, scopedPayload = {}){
+  const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
+  clientState = buildVersionedProjectState(result, scopedPayload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
+  saveLocal();
+  const diagnosis = clientState.diagnosis || {};
+  const plans = clientState.plans || [];
+  const dedicated = dedicatedCustomerKey();
+  const stateAssessment = customerScopedPayload(clientState.assessment || scopedPayload);
+  const generatedState = {
+    project: clientState.project,
+    project_stage: clientState.project_stage,
+    current_cycle_id: clientState.current_cycle_id,
+    assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
+    draft_assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
+    diagnosis,
+    plans,
+    records: [],
+    content_rounds: [],
+    active_round: 1,
+    current_round: 1,
+    suggestion: customerSuggestionText,
+    project_id: clientState.project?.id,
+    diagnosis_history: clientState.diagnosis_history,
+    client_id: stateAssessment.client_id,
+    customer_key: stateAssessment.customer_key,
+    ...(dedicated ? {dedicated_customer: dedicated} : {}),
+  };
+  saveCustomerTrialState({ ...generatedState, draft_assessment: null });
+  scheduleCustomerTrialCloudSync(generatedState);
+  lastCustomerGenerationPayload = null;
+  pendingCustomerPlanJob = null;
+  setCustomerGenerationRetryVisible(false);
+  hideCustomerCoCreation();
+  renderCustomerGeneratedState(generatedState, {focus: true, step: 'plan'});
 }
 
 async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton = $('#customerGenerateBtn')){
@@ -2053,44 +2166,41 @@ async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton
         timeoutMs: 10000,
         body: JSON.stringify({ ...scopedPayload, client_id: clientId, customer_key: scopedPayload.customer_key || clientId, request_id: requestId }),
       });
+      pendingCustomerPlanJob = {job: submitted, clientId, payload: scopedPayload};
       const result = await pollCustomerPlanJob(submitted, clientId);
-      const reason = clientState.diagnosis ? '客户修改信息后重新生成' : '客户首次提交';
-      clientState = buildVersionedProjectState(result, scopedPayload, 'customer_public', clientState.diagnosis ? clientState : null, reason);
-      saveLocal();
-      const diagnosis = clientState.diagnosis || {};
-      const plans = clientState.plans || [];
-      const dedicated = dedicatedCustomerKey();
-      const stateAssessment = customerScopedPayload(clientState.assessment || scopedPayload);
-      const generatedState = {
-        project: clientState.project,
-        project_stage: clientState.project_stage,
-        current_cycle_id: clientState.current_cycle_id,
-        assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
-        draft_assessment: dedicated ? {...stateAssessment, dedicated_customer: dedicated} : stateAssessment,
-        diagnosis,
-        plans,
-        records: [],
-        content_rounds: [],
-        active_round: 1,
-        current_round: 1,
-        suggestion: customerSuggestionText,
-        project_id: clientState.project?.id,
-        diagnosis_history: clientState.diagnosis_history,
-        client_id: stateAssessment.client_id,
-        customer_key: stateAssessment.customer_key,
-        ...(dedicated ? {dedicated_customer: dedicated} : {}),
-      };
-      saveCustomerTrialState({ ...generatedState, draft_assessment: null });
-      scheduleCustomerTrialCloudSync(generatedState);
-      lastCustomerGenerationPayload = null;
-      setCustomerGenerationRetryVisible(false);
-      hideCustomerCoCreation();
-      renderCustomerGeneratedState(generatedState, {focus: true, step: 'plan'});
+      applyCustomerPlanJobResult(result, scopedPayload);
     } catch (error) {
-      setCustomerMessage(errorBox, customerFriendlyError(error), 'error');
-      setCustomerGenerationRetryVisible(true);
+      if (error?.code === 'plan_job_pending' && pendingCustomerPlanJob) {
+        setCustomerMessage(errorBox, '内容建议仍在生成中。稍后点击“继续获取结果”，不会重复提交。', 'error');
+      } else {
+        pendingCustomerPlanJob = null;
+        setCustomerMessage(errorBox, customerFriendlyError(error), 'error');
+      }
+      setCustomerGenerationRetryVisible(true, error?.code === 'plan_job_pending' ? '继续获取结果' : '重新尝试生成');
     }
   });
+}
+
+async function resumeCustomerPlanJob(triggerButton = $('#customerGenerationRetry')){
+  const pending = pendingCustomerPlanJob;
+  if (!pending?.job || !pending?.clientId || !pending?.payload) return false;
+  const errorBox = $('#customerCoCreationSection')?.hidden ? '#customerFormError' : '#customerCoCreationMessage';
+  setCustomerMessage(errorBox, '');
+  await withBusy(triggerButton, ['仍在生成内容建议...', '正在获取生成结果...'], async () => {
+    try {
+      const result = await pollCustomerPlanJob(pending.job, pending.clientId);
+      applyCustomerPlanJobResult(result, pending.payload);
+    } catch (error) {
+      if (error?.code === 'plan_job_pending') {
+        setCustomerMessage(errorBox, '内容建议仍在生成中。稍后可以再次点击“继续获取结果”。', 'error');
+      } else {
+        pendingCustomerPlanJob = null;
+        setCustomerMessage(errorBox, customerFriendlyError(error), 'error');
+      }
+      setCustomerGenerationRetryVisible(true, error?.code === 'plan_job_pending' ? '继续获取结果' : '重新尝试生成');
+    }
+  });
+  return true;
 }
 
 function internalIntakeSnapshot(payload = {}){
@@ -3252,10 +3362,14 @@ function customerStateFromCloudProjectStore(store = {}){
 
 async function restoreCustomerTrialFromCloud({force = false} = {}){
   if (isInternalDataScope()) return null;
-  const localState = loadCustomerTrialState({allowDedicatedFallback: true});
+  const shareToken = customerShareTokenFromUrl();
+  const localState = shareToken ? {} : loadCustomerTrialState({allowDedicatedFallback: true});
   if (!force && customerHasGeneratedState(localState)) return localState;
   try {
-    const result = await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}`);
+    const result = shareToken
+      ? await api(`/api/customer-shares/${encodeURIComponent(shareToken)}`)
+      : await api(`/api/state?client_id=${encodeURIComponent(customerClientId())}`);
+    if (shareToken) setSharedCustomerClientId(result?.client_id || '');
     const restored = customerStateFromCloudProjectStore(result?.project_store || {});
     if (!restored) return null;
     projectStore = restored.projectStore;
@@ -3275,7 +3389,7 @@ async function restoreCustomerTrialFromCloud({force = false} = {}){
 }
 
 function shouldGateCustomerCloudRestore(saved = {}){
-  return Boolean(explicitCustomerClientId() && !customerHasGeneratedState(saved) && !hasDifferentCustomerDraft(saved) && !dedicatedCustomerKey());
+  return Boolean((explicitCustomerClientId() || customerShareTokenFromUrl()) && !customerHasGeneratedState(saved) && !hasDifferentCustomerDraft(saved) && !dedicatedCustomerKey());
 }
 
 function showCustomerCloudRestoreGate(){
@@ -3565,26 +3679,34 @@ async function copyCustomerSuggestion(){
 async function saveCustomerLink(){
   const clientId = customerClientId();
   if (!clientId) return toast('暂无法生成保存链接，请刷新页面后重试');
-  const url = new URL(window.location.origin + window.location.pathname);
-  const saved = loadCustomerTrialState();
-  url.search = '';
-  url.searchParams.set('client_id', clientId);
-  const customerKey = saved?.customer_key || '';
-  if (customerKey && normalizeClientId(customerKey) !== normalizeClientId(clientId)) {
-    url.searchParams.set('customer', customerKey);
-  }
-  const link = url.toString();
   try {
-    await navigator.clipboard.writeText(link);
-  } catch {
-    const area = document.createElement('textarea');
-    area.value = link;
-    document.body.appendChild(area);
-    area.select();
-    document.execCommand('copy');
-    area.remove();
+    const saved = loadCustomerTrialState();
+    const projectId = saved?.project_id || saved?.project?.id || clientState.project?.id || '';
+    if (!projectId) return toast('请先生成内容建议，再保存链接');
+    const created = await api('/api/customer-shares', {
+      method: 'POST',
+      body: JSON.stringify({client_id: clientId, project_id: projectId}),
+    });
+    const shareToken = String(created.share_token || '').trim();
+    if (!shareToken) throw new Error('保存链接生成失败');
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.search = '';
+    url.searchParams.set('share', shareToken);
+    const link = url.toString();
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = link;
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand('copy');
+      area.remove();
+    }
+  } catch (error) {
+    return toast(error?.message || '暂无法生成保存链接，请稍后重试');
   }
-  toast('方案链接已复制：换设备或发给同事打开，即可继续这个项目');
+  toast('项目链接已复制：换设备或发给同事打开，即可继续这个项目');
 }
 
 function hasLocalUserSettings(){
@@ -3707,7 +3829,8 @@ function initCustomerTrial(){
   initCustomerGuide();
   renderCustomerBriefPreview();
   renderCustomerEffects();
-  const savedCustomerState = loadCustomerTrialState();
+  const sharedProjectLink = Boolean(customerShareTokenFromUrl());
+  const savedCustomerState = sharedProjectLink ? {} : loadCustomerTrialState();
   renderCustomerResumeBanner(savedCustomerState);
   if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
     clientState = buildVersionedProjectState(
@@ -3836,6 +3959,10 @@ function initCustomerTrial(){
     setCustomerStep('intake', {focus: true});
   });
   $('#customerGenerationRetry')?.addEventListener('click', async () => {
+    if (pendingCustomerPlanJob) {
+      await resumeCustomerPlanJob($('#customerGenerationRetry'));
+      return;
+    }
     if (!lastCustomerGenerationPayload) {
       setCustomerMessage('#customerCoCreationMessage', '请先确认本轮内容方向，再重新生成。', 'error');
       return;

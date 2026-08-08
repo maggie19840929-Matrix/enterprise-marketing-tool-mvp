@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.121';
-const VERSION_LABEL = 'v1.6.121 · GPT Image 2 图片预览修复版';
+const APP_VERSION = '1.6.123';
+const VERSION_LABEL = 'v1.6.123 · 客户数据保护与生成等待修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -3996,6 +3996,138 @@ const commercialBlobSet = async (key = '', value = {}) => {
   memoryCommercialEvents.set(key, value);
   return { ...value, storage: 'memory-fallback' };
 };
+const CUSTOMER_ACCESS_PREFIX = 'customer-access/v1';
+const CUSTOMER_SHARE_PREFIX = 'customer-shares/v1';
+const CUSTOMER_SHARE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const customerAccessKey = (clientId = '') =>
+  `${CUSTOMER_ACCESS_PREFIX}/${normalizeClientId(clientId) || 'anonymous'}`;
+const customerShareKey = (token = '') =>
+  `${CUSTOMER_SHARE_PREFIX}/${sha256Hex(`share:${String(token || '').trim()}`)}`;
+const customerAccessTokenFromRequest = (request = null) =>
+  String(request?.headers?.get('x-customer-access-token') || '').trim();
+const customerShareTokenFromRequest = (request = null) =>
+  String(request?.headers?.get('x-customer-share-token') || '').trim();
+const customerAccessTokenHash = (token = '') => sha256Hex(`access:${String(token || '').trim()}`);
+const hashMatches = (actual = '', expected = '') => {
+  const left = String(actual || '');
+  const right = String(expected || '');
+  if (!/^[a-f0-9]{64}$/i.test(left) || !/^[a-f0-9]{64}$/i.test(right)) return false;
+  return timingSafeEqual(Buffer.from(left, 'hex'), Buffer.from(right, 'hex'));
+};
+const customerProjectAccessProofInputs = (store = {}) => {
+  const normalized = normalizeCloudProjectStore(store?.project_store || store);
+  return ensureArray(normalized.projects).map((project) => {
+    const state = project?.state || {};
+    const assessment = state?.assessment || {};
+    return JSON.stringify({
+      id: String(project?.id || ''),
+      name: String(project?.name || ''),
+      industry: String(assessment?.industry || ''),
+      main_goal: String(assessment?.main_goal || ''),
+      target_customer: String(assessment?.target_customer || ''),
+      plan_topics: ensureArray(state?.plans).slice(0, 7).map((plan) => [
+        String(plan?.id || plan?.content_plan_id || ''),
+        String(plan?.topic || plan?.title || ''),
+      ]),
+    });
+  }).filter((value) => value !== JSON.stringify({
+    id: '', name: '', industry: '', main_goal: '', target_customer: '', plan_topics: [],
+  }));
+};
+const hasCloudProjects = (state = {}) => ensureArray(state?.project_store?.projects || state?.projects).length > 0;
+const readCustomerShare = async (token = '') => {
+  const safeToken = String(token || '').trim();
+  if (safeToken.length < 32) return null;
+  const record = await commercialBlobGet(customerShareKey(safeToken));
+  if (!record || record.token_hash !== sha256Hex(`share:${safeToken}`) || record.revoked_at) return null;
+  const expiresAt = Date.parse(record.expires_at || '');
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+  return record;
+};
+const authorizeCustomerStateAccess = async ({
+  request = null,
+  clientId = '',
+  legacyStateProof = '',
+  internalAuthorized = false,
+  allowBootstrap = false,
+} = {}) => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId) return { ok: false, reason: 'missing_client_id' };
+  if (safeClientId === INTERNAL_CLIENT_ID) return internalAuthorized
+    ? { ok: true, mode: 'internal' }
+    : { ok: false, reason: 'internal_auth_required' };
+
+  const shareToken = customerShareTokenFromRequest(request);
+  if (shareToken) {
+    const share = await readCustomerShare(shareToken);
+    if (!share || share.client_id !== safeClientId) return { ok: false, reason: 'invalid_share' };
+    return { ok: true, mode: 'share', share };
+  }
+
+  const accessToken = customerAccessTokenFromRequest(request);
+  if (!accessToken) return { ok: false, reason: 'missing_access_token' };
+  const accessRecord = await commercialBlobGet(customerAccessKey(safeClientId));
+  if (accessRecord?.token_hash) {
+    return hashMatches(customerAccessTokenHash(accessToken), accessRecord.token_hash)
+      ? { ok: true, mode: 'owner' }
+      : { ok: false, reason: 'invalid_access_token' };
+  }
+
+  const current = await readCloudState(safeClientId);
+  if (!hasCloudProjects(current) && allowBootstrap) {
+    await commercialBlobSet(customerAccessKey(safeClientId), {
+      client_id: safeClientId,
+      token_hash: customerAccessTokenHash(accessToken),
+      created_at: nowIso(),
+      migrated_from_legacy: false,
+    });
+    return { ok: true, mode: 'owner', bootstrapped: true };
+  }
+
+  const suppliedProof = String(legacyStateProof || '').trim();
+  const legacyMatch = /^[a-f0-9]{64}$/i.test(suppliedProof)
+    && customerProjectAccessProofInputs(current.project_store)
+      .some((input) => hashMatches(suppliedProof, sha256Hex(input)));
+  if (legacyMatch) {
+    await commercialBlobSet(customerAccessKey(safeClientId), {
+      client_id: safeClientId,
+      token_hash: customerAccessTokenHash(accessToken),
+      created_at: nowIso(),
+      migrated_from_legacy: true,
+    });
+    return { ok: true, mode: 'owner', migrated: true };
+  }
+  return { ok: false, reason: 'legacy_claim_required' };
+};
+const customerStateUnauthorized = () => json({
+  error: '此项目需要从原浏览器打开，或使用最新保存链接继续。',
+  code: 'customer_access_required',
+}, 401);
+const projectStoreForCustomerShare = (store = {}, projectId = '') => {
+  const normalized = normalizeCloudProjectStore(store?.project_store || store);
+  const project = ensureArray(normalized.projects).find((item) => String(item?.id || '') === String(projectId || ''));
+  if (!project) return null;
+  return { activeProjectId: project.id, lastActiveProjectId: null, projects: [project] };
+};
+const createCustomerShare = async ({ clientId = '', projectId = '' } = {}) => {
+  const safeClientId = normalizeClientId(clientId);
+  const safeProjectId = String(projectId || '').trim();
+  if (!safeClientId || !safeProjectId) throw new Error('保存链接需要客户和项目标识');
+  const current = await readCloudState(safeClientId);
+  if (!projectStoreForCustomerShare(current.project_store, safeProjectId)) throw new Error('当前项目不存在，无法生成保存链接');
+  const shareToken = `share_${randomUUID().replace(/-/g, '')}${randomUUID().replace(/-/g, '')}`;
+  const createdAt = nowIso();
+  const expiresAt = new Date(Date.now() + CUSTOMER_SHARE_TTL_MS).toISOString();
+  await commercialBlobSet(customerShareKey(shareToken), {
+    token_hash: sha256Hex(`share:${shareToken}`),
+    client_id: safeClientId,
+    project_id: safeProjectId,
+    created_at: createdAt,
+    expires_at: expiresAt,
+    revoked_at: '',
+  });
+  return { share_token: shareToken, expires_at: expiresAt };
+};
 const USER_SETTINGS_PREFIX = 'user-settings/v1';
 const userSettingsKey = (clientId = '') =>
   `${USER_SETTINGS_PREFIX}/${normalizeClientId(clientId) || 'anonymous'}`;
@@ -7104,9 +7236,13 @@ const savePlanJob = async (job = {}) => {
   return job;
 };
 
+// A model call can legitimately take longer than the browser's first polling window.
+// Keep the same job alive long enough for waitUntil work to finish; never replace it
+// with a template merely because a client stopped waiting.
+const PLAN_JOB_STALE_MS = 90_000;
 const isPlanJobStale = (job = {}) => {
   const started = Date.parse(job.started_at || '');
-  return !started || Date.now() - started > 25000;
+  return !started || Date.now() - started > PLAN_JOB_STALE_MS;
 };
 
 const processPlanJob = async (clientId = '', jobId = '') => {
@@ -7155,47 +7291,6 @@ const processPlanJob = async (clientId = '', jobId = '') => {
       jobId: job.job_id,
       outcome: 'failed',
       error: error?.message || 'plan_job_failed',
-    });
-    return failed;
-  }
-};
-
-const forcePlanJobFallback = async (clientId = '', jobId = '') => {
-  const job = await getPlanJob(clientId, jobId);
-  if (!job || job.status === 'completed') return job;
-  try {
-    const result = await generateAssessmentResult({
-      payload: job.assessment_payload,
-      clientId: job.client_id,
-      forceRules: true,
-      fallbackReason: 'client_poll_timeout',
-      generationVariant: job.generation_variant || job.job_id,
-    });
-    const completed = await savePlanJob({
-      ...job,
-      status: 'completed',
-      result,
-      completed_at: nowIso(),
-      updated_at: nowIso(),
-      forced_fallback: true,
-      error: '',
-    });
-    await completeGenerationMetering({
-      reservation: { ...(job.metering_reservation || {}), attempt: Number(job.attempts || 0) + 1 },
-      clientId: job.client_id,
-      jobId: job.job_id,
-      result,
-      outcome: 'completed',
-    });
-    return completed;
-  } catch (error) {
-    const failed = await savePlanJob({ ...job, status: 'failed', error: error?.message || 'plan_job_fallback_failed', updated_at: nowIso() });
-    await completeGenerationMetering({
-      reservation: { ...(job.metering_reservation || {}), attempt: Number(job.attempts || 0) + 1 },
-      clientId: job.client_id,
-      jobId: job.job_id,
-      outcome: 'failed',
-      error: error?.message || 'plan_job_fallback_failed',
     });
     return failed;
   }
@@ -7317,9 +7412,34 @@ export default async (request, context = {}) => {
         });
         return json(result.body, result.status, { internal: true });
       }
+      const customerShareMatch = path.match(/^\/customer-shares\/([^/]+)$/);
+      if (customerShareMatch) {
+        const share = await readCustomerShare(decodeURIComponent(customerShareMatch[1]));
+        if (!share) return json({ error: '保存链接无效或已过期' }, 404);
+        const stateForShare = await readCloudState(share.client_id);
+        const projectStore = projectStoreForCustomerShare(stateForShare.project_store, share.project_id);
+        if (!projectStore) return json({ error: '保存项目不存在或已被移除' }, 404);
+        return json({
+          client_id: share.client_id,
+          project_id: share.project_id,
+          project_store: projectStore,
+        });
+      }
       if (path === '/state') {
-        if (requestClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
-        return json(await readCloudState(requestClientId, { internal: internalAuthorized }), 200, { internal: internalAuthorized });
+        const stateAccess = await authorizeCustomerStateAccess({
+          request,
+          clientId: requestClientId,
+          internalAuthorized,
+          allowBootstrap: true,
+        });
+        if (!stateAccess.ok) return stateAccess.reason === 'internal_auth_required' ? unauthorized() : customerStateUnauthorized();
+        const customerState = await readCloudState(requestClientId, { internal: internalAuthorized });
+        if (stateAccess.mode === 'share') {
+          const projectStore = projectStoreForCustomerShare(customerState.project_store, stateAccess.share.project_id);
+          if (!projectStore) return json({ error: '保存项目不存在或已被移除' }, 404);
+          return json({ ...customerState, project_store: projectStore }, 200);
+        }
+        return json(customerState, 200, { internal: internalAuthorized });
       }
       if (path === '/assets') {
         if (!internalAuthorized) return unauthorized();
@@ -7343,9 +7463,7 @@ export default async (request, context = {}) => {
         // 任务刚写入 Blobs 时存在短暂的写读传播延迟，短重试后再 404，避免误判任务不存在。
         let job = await readPlanJobWithRetry(clientId, jobId, { attempts: 6, delayMs: 400 });
         if (!job) return json({ error: '计划任务不存在' }, 404);
-        if (url.searchParams.get('fallback') === '1' && !['completed', 'failed'].includes(job.status)) {
-          job = await forcePlanJobFallback(clientId, jobId);
-        } else if (job.status === 'pending' || (job.status === 'generating' && isPlanJobStale(job))) {
+        if (job.status === 'pending' || (job.status === 'generating' && isPlanJobStale(job))) {
           queuePlanJob(context, clientId, jobId);
         }
         return json(clientVisiblePlanJob(job));
@@ -7443,8 +7561,42 @@ export default async (request, context = {}) => {
       });
       return json({ ok: true, ...result }, 202);
     }
+    if (request.method === 'POST' && path === '/customer-shares') {
+      const shareClientId = normalizeClientId(payload.client_id || payload.customer_key || payloadClientId);
+      const stateAccess = await authorizeCustomerStateAccess({
+        request,
+        clientId: shareClientId,
+        internalAuthorized,
+      });
+      if (!stateAccess.ok) return stateAccess.reason === 'internal_auth_required' ? unauthorized() : customerStateUnauthorized();
+      if (stateAccess.mode === 'share') return json({ error: '保存链接不能再次创建保存链接' }, 403);
+      try {
+        return json(await createCustomerShare({
+          clientId: shareClientId,
+          projectId: payload.project_id || payload.project?.id,
+        }), 201);
+      } catch (error) {
+        return json({ error: error?.message || '生成保存链接失败' }, 400);
+      }
+    }
     if (request.method === 'POST' && path === '/state') {
-      if (payloadClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const stateAccess = await authorizeCustomerStateAccess({
+        request,
+        clientId: payloadClientId,
+        legacyStateProof: payload.legacy_state_proof,
+        internalAuthorized,
+        allowBootstrap: true,
+      });
+      if (!stateAccess.ok) return stateAccess.reason === 'internal_auth_required' ? unauthorized() : customerStateUnauthorized();
+      if (stateAccess.mode === 'share') {
+        const incomingStore = normalizeCloudProjectStore(payload.project_store);
+        const sharedProjectId = String(stateAccess.share.project_id || '');
+        const includesOtherProject = ensureArray(incomingStore.projects)
+          .some((project) => String(project?.id || '') !== sharedProjectId);
+        if (includesOtherProject || !projectStoreForCustomerShare(incomingStore, sharedProjectId)) {
+          return json({ error: '保存链接只能更新当前项目' }, 403);
+        }
+      }
       return json(await writeCloudState(payload, payloadClientId), 201, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/assets') {

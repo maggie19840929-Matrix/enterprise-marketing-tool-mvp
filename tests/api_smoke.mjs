@@ -20,11 +20,25 @@ const { default: handler, shanghaiDateIso, extractBitableFieldValue, toBitableFi
 const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
 
-const request = (method, path, body, options = {}) => new Request(`http://localhost/.netlify/functions/api/${path}`, {
-  method,
-  headers: { 'content-type': 'application/json', ...(options.headers || {}) },
-  body: body ? JSON.stringify(body) : undefined,
-});
+const stateClientIdForRequest = (path = '', body = {}) => {
+  const url = new URL(String(path || ''), 'http://localhost');
+  return String(body?.client_id || body?.customer_key || url.searchParams.get('client_id') || url.searchParams.get('customer') || 'anonymous');
+};
+const customerAccessTokenFor = (clientId = '') => `smoke-customer-access-${stateClientIdForRequest('', { client_id: clientId })}`;
+const request = (method, path, body, options = {}) => {
+  const normalizedPath = String(path || '').replace(/^\/+/, '').split('?')[0];
+  const providedHeaders = options.headers || {};
+  const requiresCustomerAccess = normalizedPath === 'state' || normalizedPath === 'customer-shares';
+  const hasExplicitCustomerAccess = Object.prototype.hasOwnProperty.call(providedHeaders, 'x-customer-access-token');
+  const customerAccessHeaders = requiresCustomerAccess && options.customerAccess !== false && !hasExplicitCustomerAccess
+    ? { 'x-customer-access-token': customerAccessTokenFor(stateClientIdForRequest(path, body)) }
+    : {};
+  return new Request(`http://localhost/.netlify/functions/api/${path}`, {
+    method,
+    headers: { 'content-type': 'application/json', ...customerAccessHeaders, ...providedHeaders },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+};
 const internalRequest = (method, path, body) => request(method, path, body, {
   headers: { 'x-internal-token': INTERNAL_ACCESS_TOKEN },
 });
@@ -140,7 +154,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.121', `public diagnosis should remain on app_version 1.6.121, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.123', `public diagnosis should return app_version 1.6.123, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -866,9 +880,26 @@ const customersAfterPreview = await (await handler(internalRequest('GET', 'custo
 const ziwuxianAfterPreview = customersAfterPreview.customers.find((item) => item.display_name === '子武限武术搏击俱乐部');
 assert(ziwuxianAfterPreview?.records.length === 3, 'merge preview must not mutate or merge customer blob records');
 const floristStateGet = await handler(request('GET', 'state?client_id=florist'));
-assert(floristStateGet.status === 200, 'anonymous customer GET /state for its own capability client_id must remain available');
+assert(floristStateGet.status === 200, 'the originating browser access token should read its own customer state');
 const floristState = await floristStateGet.json();
 assert(!floristState.project_store.projects.some((item) => item.id === 'project-dental'), 'GET /state?client_id=florist must not return dental project store');
+const floristStateWithoutToken = await handler(request('GET', 'state?client_id=florist', undefined, { customerAccess: false }));
+assert(floristStateWithoutToken.status === 401, 'GET /state with only a naked client_id must be rejected');
+const floristStateWithWrongToken = await handler(request('GET', 'state?client_id=florist', undefined, {
+  headers: { 'x-customer-access-token': 'smoke-customer-access-wrong-browser' },
+}));
+assert(floristStateWithWrongToken.status === 401, 'GET /state with another browser token must be rejected');
+const floristShareCreate = await handler(request('POST', 'customer-shares', {
+  client_id: 'florist',
+  project_id: 'project-florist',
+}));
+assert(floristShareCreate.status === 201, 'POST /customer-shares should create a scoped project save link for the owner');
+const floristShare = await floristShareCreate.json();
+assert(/^share_[a-z0-9]+$/i.test(floristShare.share_token || ''), 'customer share should return an opaque share token');
+const floristShareRead = await handler(request('GET', `customer-shares/${encodeURIComponent(floristShare.share_token)}`));
+assert(floristShareRead.status === 200, 'GET /customer-shares/:token should restore the shared project without exposing a client id in the URL');
+const floristShareState = await floristShareRead.json();
+assert(floristShareState.project_store.projects.length === 1 && floristShareState.project_store.projects[0]?.id === 'project-florist', 'customer share should be restricted to one project');
 const anonymousInternalStateGet = await handler(request('GET', 'state?client_id=internal&mode=internal'));
 assert(anonymousInternalStateGet.status === 401, 'anonymous GET /state for the internal bucket must be rejected');
 const anonymousInternalStatePost = await handler(request('POST', 'state', { client_id: 'internal', project_store: { projects: [] } }));
@@ -976,7 +1007,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.121'") && appJs.includes("v1.6.121 · GPT Image 2 图片预览修复版"), 'public app should remain on the reviewed v1.6.121 client build');
+assert(appJs.includes("const APP_VERSION = '1.6.123'") && appJs.includes("v1.6.123 · 客户数据保护与生成等待修复版"), 'public app should expose the reviewed v1.6.123 hotfix build');
 ['delivery-profiles', 'delivery-projects', 'delivery-cycles', 'collaboration-tasks', 'collaboration-approvals', 'shooting-schedules', 'weekly-reports', 'delivery-feishu-bindings'].forEach((routeName) => {
   assert(!appJs.includes(`/api/${routeName}`) && !indexHtml.includes(routeName), `P0 internal API ${routeName} must not be wired into the shared customer UI`);
 });
@@ -997,7 +1028,8 @@ assert(apiSource.includes('UNSUPPORTED_PLAN_CLAIMS') && apiSource.includes("thro
 assert(appJs.includes("['正在分析业务...', '正在生成选题...', '正在适配平台...']"), 'customer generation should show staged progress copy');
 assert(apiSource.includes("path === '/plan-jobs'") && apiSource.includes("path.match(/^\\/plan-jobs\\/([^/]+)$/)") && apiSource.includes("readCloudCollection('plan-jobs'") && apiSource.includes('context.waitUntil(promise)'), 'customer plan jobs should use a client-scoped blob collection and Netlify waitUntil processing');
 assert(apiSource.includes('planJobClientIdFrom') && apiSource.includes('读取计划任务需要 client_id') && apiSource.includes("return json({ error: '计划任务不存在' }, 404)"), 'plan job reads should require client_id and hide cross-client job existence');
-assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCustomerPlanJob') && appJs.includes('&fallback=1'), 'customer plan generation should submit, poll with a limit, and request a safe fallback when polling expires');
+assert(appJs.includes("api('/api/plan-jobs'") && appJs.includes('function pollCustomerPlanJob') && appJs.includes('function resumeCustomerPlanJob') && !appJs.includes('&fallback=1'), 'customer plan generation should resume the same job after a long wait instead of overwriting it with a template fallback');
+assert(appJs.includes('CUSTOMER_ACCESS_TOKEN_STORAGE_PREFIX') && appJs.includes("api('/api/customer-shares'") && apiSource.includes('authorizeCustomerStateAccess') && apiSource.includes("path === '/customer-shares'"), 'customer cloud state must require a browser access token or scoped save-link token');
 assert(apiSource.includes("const COMMERCIAL_METERING_PREFIX = 'metering/v1'") && apiSource.includes("const COMMERCIAL_ANALYTICS_PREFIX = 'analytics/v1'") && apiSource.includes('reserveGenerationRequest') && apiSource.includes('RATE_LIMIT_ENFORCE'), 'P0 should keep metering and analytics in independent blob namespaces with a shadow/enforced switch');
 assert(apiSource.includes('maxTokens: 1400'), 'Ark should have enough output budget to return seven structured content-plan rows without truncation fallback');
 assert(apiSource.includes('CUSTOMER_GROWTH_ADVICE_TIMEOUT_MS || 15000') && apiSource.includes('), 18000);'), 'next-round Ark generation should allow the measured 2.1 Turbo response window');
@@ -1028,7 +1060,7 @@ const customerEffectMoreStart = customerEffectFormHtml.indexOf('<details class="
 assert(['views', 'likes', 'consultations'].every((name) => customerEffectFormHtml.indexOf(`name="${name}"`) >= 0 && customerEffectFormHtml.indexOf(`name="${name}"`) < customerEffectMoreStart), 'views, likes and consultations should be the only core metrics before optional details');
 const customerEffectMoreHtml = customerEffectFormHtml.slice(customerEffectMoreStart);
 assert(['comments', 'favorites', 'shares'].every((name) => customerEffectMoreHtml.includes(`name="${name}" type="number" min="0" value="0"`)), 'comments, favorites and shares should be optional collapsed metrics defaulting to zero');
-assert(appJs.includes('lastCustomerGenerationPayload') && appJs.includes('customerGenerationRetry') && appJs.includes('setCustomerGenerationRetryVisible(true)'), 'failed customer plan generation should expose an in-place retry using the last confirmed payload');
+assert(appJs.includes('lastCustomerGenerationPayload') && appJs.includes('customerGenerationRetry') && appJs.includes('function resumeCustomerPlanJob') && appJs.includes("'继续获取结果'"), 'failed or slow customer plan generation should preserve the submitted payload and let the customer resume the same job');
 assert(appJs.includes('function isP03AnbiaoSubmission') && appJs.includes('defaultCustomerCoCreation(scopedPayload)') && appJs.includes('submitCustomerAssessmentPayload({'), 'P03/anbiao customer intake should bypass the extra co-creation edit step and submit directly through plan-jobs');
 assert(appJs.includes('function restoreCustomerTrialFromCloud') && appJs.includes('function showCustomerCloudRestoreGate') && appJs.includes('const gateCloudRestore = shouldGateCustomerCloudRestore(savedCustomerState)'), 'explicit customer links should show a restore gate and hydrate generated state from /api/state before exposing the blank intake form');
 assert(appJs.includes('就能解锁更准的下一轮建议') && !appJs.includes('才会开放下一轮计划'), 'next-round readiness copy should encourage additional records without changing the gate');
@@ -1087,7 +1119,7 @@ assert(warRoomCss.includes('v1.6.116 generation type fields and resilient progre
 assert(appJs.includes('function activateCustomerNextRound') && appJs.includes('data-customer-activate-round') && appJs.includes('previous_rounds') && appJs.includes('content_rounds'), 'customer client should support activating the next 7-day round and carrying prior round topics forward');
 assert(indexHtml.includes('id="customerRoundHistory"') && appJs.includes('function renderCustomerRoundHistory') && appJs.includes('customerArchivedPlanTopics') && appJs.includes('renderCustomerRoundHistory(nextState)'), 'customer client should expose content-round history and refresh it after round changes');
 assert(appJs.includes('function syncCustomerTrialCloudState') && appJs.includes('customer_public_cloud_sync') && appJs.includes('scheduleCustomerTrialCloudSync(generatedState)') && appJs.includes('scheduleCustomerTrialCloudSync(nextState)'), 'customer public flow should sync generated plans, feedback records and round changes to cloud project store');
-assert(indexHtml.includes('id="saveCustomerLinkBtn"') && appJs.includes('function saveCustomerLink') && appJs.includes("url.searchParams.set('client_id', clientId)") && appJs.includes("$('#saveCustomerLinkBtn')?.addEventListener('click', saveCustomerLink)"), 'customer result should offer a save/share link carrying client_id for cross-device cloud restore');
+assert(indexHtml.includes('id="saveCustomerLinkBtn"') && appJs.includes('function saveCustomerLink') && appJs.includes("url.searchParams.set('share', shareToken)") && appJs.includes("api('/api/customer-shares'") && appJs.includes("$('#saveCustomerLinkBtn')?.addEventListener('click', saveCustomerLink)"), 'customer result should offer an opaque project-scoped save link without exposing client_id');
 assert(apiSource.includes('cachedCloudStore') && apiSource.includes('__store_probe__') && apiSource.includes("getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' })"), 'cloud store should prefer the runtime-injected strong-consistency store before falling back to explicit credentials');
 assert(indexHtml.includes('id="customerCoCreationSection"') && appJs.includes('function renderCustomerCoCreation') && appJs.includes('function collectCustomerCoCreation') && appJs.includes('co_creation: coCreation'), 'customer public flow should include a co-creation confirmation layer before generating the 7-day plan');
 assert(indexHtml.includes('data-customer-observation-tags') && appJs.includes('observation_tags') && apiSource.includes('observation_tags'), 'customer feedback should capture observation tags for next-round advice');
@@ -1164,11 +1196,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.121') && indexHtml.includes('/styles.css?v=1.6.121') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.121'), 'public customer page should remain byte-compatible with the reviewed v1.6.121 asset references');
+assert(indexHtml.includes('/app.js?v=1.6.123') && indexHtml.includes('/styles.css?v=1.6.123') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.123'), 'public customer page should use the v1.6.123 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.121') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.121') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.121') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.123') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.123') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.123') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1708,7 +1740,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.121' && health.version_label === 'v1.6.121 · GPT Image 2 图片预览修复版', 'public application health version should remain on v1.6.121');
+assert(health.version === '1.6.123' && health.version_label === 'v1.6.123 · 客户数据保护与生成等待修复版', 'public application health version should report v1.6.123');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
@@ -2976,6 +3008,9 @@ assert(slowPlanJobCreateResponse.status === 202, `slow provider plan job should 
 assert(slowPlanJobSubmitLatencyMs < 500, `slow provider should not block plan-job submit, took ${slowPlanJobSubmitLatencyMs}ms`);
 const slowPlanJobCreated = await slowPlanJobCreateResponse.json();
 assert(slowPlanJobPromise, 'slow provider plan job should continue through waitUntil');
+const slowPlanJobFallbackQueryResponse = await slowPlanJobHandler(request('GET', `plan-jobs/${encodeURIComponent(slowPlanJobCreated.job_id)}?client_id=slow-plan-job-owner&fallback=1`));
+const slowPlanJobFallbackQuery = await slowPlanJobFallbackQueryResponse.json();
+assert(slowPlanJobFallbackQueryResponse.status === 200 && slowPlanJobFallbackQuery.status !== 'completed', 'legacy fallback=1 polling must not overwrite a still-running plan job with a template result');
 await slowPlanJobPromise;
 const slowPlanJobPollResponse = await slowPlanJobHandler(request('GET', `plan-jobs/${encodeURIComponent(slowPlanJobCreated.job_id)}?client_id=slow-plan-job-owner`));
 assert(slowPlanJobPollResponse.status === 200, `slow provider plan job poll should return 200, got ${slowPlanJobPollResponse.status}`);
