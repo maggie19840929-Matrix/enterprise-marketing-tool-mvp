@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
 const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.122';
@@ -16,6 +16,7 @@ process.env.GENERATION_RATE_CLIENT_MAX = '100';
 process.env.GENERATION_RATE_IP_MAX = '100';
 process.env.GENERATION_DAILY_CLIENT_MAX = '100';
 process.env.TRACKING_ENABLED = 'true';
+process.env.CUSTOMER_LEGACY_CLAIM_UNTIL = '2099-12-31T23:59:59.999Z';
 const { default: handler, shanghaiDateIso, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
 const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
@@ -28,7 +29,14 @@ const customerAccessTokenFor = (clientId = '') => `smoke-customer-access-${state
 const request = (method, path, body, options = {}) => {
   const normalizedPath = String(path || '').replace(/^\/+/, '').split('?')[0];
   const providedHeaders = options.headers || {};
-  const requiresCustomerAccess = normalizedPath === 'state' || normalizedPath === 'customer-shares';
+  const requiresCustomerAccess = normalizedPath === 'state'
+    || normalizedPath === 'customer-shares'
+    || normalizedPath === 'user/settings'
+    || normalizedPath === 'feedback'
+    || normalizedPath === 'customer-growth-advice'
+    || normalizedPath === 'track'
+    || normalizedPath === 'plan-jobs'
+    || normalizedPath.startsWith('plan-jobs/');
   const hasExplicitCustomerAccess = Object.prototype.hasOwnProperty.call(providedHeaders, 'x-customer-access-token');
   const customerAccessHeaders = requiresCustomerAccess && options.customerAccess !== false && !hasExplicitCustomerAccess
     ? { 'x-customer-access-token': customerAccessTokenFor(stateClientIdForRequest(path, body)) }
@@ -154,7 +162,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.123', `public diagnosis should return app_version 1.6.123, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.124', `public diagnosis should return app_version 1.6.124, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -167,9 +175,11 @@ assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includ
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
 
-const personalizationSettingsClientId = 'personalization-smoke';
+const personalizationSettingsClientId = 'non-personalized-plan-owner';
 const defaultPersonalizationSettingsResponse = await handler(request('GET', `user/settings?client_id=${personalizationSettingsClientId}`));
 assert(defaultPersonalizationSettingsResponse.status === 200, 'GET /user/settings should return default settings');
+const nakedPersonalizationSettingsResponse = await handler(request('GET', `user/settings?client_id=${personalizationSettingsClientId}`, undefined, { customerAccess: false }));
+assert(nakedPersonalizationSettingsResponse.status === 401, 'GET /user/settings with only a naked client_id must be rejected');
 const defaultPersonalizationSettings = await defaultPersonalizationSettingsResponse.json();
 assert(defaultPersonalizationSettings.personalized_recommendation_enabled === true, 'personalized recommendation should default to enabled');
 const disabledPersonalizationResponse = await handler(request('PATCH', 'user/settings', {
@@ -179,6 +189,23 @@ const disabledPersonalizationResponse = await handler(request('PATCH', 'user/set
 assert(disabledPersonalizationResponse.status === 200, 'PATCH /user/settings should save the personalization switch');
 const disabledPersonalizationSettings = await disabledPersonalizationResponse.json();
 assert(disabledPersonalizationSettings.personalized_recommendation_enabled === false, 'PATCH /user/settings should return false after opt-out');
+const anotherClientSettingsId = 'another-client-must-not-be-trusted';
+await handler(request('PATCH', 'user/settings', {
+  client_id: anotherClientSettingsId,
+  personalized_recommendation_enabled: false,
+}));
+const crossClientPersonalizationPatch = await handler(request('PATCH', 'user/settings', {
+  client_id: personalizationSettingsClientId,
+  settings_client_id: anotherClientSettingsId,
+  personalized_recommendation_enabled: true,
+}));
+assert(crossClientPersonalizationPatch.status === 200, 'settings API should ignore an untrusted settings_client_id override and update only the authenticated client');
+const anotherClientSettingsAfterCrossPatch = await (await handler(request('GET', `user/settings?client_id=${anotherClientSettingsId}`))).json();
+assert(anotherClientSettingsAfterCrossPatch.personalized_recommendation_enabled === false, 'a customer request must not change another client settings bucket');
+await handler(request('PATCH', 'user/settings', {
+  client_id: personalizationSettingsClientId,
+  personalized_recommendation_enabled: false,
+}));
 const refreshedPersonalizationSettings = await (await handler(request('GET', `user/settings?client_id=${personalizationSettingsClientId}`))).json();
 assert(refreshedPersonalizationSettings.personalized_recommendation_enabled === false, 'GET /user/settings should keep false after a simulated refresh');
 
@@ -188,7 +215,7 @@ const nonPersonalizedPlanJobResponse = await handler(request('POST', 'plan-jobs'
   ...payload,
   client_id: 'non-personalized-plan-owner',
   customer_key: 'non-personalized-plan-owner',
-  settings_client_id: personalizationSettingsClientId,
+  settings_client_id: 'another-client-must-not-be-trusted',
   personalized_recommendation_enabled: true,
   best_recent_content: personalizationMarker,
   account_preference: personalizationMarker,
@@ -257,8 +284,24 @@ const nonPersonalizedAdvice = await nonPersonalizedAdviceResponse.json();
 assert(nonPersonalizedAdvice.personalization_mode === 'non_personalized', 'customer advice should expose the effective non-personalized mode');
 assert(nonPersonalizedAdvice.context_used.history_feedback_count === 0, 'non-personalized advice must not use historical feedback');
 assert(!JSON.stringify(nonPersonalizedAdvice).includes(personalizationMarker), 'non-personalized advice must not use previous-round or preference markers');
+const nakedAdviceResponse = await handler(request('POST', 'customer-growth-advice', {
+  request_id: 'unauthorized-advice-request-0001',
+  client_id: 'non-personalized-plan-owner',
+  assessment: payload,
+  plans: nonPersonalizedPlanJob.result.plans,
+  records: [nonPersonalizedCurrentRecord],
+  record: nonPersonalizedCurrentRecord,
+}, { customerAccess: false }));
+assert(nakedAdviceResponse.status === 401, 'customer growth advice with only a naked client_id must be rejected before model metering');
 
 let queuedPlanJobPromise = null;
+const nakedPlanJobCreateResponse = await handler(request('POST', 'plan-jobs', {
+  ...payload,
+  client_id: 'unauthorized-plan-job-owner',
+  customer_key: 'unauthorized-plan-job-owner',
+  request_id: 'unauthorized-plan-job-request-0001',
+}, { customerAccess: false }));
+assert(nakedPlanJobCreateResponse.status === 401, 'POST /plan-jobs with only a naked client_id must be rejected before queueing');
 const planJobStartedAt = Date.now();
 const planJobCreateResponse = await handler(request('POST', 'plan-jobs', {
   ...payload,
@@ -276,6 +319,12 @@ assert(queuedPlanJobPromise, 'POST /plan-jobs should schedule background process
 await queuedPlanJobPromise;
 const ownPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-owner`));
 assert(ownPlanJobResponse.status === 200, `same client should read its plan job, got ${ownPlanJobResponse.status}`);
+const nakedPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-owner`, undefined, { customerAccess: false }));
+assert(nakedPlanJobResponse.status === 401, 'plan job polling with only a naked client_id must be rejected');
+const wrongTokenPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-owner`, undefined, {
+  headers: { 'x-customer-access-token': customerAccessTokenFor('plan-job-other') },
+}));
+assert(wrongTokenPlanJobResponse.status === 401, 'plan job polling with another customer token must be rejected');
 const ownPlanJob = await ownPlanJobResponse.json();
 assert(ownPlanJob.status === 'completed' && ownPlanJob.result?.plans?.length === 7, 'same client should receive the completed seven-plan result');
 let repeatedPlanJobPromise = null;
@@ -298,7 +347,7 @@ const ownPlanJobText = JSON.stringify(ownPlanJob);
   assert(!ownPlanJobText.includes(word), `customer plan job response must hide model field ${word}`);
 });
 const crossClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-other`));
-assert(crossClientPlanJobResponse.status === 404, `cross-client plan job read should return 404, got ${crossClientPlanJobResponse.status}`);
+assert(crossClientPlanJobResponse.status === 401, `cross-client plan job read should fail authentication before lookup, got ${crossClientPlanJobResponse.status}`);
 const noClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}`));
 assert(noClientPlanJobResponse.status === 400, `plan job read without client_id should return 400, got ${noClientPlanJobResponse.status}`);
 const planJobListResponse = await handler(request('GET', 'plan-jobs?client_id=plan-job-owner'));
@@ -401,6 +450,12 @@ for (const [event, suffix] of [['home_view', 'home'], ['intake_started', 'intake
 }
 const unsupportedTrack = await handler(request('POST', 'track', { client_id: 'p0-funnel-client', event: 'customer_email', event_id: 'p0-funnel-invalid-0001' }));
 assert(unsupportedTrack.status === 400, 'POST /track must reject non-allowlisted event names');
+const unauthorizedTrack = await handler(request('POST', 'track', {
+  client_id: 'p0-funnel-client',
+  event: 'home_view',
+  event_id: 'p0-funnel-unauthorized-0001',
+}, { customerAccess: false }));
+assert(unauthorizedTrack.status === 401, 'POST /track with only a naked client_id must not poison customer analytics');
 const funnelSummaryResponse = await handler(internalRequest('GET', 'analytics/funnel'));
 assert(funnelSummaryResponse.status === 200, 'authorized internal request should read funnel aggregates');
 const funnelData = await funnelSummaryResponse.json();
@@ -900,6 +955,58 @@ const floristShareRead = await handler(request('GET', `customer-shares/${encodeU
 assert(floristShareRead.status === 200, 'GET /customer-shares/:token should restore the shared project without exposing a client id in the URL');
 const floristShareState = await floristShareRead.json();
 assert(floristShareState.project_store.projects.length === 1 && floristShareState.project_store.projects[0]?.id === 'project-florist', 'customer share should be restricted to one project');
+const floristShareSettingsPatch = await handler(request('PATCH', 'user/settings', {
+  client_id: 'florist',
+  personalized_recommendation_enabled: false,
+}, {
+  headers: { 'x-customer-share-token': floristShare.share_token },
+}));
+assert(floristShareSettingsPatch.status === 403, 'an editable project share must not change the owner privacy settings');
+
+const expiredLegacyClientId = 'legacy-expired-claim';
+const expiredLegacyProject = {
+  id: 'project-legacy-expired-claim',
+  name: '旧浏览器迁移验证项目',
+  updated_at: '2026-08-08 12:00:00',
+  state: {
+    assessment: {
+      industry: '本地服务门店',
+      main_goal: '获得更多咨询',
+      target_customer: '附近客户',
+    },
+    diagnosis: { summary: '旧项目迁移验证' },
+    plans: [{ id: 'legacy-plan-1', topic: '附近客户最关心的3个问题' }],
+  },
+};
+const expiredLegacyStore = {
+  activeProjectId: expiredLegacyProject.id,
+  lastActiveProjectId: null,
+  projects: [expiredLegacyProject],
+};
+const expiredLegacySeed = await handler(internalRequest('POST', 'state', {
+  client_id: expiredLegacyClientId,
+  project_store: expiredLegacyStore,
+}));
+assert(expiredLegacySeed.status === 201, 'internal migration setup should seed a legacy project without claiming a customer browser token');
+const expiredLegacySeedRead = await (await handler(internalRequest('GET', `state?client_id=${expiredLegacyClientId}`))).json();
+assert(expiredLegacySeedRead.project_store.projects.some((item) => item.id === expiredLegacyProject.id), `legacy migration setup must be readable before testing claim expiry: ${JSON.stringify(expiredLegacySeedRead.project_store.projects)}`);
+const expiredLegacyProofInput = JSON.stringify({
+  id: expiredLegacyProject.id,
+  name: expiredLegacyProject.name,
+  industry: expiredLegacyProject.state.assessment.industry,
+  main_goal: expiredLegacyProject.state.assessment.main_goal,
+  target_customer: expiredLegacyProject.state.assessment.target_customer,
+  plan_topics: [['legacy-plan-1', '附近客户最关心的3个问题']],
+});
+const expiredLegacyProof = createHash('sha256').update(expiredLegacyProofInput).digest('hex');
+process.env.CUSTOMER_LEGACY_CLAIM_UNTIL = 'disabled';
+const expiredLegacyClaim = await handler(request('POST', 'state', {
+  client_id: expiredLegacyClientId,
+  project_store: expiredLegacyStore,
+  legacy_state_proof: expiredLegacyProof,
+}));
+assert(expiredLegacyClaim.status === 401, `legacy project proof must stop working after the configured migration deadline, got ${expiredLegacyClaim.status}`);
+process.env.CUSTOMER_LEGACY_CLAIM_UNTIL = '2099-12-31T23:59:59.999Z';
 const anonymousInternalStateGet = await handler(request('GET', 'state?client_id=internal&mode=internal'));
 assert(anonymousInternalStateGet.status === 401, 'anonymous GET /state for the internal bucket must be rejected');
 const anonymousInternalStatePost = await handler(request('POST', 'state', { client_id: 'internal', project_store: { projects: [] } }));
@@ -922,11 +1029,19 @@ const dentalFeedbackPost = await handler(request('POST', 'feedback', {
   consultations: 2,
 }));
 assert(dentalFeedbackPost.status === 201, 'POST /feedback should accept dental plan feedback');
+const dentalFeedbackWithoutToken = await handler(request('POST', 'feedback', {
+  client_id: 'dental',
+  content_plan_id: dentalData.plans[0].id,
+  publish_link: 'https://example.com/unauthorized-dental-post',
+}, { customerAccess: false }));
+assert(dentalFeedbackWithoutToken.status === 401, 'POST /feedback with only a naked client_id must be rejected');
 const dentalFeedbackBody = await dentalFeedbackPost.json();
 assert(dentalFeedbackBody.feedback.client_id === 'dental', 'POST /feedback should echo client_id');
 const floristFeedbackGet = await handler(request('GET', 'feedback?client_id=florist'));
 const floristFeedback = await floristFeedbackGet.json();
 assert(!floristFeedback.some((item) => item.publish_link === 'https://example.com/dental-post'), 'GET /feedback?client_id=florist must not return dental feedback');
+const floristFeedbackWithoutToken = await handler(request('GET', 'feedback?client_id=florist', undefined, { customerAccess: false }));
+assert(floristFeedbackWithoutToken.status === 401, 'GET /feedback with only a naked client_id must be rejected');
 const statePayload = {
   activeProjectId: 'project-smoke-sync',
   lastActiveProjectId: null,
@@ -1007,7 +1122,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.123'") && appJs.includes("v1.6.123 · 客户数据保护与生成等待修复版"), 'public app should expose the reviewed v1.6.123 hotfix build');
+assert(appJs.includes("const APP_VERSION = '1.6.124'") && appJs.includes("v1.6.124 · 客户身份边界加固版"), 'public app should expose the reviewed v1.6.124 security build');
 ['delivery-profiles', 'delivery-projects', 'delivery-cycles', 'collaboration-tasks', 'collaboration-approvals', 'shooting-schedules', 'weekly-reports', 'delivery-feishu-bindings'].forEach((routeName) => {
   assert(!appJs.includes(`/api/${routeName}`) && !indexHtml.includes(routeName), `P0 internal API ${routeName} must not be wired into the shared customer UI`);
 });
@@ -1196,11 +1311,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.123') && indexHtml.includes('/styles.css?v=1.6.123') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.123'), 'public customer page should use the v1.6.123 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.124') && indexHtml.includes('/styles.css?v=1.6.124') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.124'), 'public customer page should use the v1.6.124 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.123') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.123') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.123') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.124') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.124') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.124') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1740,7 +1855,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.123' && health.version_label === 'v1.6.123 · 客户数据保护与生成等待修复版', 'public application health version should report v1.6.123');
+assert(health.version === '1.6.124' && health.version_label === 'v1.6.124 · 客户身份边界加固版', 'public application health version should report v1.6.124');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');

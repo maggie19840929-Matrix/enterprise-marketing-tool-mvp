@@ -110,6 +110,7 @@ INTERNAL_ACCESS_TOKEN=团队内部使用的高强度随机口令
 ```bash
 SAFE_TO_RUN=true
 RATE_LIMIT_ENFORCE=false
+CUSTOMER_LEGACY_CLAIM_UNTIL=2026-09-30T15:59:59.999Z
 GENERATION_RATE_WINDOW_SECONDS=60
 GENERATION_RATE_CLIENT_MAX=3
 GENERATION_RATE_IP_MAX=10
@@ -120,6 +121,8 @@ METERING_HASH_SECRET=至少32字节的随机服务端密钥
 ```
 
 `RATE_LIMIT_ENFORCE=false` 是首发影子模式：达到阈值时写入计量和漏斗记录，但不阻断请求。观察真实试用一至两天后，人工改成 `true` 才会返回 `429` 和“生成太频繁，稍等片刻再试”。同一个 `request_id` 会复用同一 reservation 与任务，不因网络重试重复计量。
+
+`CUSTOMER_LEGACY_CLAIM_UNTIL` 控制旧浏览器项目认领的迁移截止时间（ISO 8601）。迁移完成后应改为 `disabled` 或过期时间，彻底关闭可推导的旧 proof 路径。
 
 `SAFE_TO_RUN` 是所有真实付费模型调用的总闸。生产部署代码与 `SAFE_TO_RUN=true` 必须同步完成；关闭时客户仍会获得规则兜底结果，但不会发起真实模型请求。`GET /api/analytics/funnel` 仅允许携带 `INTERNAL_ACCESS_TOKEN` 的内部请求读取聚合计数，公开端不能枚举事件。
 

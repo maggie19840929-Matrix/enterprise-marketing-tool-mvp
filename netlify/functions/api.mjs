@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.123';
-const VERSION_LABEL = 'v1.6.123 · 客户数据保护与生成等待修复版';
+const APP_VERSION = '1.6.124';
+const VERSION_LABEL = 'v1.6.124 · 客户身份边界加固版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -174,7 +174,10 @@ const stripCustomerModelMetadata = (value) => {
 const json = (payload, status = 200, { internal = false } = {}) =>
   new Response(JSON.stringify(sanitizeCustomerPayload(internal ? payload : stripCustomerModelMetadata(payload)), null, 2), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    },
   });
 const unauthorized = () => json({ error: '未授权' }, 401);
 
@@ -3999,6 +4002,7 @@ const commercialBlobSet = async (key = '', value = {}) => {
 const CUSTOMER_ACCESS_PREFIX = 'customer-access/v1';
 const CUSTOMER_SHARE_PREFIX = 'customer-shares/v1';
 const CUSTOMER_SHARE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const CUSTOMER_LEGACY_CLAIM_DEFAULT_UNTIL = '2026-09-30T15:59:59.999Z';
 const customerAccessKey = (clientId = '') =>
   `${CUSTOMER_ACCESS_PREFIX}/${normalizeClientId(clientId) || 'anonymous'}`;
 const customerShareKey = (token = '') =>
@@ -4008,6 +4012,12 @@ const customerAccessTokenFromRequest = (request = null) =>
 const customerShareTokenFromRequest = (request = null) =>
   String(request?.headers?.get('x-customer-share-token') || '').trim();
 const customerAccessTokenHash = (token = '') => sha256Hex(`access:${String(token || '').trim()}`);
+const customerLegacyClaimAllowed = () => {
+  const configured = String(process.env.CUSTOMER_LEGACY_CLAIM_UNTIL || CUSTOMER_LEGACY_CLAIM_DEFAULT_UNTIL).trim();
+  if (['0', 'false', 'off', 'disabled'].includes(configured.toLowerCase())) return false;
+  const expiresAt = Date.parse(configured);
+  return Number.isFinite(expiresAt) && Date.now() <= expiresAt;
+};
 const hashMatches = (actual = '', expected = '') => {
   const left = String(actual || '');
   const right = String(expected || '');
@@ -4053,9 +4063,8 @@ const authorizeCustomerStateAccess = async ({
 } = {}) => {
   const safeClientId = normalizeClientId(clientId);
   if (!safeClientId) return { ok: false, reason: 'missing_client_id' };
-  if (safeClientId === INTERNAL_CLIENT_ID) return internalAuthorized
-    ? { ok: true, mode: 'internal' }
-    : { ok: false, reason: 'internal_auth_required' };
+  if (internalAuthorized) return { ok: true, mode: 'internal' };
+  if (safeClientId === INTERNAL_CLIENT_ID) return { ok: false, reason: 'internal_auth_required' };
 
   const shareToken = customerShareTokenFromRequest(request);
   if (shareToken) {
@@ -4085,7 +4094,8 @@ const authorizeCustomerStateAccess = async ({
   }
 
   const suppliedProof = String(legacyStateProof || '').trim();
-  const legacyMatch = /^[a-f0-9]{64}$/i.test(suppliedProof)
+  const legacyMatch = customerLegacyClaimAllowed()
+    && /^[a-f0-9]{64}$/i.test(suppliedProof)
     && customerProjectAccessProofInputs(current.project_store)
       .some((input) => hashMatches(suppliedProof, sha256Hex(input)));
   if (legacyMatch) {
@@ -4103,6 +4113,35 @@ const customerStateUnauthorized = () => json({
   error: '此项目需要从原浏览器打开，或使用最新保存链接继续。',
   code: 'customer_access_required',
 }, 401);
+const authorizeCustomerRoute = async ({
+  request = null,
+  clientId = '',
+  payload = {},
+  internalAuthorized = false,
+  allowBootstrap = false,
+  ownerOnly = false,
+} = {}) => {
+  const access = await authorizeCustomerStateAccess({
+    request,
+    clientId,
+    legacyStateProof: payload?.legacy_state_proof,
+    internalAuthorized,
+    allowBootstrap,
+  });
+  if (!access.ok) {
+    return {
+      ok: false,
+      response: access.reason === 'internal_auth_required' ? unauthorized() : customerStateUnauthorized(),
+    };
+  }
+  if (ownerOnly && access.mode === 'share') {
+    return {
+      ok: false,
+      response: json({ error: '保存链接可以继续项目，但不能修改账户隐私设置。' }, 403),
+    };
+  }
+  return { ok: true, access };
+};
 const projectStoreForCustomerShare = (store = {}, projectId = '') => {
   const normalized = normalizeCloudProjectStore(store?.project_store || store);
   const project = ensureArray(normalized.projects).find((item) => String(item?.id || '') === String(projectId || ''));
@@ -4169,14 +4208,13 @@ const writeUserSettings = async (clientId = '', patch = {}) => {
   await commercialBlobSet(userSettingsKey(safeClientId), next);
   return next;
 };
-const userSettingsClientIdFrom = (payload = {}, url = null, request = null) =>
+const authenticatedSettingsClientIdFrom = (payload = {}, url = null, request = null) =>
   normalizeClientId(
-    payload.settings_client_id
-    || payload.client_id
+    payload.client_id
     || payload.customer_key
-    || url?.searchParams?.get('settings_client_id')
     || url?.searchParams?.get('client_id')
-    || request?.headers?.get('x-user-settings-id')
+    || url?.searchParams?.get('customer')
+    || request?.headers?.get('x-client-id')
     || ''
   );
 const commercialBlobKeys = async (prefix = '') => {
@@ -7104,7 +7142,8 @@ const applyPersonalizationPolicy = (payload = {}, enabled = true) => {
 };
 
 const resolvePersonalizationForRequest = async (payload = {}, clientId = '') => {
-  const settingsClientId = userSettingsClientIdFrom(payload) || normalizeClientId(clientId);
+  // Public requests may only read personalization settings from their authenticated client scope.
+  const settingsClientId = normalizeClientId(clientId);
   const stored = await readUserSettings(settingsClientId);
   const enabled = stored.personalized_recommendation_enabled !== false
     && payload.personalized_recommendation_enabled !== false;
@@ -7380,9 +7419,15 @@ export default async (request, context = {}) => {
         }), 200, { internal: true });
       }
       if (path === '/user/settings') {
-        const settingsClientId = userSettingsClientIdFrom({}, url, request);
+        const settingsClientId = authenticatedSettingsClientIdFrom({}, url, request);
         if (!settingsClientId) return json({ error: '读取隐私设置需要 client_id' }, 400);
-        if (settingsClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+        const settingsAccess = await authorizeCustomerRoute({
+          request,
+          clientId: settingsClientId,
+          internalAuthorized,
+          allowBootstrap: true,
+        });
+        if (!settingsAccess.ok) return settingsAccess.response;
         return json(await readUserSettings(settingsClientId), 200, { internal: internalAuthorized });
       }
       if (path === '/customers') {
@@ -7459,6 +7504,8 @@ export default async (request, context = {}) => {
       if (planJobDetailMatch) {
         const clientId = planJobClientIdFrom({}, url, request);
         if (!clientId) return json({ error: '读取计划任务需要 client_id' }, 400);
+        const planJobAccess = await authorizeCustomerRoute({ request, clientId, internalAuthorized });
+        if (!planJobAccess.ok) return planJobAccess.response;
         const jobId = decodeURIComponent(planJobDetailMatch[1]);
         // 任务刚写入 Blobs 时存在短暂的写读传播延迟，短重试后再 404，避免误判任务不存在。
         let job = await readPlanJobWithRetry(clientId, jobId, { attempts: 6, delayMs: 400 });
@@ -7484,7 +7531,16 @@ export default async (request, context = {}) => {
         if (!internalAuthorized) return unauthorized();
         return json(state.plans.filter((item) => !item.client_id || item.client_id === requestClientId), 200, { internal: true });
       }
-      if (path === '/feedback') return json(state.feedback.filter((item) => !item.client_id || item.client_id === requestClientId));
+      if (path === '/feedback') {
+        const feedbackAccess = await authorizeCustomerRoute({
+          request,
+          clientId: requestClientId,
+          internalAuthorized,
+          allowBootstrap: true,
+        });
+        if (!feedbackAccess.ok) return feedbackAccess.response;
+        return json(state.feedback.filter((item) => !item.client_id || item.client_id === requestClientId));
+      }
       if (path === '/reviews') {
         if (!internalAuthorized) return unauthorized();
         return json(state.reviews, 200, { internal: true });
@@ -7507,9 +7563,17 @@ export default async (request, context = {}) => {
       return json({ resource: await patchDeliveryResource(kind, clientId, decodeURIComponent(rawId), payload) }, 200, { internal: true });
     }
     if (request.method === 'PATCH' && path === '/user/settings') {
-      const settingsClientId = userSettingsClientIdFrom(payload, url, request);
+      const settingsClientId = authenticatedSettingsClientIdFrom(payload, url, request);
       if (!settingsClientId) return json({ error: '保存隐私设置需要 client_id' }, 400);
-      if (settingsClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const settingsAccess = await authorizeCustomerRoute({
+        request,
+        clientId: settingsClientId,
+        payload,
+        internalAuthorized,
+        allowBootstrap: true,
+        ownerOnly: true,
+      });
+      if (!settingsAccess.ok) return settingsAccess.response;
       return json(await writeUserSettings(settingsClientId, payload), 200, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/feishu/inbound') {
@@ -7530,7 +7594,14 @@ export default async (request, context = {}) => {
     if (request.method === 'POST' && path === '/plan-jobs') {
       const clientId = planJobClientIdFrom(payload, url, request);
       if (!clientId) return json({ error: '创建计划任务需要 client_id' }, 400);
-      if (clientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const planJobAccess = await authorizeCustomerRoute({
+        request,
+        clientId,
+        payload,
+        internalAuthorized,
+        allowBootstrap: true,
+      });
+      if (!planJobAccess.ok) return planJobAccess.response;
       const personalization = await resolvePersonalizationForRequest(payload, clientId);
       const requestId = generationRequestId(payload);
       const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'plan-jobs' });
@@ -7552,7 +7623,14 @@ export default async (request, context = {}) => {
       return json(await generateAssessmentResult({ payload, clientId: payloadClientId, internalAuthorized }), 201, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/track') {
-      if (payloadClientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const trackingAccess = await authorizeCustomerRoute({
+        request,
+        clientId: payloadClientId,
+        payload,
+        internalAuthorized,
+        allowBootstrap: true,
+      });
+      if (!trackingAccess.ok) return trackingAccess.response;
       const result = await writeFunnelEvent({
         event: String(payload.event || ''),
         clientId: payloadClientId,
@@ -7626,7 +7704,14 @@ export default async (request, context = {}) => {
     if (request.method === 'POST' && path === '/customer-growth-advice') {
       const clientId = planJobClientIdFrom(payload, url, request);
       if (!clientId) return json({ error: '生成下一轮建议需要 client_id' }, 400);
-      if (clientId === INTERNAL_CLIENT_ID && !internalAuthorized) return unauthorized();
+      const adviceAccess = await authorizeCustomerRoute({
+        request,
+        clientId,
+        payload,
+        internalAuthorized,
+        allowBootstrap: true,
+      });
+      if (!adviceAccess.ok) return adviceAccess.response;
       const personalization = await resolvePersonalizationForRequest(payload, clientId);
       const requestId = generationRequestId(payload);
       const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'customer-growth-advice' });
@@ -7648,6 +7733,14 @@ export default async (request, context = {}) => {
       }
     }
     if (request.method === 'POST' && path === '/feedback') {
+      const feedbackAccess = await authorizeCustomerRoute({
+        request,
+        clientId: payloadClientId,
+        payload,
+        internalAuthorized,
+        allowBootstrap: true,
+      });
+      if (!feedbackAccess.ok) return feedbackAccess.response;
       const plan_id = Number(payload.content_plan_id);
       const feedback = recordFeedback(plan_id, payload, payloadClientId);
       return json({ feedback, dashboard: dashboard() }, 201);

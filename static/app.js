@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.123';
-const VERSION_LABEL = 'v1.6.123 · 客户数据保护与生成等待修复版';
+const APP_VERSION = '1.6.124';
+const VERSION_LABEL = 'v1.6.124 · 客户身份边界加固版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1157,7 +1157,7 @@ function customerClientId(){
 }
 
 function userSettingsClientId(){
-  return isInternalDataScope() ? INTERNAL_CLIENT_ID : readSessionClientId();
+  return isInternalDataScope() ? INTERNAL_CLIENT_ID : customerClientId();
 }
 
 function userSettingsStorageKey(clientId = userSettingsClientId()){
