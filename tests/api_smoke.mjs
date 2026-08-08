@@ -167,7 +167,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.131', `public diagnosis should return app_version 1.6.131, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.132', `public diagnosis should return app_version 1.6.132, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1196,6 +1196,7 @@ assert(syncedProject?.state?.content_rounds?.length === 1 && syncedProject.state
 assertNoUnsafeCommentCta('content decision diagnosis/plans', { diagnosis, plans });
 const appJs = readFileSync(new URL('../static/app.js', import.meta.url), 'utf8');
 const indexHtml = readFileSync(new URL('../static/index.html', import.meta.url), 'utf8');
+const methodHtml = readFileSync(new URL('../static/method/index.html', import.meta.url), 'utf8');
 const aboutHtml = readFileSync(new URL('../static/about/index.html', import.meta.url), 'utf8');
 const privacyHtml = readFileSync(new URL('../static/privacy/index.html', import.meta.url), 'utf8');
 const termsHtml = readFileSync(new URL('../static/terms/index.html', import.meta.url), 'utf8');
@@ -1211,7 +1212,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.131'") && appJs.includes("v1.6.131 · 品牌信息页排版精修版"), 'public app should expose the reviewed v1.6.131 information-page typography release');
+assert(appJs.includes("const APP_VERSION = '1.6.132'") && appJs.includes("v1.6.132 · AI 内容策略定位版"), 'public app should expose the reviewed v1.6.132 AI strategy positioning release');
 ['delivery-profiles', 'delivery-projects', 'delivery-cycles', 'collaboration-tasks', 'collaboration-approvals', 'shooting-schedules', 'weekly-reports', 'delivery-feishu-bindings'].forEach((routeName) => {
   assert(!appJs.includes(`/api/${routeName}`) && !indexHtml.includes(routeName), `P0 internal API ${routeName} must not be wired into the shared customer UI`);
 });
@@ -1400,16 +1401,16 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.131') && indexHtml.includes('/styles.css?v=1.6.131') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.131'), 'public customer page should use the v1.6.131 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.132') && indexHtml.includes('/styles.css?v=1.6.132') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.132'), 'public customer page should use the v1.6.132 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.131') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.131') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.131') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.132') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.132') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.132') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
 assert(warRoomCss.includes('v1.6.99 FP Matrix and Huoke Compass brand lockups') && warRoomCss.includes('color:#1a1c24') && warRoomCss.includes('color:#4d4d4d') && warRoomCss.includes('letter-spacing:.18em'), 'official lockups should use the approved brand colors, medium MATRIX weight, and tightened Chinese descriptor');
-assert([aboutHtml, privacyHtml, termsHtml, contactHtml].every((html) => html.includes('fp-matrix-lockup') && html.includes('企业第一方增长智能') && html.includes('/fp-matrix-elephant.svg?v=1.6.131') && html.includes('/fp-matrix-favicon.svg?v=1.6.131')), 'all independent customer information pages should use the same finalized FP Matrix identity and current cache version');
+assert([methodHtml, aboutHtml, privacyHtml, termsHtml, contactHtml].every((html) => html.includes('fp-matrix-lockup') && html.includes('企业第一方增长智能') && html.includes('/fp-matrix-elephant.svg?v=1.6.132') && html.includes('/fp-matrix-favicon.svg?v=1.6.132')), 'all independent customer information pages should use the same finalized FP Matrix identity and current cache version');
 assert(aboutHtml.includes('让企业拥有自己的增长判断') && aboutHtml.includes('第一方真实') && aboutHtml.includes('持续学习') && aboutHtml.includes('智能辅助') && aboutHtml.includes('为什么叫 FP Matrix') && aboutHtml.includes('First Party'), 'about page should tell the approved first-party growth brand story instead of reading like a feature list');
 assert(warRoomCss.includes('v1.6.97 customer information-page spacing and text rhythm') && warRoomCss.includes('body.customer-mode.customer-info-mode .customer-info-pages') && warRoomCss.includes('max-width:none!important'), 'information pages should keep breathing room below the header and use the full card width for lead copy');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
@@ -1419,15 +1420,20 @@ assert(indexHtml.includes('customer-footer-primary') && indexHtml.includes('cust
 assert(!indexHtml.includes('id="customerInfoPages"') && !indexHtml.includes('本地存储与云端同步') && !indexHtml.includes('AI 内容说明'), 'homepage should not inline long policy and agreement content');
 assert(aboutHtml.includes('南京尚下联信息科技有限公司') && contactHtml.includes('contact@fpmatrix.cn'), 'independent info pages should expose the service entity and complaint email');
 const publicHeaderNav = (html) => html.match(/<div class="customer-site-links">[\s\S]*?<\/div>/)?.[0] || '';
-[indexHtml, aboutHtml, contactHtml, privacyHtml, termsHtml].forEach((html) => {
+[indexHtml, methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml].forEach((html) => {
   const nav = publicHeaderNav(html);
-  assert(nav.includes('使用工具') && nav.includes('关于我们') && nav.includes('登录'), 'every public page should use the same three-item primary navigation');
+  assert(nav.includes('使用工具') && nav.includes('方法与案例') && nav.includes('关于我们') && nav.includes('登录'), 'every public page should use the same four-item primary navigation');
   assert(!nav.includes('联系我们') && !nav.includes('隐私政策') && !nav.includes('用户协议') && !nav.includes('返回首页'), 'secondary company and policy links must not reappear in the primary navigation');
 });
-assert([aboutHtml, contactHtml, privacyHtml, termsHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.131') && html.includes('class="customer-account-nav" href="/?account=login"') && !html.includes('v=1.6.99')), 'all independent information pages should use the current navigation assets and account entry');
+assert([methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.132') && html.includes('class="customer-account-nav" href="/?account=login"') && !html.includes('v=1.6.99')), 'all independent information pages should use the current navigation assets and account entry');
 assert([aboutHtml, contactHtml, privacyHtml, termsHtml].every((html) => !html.includes('>· 苏ICP备')), 'information-page filing links should rely on the shared separator and never render a duplicated dot');
 assert(aboutHtml.includes('<h2>联系我们</h2>') && aboutHtml.includes('href="/contact"'), 'contact details should sit beneath the About page while retaining the dedicated support page');
 assert(warRoomCss.includes('v1.6.131 public information pages: restrained editorial typography') && warRoomCss.includes('max-width:980px!important') && warRoomCss.includes('font-size:clamp(30px,3.2vw,40px)!important') && warRoomCss.includes('border-radius:0!important'), 'public information pages should use the restrained editorial typography system instead of nested oversized cards');
+assert(indexHtml.includes('获客罗盘是一位会跟着真实结果持续调整的') && indexHtml.includes('AI 内容策略助手') && indexHtml.includes('customer-method-teaser') && indexHtml.includes('内容为什么会带来客户'), 'homepage should explain the AI strategy role and provide a lightweight method entry');
+assert(appJs.includes('customer-ai-context') && appJs.includes('不是套用固定模板，本次建议已结合') && appJs.includes("['业务', business]") && appJs.includes("['平台', platform]"), 'generated customer advice should show the real business context used instead of claiming a fixed template');
+assert(methodHtml.includes('典型经营场景演示') && methodHtml.includes('不代表特定客户案例') && methodHtml.includes('不构成效果或收益承诺') && methodHtml.includes('同一项服务，两种完全不同的表达'), 'method page should use an explicitly illustrative scenario instead of inventing a real customer case');
+assert(methodHtml.includes('小红书') && methodHtml.includes('抖音') && methodHtml.includes('视频号') && methodHtml.includes('被看见') && methodHtml.includes('持续优化'), 'method page should explain platform content mechanisms and the customer growth path');
+assert(warRoomCss.includes('v1.6.132 method entry and scenario page') && warRoomCss.includes('.customer-expression-compare') && warRoomCss.includes('.customer-growth-path'), 'method entry and scenario page should have responsive, scoped presentation styles');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
 assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
 assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('>登录</button>') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose a clear login entry and keep projects and privacy inside the account panel');
@@ -1437,7 +1443,7 @@ assert(appJs.includes("api('/api/user/settings'") && appJs.includes("method:'PAT
 assert(apiSourceIncludes("path === '/user/settings'") && apiSourceIncludes('applyPersonalizationPolicy') && apiSourceIncludes('nonPersonalizedAssessment') && apiSourceIncludes('personalization_mode'), 'backend recommendation routes should enforce personalized and non-personalized modes');
 assert(privacyHtml.includes('你可以在隐私设置中关闭个性化推荐/推送') && privacyHtml.includes('个人偏好、历史行为或用户画像'), 'privacy policy should explain how to disable personalized recommendation and push');
 assert(termsHtml.includes('AI 内容说明') && termsHtml.includes('禁止行为') && termsHtml.includes('内容效果和责任限制') && termsHtml.includes('不承诺固定流量、咨询量、成交量或商业结果') && termsHtml.includes('投诉与争议处理'), 'terms should cover AI content, prohibited behavior, effect disclaimer and complaint handling');
-assert(redirects.includes('/about /about/index.html 200') && redirects.includes('/privacy /privacy/index.html 200') && redirects.includes('/terms /terms/index.html 200') && redirects.includes('/contact /contact/index.html 200'), 'customer info pages should rewrite to independent static pages');
+assert(redirects.includes('/about /about/index.html 200') && redirects.includes('/method /method/index.html 200') && redirects.includes('/privacy /privacy/index.html 200') && redirects.includes('/terms /terms/index.html 200') && redirects.includes('/contact /contact/index.html 200'), 'customer info pages should rewrite to independent static pages');
 assert(indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('让每一次发布，都成为下一次增长的依据') && indexHtml.includes('customer-first-screen') && indexHtml.includes('customer-first-form-shell') && !indexHtml.includes('给篮球培训客户的全平台内容矩阵'), 'default customer page should use the approved Huoke Compass brand proposition, not a single-customer static page title');
 assert(!indexHtml.includes('填 5 个问题，得到你的内容发布计划') && !indexHtml.includes('customer-hero-bullets') && !indexHtml.includes('customer-steps'), 'customer hero should remove noisy checklist-style guidance and duplicate step card');
 assert(indexHtml.includes('id="customerAssessmentForm"') && indexHtml.includes('data-customer-problems'), 'customer page should use the customer trial form and problem cards');
@@ -1958,7 +1964,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.131' && health.version_label === 'v1.6.131 · 品牌信息页排版精修版', 'public application health version should report v1.6.131');
+assert(health.version === '1.6.132' && health.version_label === 'v1.6.132 · AI 内容策略定位版', 'public application health version should report v1.6.132');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');

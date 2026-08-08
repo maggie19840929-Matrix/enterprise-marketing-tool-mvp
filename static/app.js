@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.131';
-const VERSION_LABEL = 'v1.6.131 · 品牌信息页排版精修版';
+const APP_VERSION = '1.6.132';
+const VERSION_LABEL = 'v1.6.132 · AI 内容策略定位版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -2494,6 +2494,19 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
   const firstPlan = safePlans[0] || customerFallbackPlans(payload)[0];
   const matrixHtml = customerPlatformMatrixHtml(payload, plans);
   const modeHtml = customerContentModeHtml(payload);
+  const contextTag = (value = '') => {
+    const text = customerText(value);
+    return text.length > 28 ? `${text.slice(0, 28)}…` : text;
+  };
+  const aiContext = [
+    ['业务', business],
+    ['客户', audience],
+    ['平台', platform],
+    ['问题', problem],
+  ].filter(([, value]) => Boolean(customerText(value)));
+  const aiContextHtml = aiContext
+    .map(([label, value]) => `<li><span>${esc(label)}</span><strong>${esc(contextTag(value))}</strong></li>`)
+    .join('');
   const topics = safePlans.map((plan, index) => `<li><strong>${index + 1}. ${esc(customerText(plan.topic))}</strong><span>${esc(customerText(plan.angle || '用客户听得懂的话讲清服务价值'))}</span></li>`).join('');
   const contentDirection = customerText(diagnosis?.weekly_action || `先围绕「${audience}」最关心的问题，按抖音/小红书/视频号分工连续验证 3 条内容，看看哪一类最容易带来咨询。`);
   const firstSteps = [
@@ -2518,6 +2531,10 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
     '发布后记录：曝光、互动、咨询人数和一句自己的观察。',
   ].join('\n');
   return `
+    <section class="customer-ai-context" aria-label="本次内容建议参考信息">
+      <div><span>AI 内容策略助手</span><strong>不是套用固定模板，本次建议已结合</strong></div>
+      <ul>${aiContextHtml}</ul>
+    </section>
     <article class="customer-advice-block">
       <span>1</span>
       <div><h3>你现在最需要解决的问题</h3><p>${esc(problem)}。先不要急着多发，先把内容和「${esc(goal)}」连起来。</p></div>
