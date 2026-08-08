@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'ACCOUNT_AUTH_ENABLED', 'ACCOUNT_AUTH_SECRET', 'ACCOUNT_EMAIL_RESEND_SECONDS', 'ACCOUNT_EMAIL_DAILY_IP_MAX', 'AUTH_TEST_MODE', 'EMAIL_PROVIDER', 'EMAIL_FROM', 'RESEND_API_KEY', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
 const INTERNAL_ACCESS_TOKEN = 'smoke-internal-token-1.6.122';
@@ -17,6 +17,11 @@ process.env.GENERATION_RATE_IP_MAX = '100';
 process.env.GENERATION_DAILY_CLIENT_MAX = '100';
 process.env.TRACKING_ENABLED = 'true';
 process.env.CUSTOMER_LEGACY_CLAIM_UNTIL = '2099-12-31T23:59:59.999Z';
+process.env.ACCOUNT_AUTH_ENABLED = 'true';
+process.env.ACCOUNT_AUTH_SECRET = 'smoke-account-auth-secret-v1-at-least-32-bytes';
+process.env.AUTH_TEST_MODE = 'true';
+process.env.EMAIL_PROVIDER = 'mock';
+process.env.NODE_ENV = 'test';
 const { default: handler, shanghaiDateIso, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
 const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
@@ -162,7 +167,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.124', `public diagnosis should return app_version 1.6.124, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.125', `public diagnosis should return app_version 1.6.125, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -963,6 +968,75 @@ const floristShareSettingsPatch = await handler(request('PATCH', 'user/settings'
 }));
 assert(floristShareSettingsPatch.status === 403, 'an editable project share must not change the owner privacy settings');
 
+process.env.ACCOUNT_AUTH_ENABLED = 'false';
+const disabledAccountStart = await handler(request('POST', 'auth/email/start', { email: 'owner@example.com' }));
+assert(disabledAccountStart.status === 503, 'disabled account auth must fail closed without affecting the anonymous customer journey');
+const disabledAccountSession = await (await handler(request('GET', 'auth/session'))).json();
+assert(disabledAccountSession.enabled === false && disabledAccountSession.signed_in === false, 'disabled account auth should expose a safe optional state');
+process.env.ACCOUNT_AUTH_ENABLED = 'true';
+const unsignedAccountSession = await handler(request('GET', 'auth/session'));
+const unsignedAccountSessionData = await unsignedAccountSession.json();
+assert(unsignedAccountSession.status === 200 && unsignedAccountSessionData.enabled === true && unsignedAccountSessionData.signed_in === false, 'account session should remain optional and must not create a login wall');
+const accountStart = await handler(request('POST', 'auth/email/start', { email: 'owner@example.com' }));
+const accountStartData = await accountStart.json();
+assert(accountStart.status === 202 && /^\d{6}$/.test(accountStartData.test_code || ''), 'test-only email adapter should issue a six-digit verification code');
+const repeatedAccountStart = await handler(request('POST', 'auth/email/start', { email: 'owner@example.com' }));
+assert(repeatedAccountStart.status === 429, 'email verification requests should be throttled before they can create provider cost or inbox spam');
+const wrongAccountVerify = await handler(request('POST', 'auth/email/verify', {
+  email: 'owner@example.com',
+  code: '000000',
+  challenge_id: accountStartData.challenge_id,
+}));
+assert(wrongAccountVerify.status === 401, 'invalid email verification code must be rejected');
+const accountVerify = await handler(request('POST', 'auth/email/verify', {
+  email: 'owner@example.com',
+  code: accountStartData.test_code,
+  challenge_id: accountStartData.challenge_id,
+}));
+const accountVerifyData = await accountVerify.json();
+const accountCookie = String(accountVerify.headers.get('set-cookie') || '').split(';')[0];
+assert(accountVerify.status === 200 && accountVerifyData.signed_in === true && accountCookie.startsWith('fp_account_session='), 'verified email should create an opaque HttpOnly account session');
+assert(!JSON.stringify(accountVerifyData).includes('owner@example.com'), 'account API must not return or persist the plaintext email identity');
+const signedAccountSession = await handler(request('GET', 'auth/session', undefined, { headers: { cookie: accountCookie } }));
+const signedAccountSessionData = await signedAccountSession.json();
+assert(signedAccountSessionData.signed_in === true && signedAccountSessionData.account?.plan_code === 'free', 'verified session should restore the account without blocking anonymous flows');
+const accountLinkFlorist = await handler(request('POST', 'account/link-client', { client_id: 'florist' }, {
+  headers: { cookie: accountCookie, 'x-customer-access-token': customerAccessTokenFor('florist') },
+}));
+const accountLinkFloristData = await accountLinkFlorist.json();
+assert(accountLinkFlorist.status === 200 && accountLinkFloristData.client_id === 'florist' && accountLinkFloristData.account?.linked_client_count === 1, 'account binding should require and preserve existing customer ownership proof');
+const accountLinkFloristAgain = await handler(request('POST', 'account/link-client', { client_id: 'florist' }, {
+  headers: { cookie: accountCookie, 'x-customer-access-token': customerAccessTokenFor('florist') },
+}));
+assert(accountLinkFloristAgain.status === 200, 'repeating the same account-client binding should be idempotent');
+const accountProjects = await handler(request('GET', 'account/projects', undefined, { headers: { cookie: accountCookie } }));
+const accountProjectsData = await accountProjects.json();
+assert(accountProjects.status === 200 && accountProjectsData.clients?.some((client) => client.client_id === 'florist' && client.projects?.some((project) => project.id === 'project-florist')), 'signed-in account should restore only its linked cloud projects');
+const nakedAccountProjects = await handler(request('GET', 'account/projects'));
+assert(nakedAccountProjects.status === 401, 'account projects must not accept a naked account_id or unauthenticated request');
+
+const secondAccountStart = await handler(request('POST', 'auth/email/start', { email: 'other@example.com' }));
+const secondAccountStartData = await secondAccountStart.json();
+const secondAccountVerify = await handler(request('POST', 'auth/email/verify', {
+  email: 'other@example.com',
+  code: secondAccountStartData.test_code,
+  challenge_id: secondAccountStartData.challenge_id,
+}));
+const secondAccountCookie = String(secondAccountVerify.headers.get('set-cookie') || '').split(';')[0];
+const crossAccountLink = await handler(request('POST', 'account/link-client', { client_id: 'florist' }, {
+  headers: { cookie: secondAccountCookie, 'x-customer-access-token': customerAccessTokenFor('florist') },
+}));
+assert(crossAccountLink.status === 409, 'a client bucket already owned by one account must not be rebound to another account');
+const secondAccountProjects = await handler(request('GET', 'account/projects', undefined, { headers: { cookie: secondAccountCookie } }));
+const secondAccountProjectsData = await secondAccountProjects.json();
+assert(secondAccountProjects.status === 200 && secondAccountProjectsData.clients?.length === 0, 'account project listing must remain isolated per verified account');
+
+const accountLogout = await handler(request('POST', 'auth/logout', undefined, { headers: { cookie: accountCookie } }));
+assert(accountLogout.status === 200 && String(accountLogout.headers.get('set-cookie') || '').includes('Max-Age=0'), 'logout should revoke the server session and clear the browser cookie');
+const revokedAccountSession = await handler(request('GET', 'auth/session', undefined, { headers: { cookie: accountCookie } }));
+const revokedAccountSessionData = await revokedAccountSession.json();
+assert(revokedAccountSessionData.signed_in === false, 'revoked account session must not restore access');
+
 const expiredLegacyClientId = 'legacy-expired-claim';
 const expiredLegacyProject = {
   id: 'project-legacy-expired-claim',
@@ -1122,7 +1196,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.124'") && appJs.includes("v1.6.124 · 客户身份边界加固版"), 'public app should expose the reviewed v1.6.124 security build');
+assert(appJs.includes("const APP_VERSION = '1.6.125'") && appJs.includes("v1.6.125 · 账号与跨端找回地基版"), 'public app should expose the reviewed v1.6.125 account foundation build');
 ['delivery-profiles', 'delivery-projects', 'delivery-cycles', 'collaboration-tasks', 'collaboration-approvals', 'shooting-schedules', 'weekly-reports', 'delivery-feishu-bindings'].forEach((routeName) => {
   assert(!appJs.includes(`/api/${routeName}`) && !indexHtml.includes(routeName), `P0 internal API ${routeName} must not be wired into the shared customer UI`);
 });
@@ -1311,11 +1385,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.124') && indexHtml.includes('/styles.css?v=1.6.124') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.124'), 'public customer page should use the v1.6.124 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.125') && indexHtml.includes('/styles.css?v=1.6.125') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.125'), 'public customer page should use the v1.6.125 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.124') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.124') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.124') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.125') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.125') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.125') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1855,7 +1929,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.124' && health.version_label === 'v1.6.124 · 客户身份边界加固版', 'public application health version should report v1.6.124');
+assert(health.version === '1.6.125' && health.version_label === 'v1.6.125 · 账号与跨端找回地基版', 'public application health version should report v1.6.125');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');

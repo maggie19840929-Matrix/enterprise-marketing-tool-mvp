@@ -51,6 +51,12 @@ npm run dev
 - `POST /api/customer-growth-advice`
 - `GET /api/state`
 - `POST /api/state`
+- `POST /api/auth/email/start`
+- `POST /api/auth/email/verify`
+- `GET /api/auth/session`
+- `POST /api/auth/logout`
+- `POST /api/account/link-client`
+- `GET /api/account/projects`
 - `GET /api/customers?mode=internal`
 - `GET /api/customers/merge-preview?mode=internal`
 - `GET /api/assets?client_id&project_id`
@@ -127,6 +133,24 @@ METERING_HASH_SECRET=至少32字节的随机服务端密钥
 `SAFE_TO_RUN` 是所有真实付费模型调用的总闸。生产部署代码与 `SAFE_TO_RUN=true` 必须同步完成；关闭时客户仍会获得规则兜底结果，但不会发起真实模型请求。`GET /api/analytics/funnel` 仅允许携带 `INTERNAL_ACCESS_TOKEN` 的内部请求读取聚合计数，公开端不能枚举事件。
 
 `/api/assessments` 已改为内部令牌专用。公开客户流程只通过异步 `/api/plan-jobs` 生成内容计划。
+
+### P1a 账号与跨端找回地基
+
+账号功能默认关闭，不影响匿名客户继续使用。启用邮箱验证码前，需要在 Netlify 配置：
+
+```bash
+ACCOUNT_AUTH_ENABLED=true
+ACCOUNT_AUTH_SECRET=至少32字节的独立高强度随机密钥
+ACCOUNT_EMAIL_RESEND_SECONDS=60
+ACCOUNT_EMAIL_DAILY_IP_MAX=20
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=邮件服务商服务端密钥
+EMAIL_FROM=已验证发件域名下的发件地址
+```
+
+账号会话使用同源 `HttpOnly + Secure + SameSite=Lax` Cookie。邮箱只在发送验证码时短暂使用，Blobs 仅保存加密摘要；验证码有效期 10 分钟。账号绑定已有项目时，仍必须同时证明当前浏览器持有该 `client_id` 的 customer access token；绑定只写关联关系，不迁移、不复制、不删除 `global-project-store.<client_id>`。
+
+P1a 目前只提供后端安全地基，公开首页不增加登录墙。未配置邮件服务或关闭 `ACCOUNT_AUTH_ENABLED` 时，邮箱验证接口返回友好不可用状态，现有匿名流程保持原样。
 
 ### 客户连续内容周期
 

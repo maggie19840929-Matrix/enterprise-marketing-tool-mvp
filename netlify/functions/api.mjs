@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 
 let state;
 let memoryCloudState = null;
@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.124';
-const VERSION_LABEL = 'v1.6.124 · 客户身份边界加固版';
+const APP_VERSION = '1.6.125';
+const VERSION_LABEL = 'v1.6.125 · 账号与跨端找回地基版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -171,12 +171,13 @@ const stripCustomerModelMetadata = (value) => {
   return value;
 };
 
-const json = (payload, status = 200, { internal = false } = {}) =>
+const json = (payload, status = 200, { internal = false, headers = {} } = {}) =>
   new Response(JSON.stringify(sanitizeCustomerPayload(internal ? payload : stripCustomerModelMetadata(payload)), null, 2), {
     status,
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
+      ...headers,
     },
   });
 const unauthorized = () => json({ error: '未授权' }, 401);
@@ -3999,6 +4000,257 @@ const commercialBlobSet = async (key = '', value = {}) => {
   memoryCommercialEvents.set(key, value);
   return { ...value, storage: 'memory-fallback' };
 };
+
+const ACCOUNT_PREFIX = 'accounts/v1';
+const ACCOUNT_IDENTITY_PREFIX = 'account-identities/v1';
+const ACCOUNT_SESSION_PREFIX = 'account-sessions/v1';
+const ACCOUNT_CHALLENGE_PREFIX = 'account-challenges/v1';
+const ACCOUNT_CLIENT_LINK_PREFIX = 'account-client-links/v1';
+const ACCOUNT_CLIENT_OWNER_PREFIX = 'account-client-owners/v1';
+const ACCOUNT_SESSION_COOKIE = 'fp_account_session';
+const ACCOUNT_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const ACCOUNT_EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
+const ACCOUNT_EMAIL_MAX_ATTEMPTS = 5;
+const accountAuthEnabled = () => envFlag('ACCOUNT_AUTH_ENABLED', false);
+const accountAuthSecret = () => envValue('ACCOUNT_AUTH_SECRET');
+const accountAuthConfigured = () => accountAuthEnabled() && accountAuthSecret().length >= 32;
+const accountAuthTestMode = () => envFlag('AUTH_TEST_MODE', false) && String(process.env.NODE_ENV || '').trim() === 'test';
+const emailProvider = () => String(envValue('EMAIL_PROVIDER') || '').trim().toLowerCase();
+const accountEmailResendSeconds = () => envInteger('ACCOUNT_EMAIL_RESEND_SECONDS', 60, { min: 10, max: 3600 });
+const accountEmailDailyIpMax = () => envInteger('ACCOUNT_EMAIL_DAILY_IP_MAX', 20, { min: 1, max: 1000 });
+const normalizeEmail = (value = '') => String(value || '').trim().toLowerCase();
+const validEmail = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value)) && normalizeEmail(value).length <= 254;
+const accountDigest = (scope = '', value = '') => {
+  const secret = accountAuthSecret();
+  if (!secret) return '';
+  return createHmac('sha256', secret).update(`${scope}:${String(value || '')}`).digest('hex');
+};
+const accountKey = (accountId = '') => `${ACCOUNT_PREFIX}/${String(accountId || '').trim()}`;
+const accountIdentityKey = (identityHash = '') => `${ACCOUNT_IDENTITY_PREFIX}/${identityHash}`;
+const accountChallengeKey = (identityHash = '') => `${ACCOUNT_CHALLENGE_PREFIX}/email/${identityHash}`;
+const accountSessionKey = (sessionToken = '') => `${ACCOUNT_SESSION_PREFIX}/${accountDigest('session', sessionToken)}`;
+const accountClientLinkKey = (accountId = '', clientId = '') => `${ACCOUNT_CLIENT_LINK_PREFIX}/${accountId}/${normalizeClientId(clientId)}`;
+const accountClientOwnerKey = (clientId = '') => `${ACCOUNT_CLIENT_OWNER_PREFIX}/${normalizeClientId(clientId)}`;
+const requestCookie = (request = null, name = '') => {
+  const cookieHeader = String(request?.headers?.get('cookie') || '');
+  const entry = cookieHeader.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  if (!entry) return '';
+  try { return decodeURIComponent(entry.slice(name.length + 1)); } catch { return ''; }
+};
+const accountSessionTokenFromRequest = (request = null) => requestCookie(request, ACCOUNT_SESSION_COOKIE);
+const accountSessionCookie = (token = '', maxAge = ACCOUNT_SESSION_TTL_SECONDS) => [
+  `${ACCOUNT_SESSION_COOKIE}=${encodeURIComponent(String(token || ''))}`,
+  'Path=/',
+  'HttpOnly',
+  'Secure',
+  'SameSite=Lax',
+  `Max-Age=${Math.max(0, Number(maxAge || 0))}`,
+].join('; ');
+const publicAccount = (account = {}) => ({
+  account_id: String(account.account_id || ''),
+  plan_code: String(account.plan_code || 'free'),
+  status: String(account.status || 'active'),
+  linked_client_count: ensureArray(account.client_ids).length,
+  created_at: String(account.created_at || ''),
+});
+const readAccountSession = async (request = null) => {
+  const token = accountSessionTokenFromRequest(request);
+  if (!token || !accountAuthSecret()) return null;
+  const session = await commercialBlobGet(accountSessionKey(token));
+  if (!session || session.revoked_at) return null;
+  const expiresAt = Date.parse(session.expires_at || '');
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+  const account = await commercialBlobGet(accountKey(session.account_id));
+  if (!account || account.status === 'disabled') return null;
+  return { token, session, account };
+};
+const accountUnauthorized = () => json({
+  error: '请先完成账号验证。',
+  code: 'authentication_required',
+}, 401);
+const sendEmailVerificationCode = async ({ email = '', code = '' } = {}) => {
+  const provider = emailProvider();
+  if (provider === 'mock' && accountAuthTestMode()) return { ok: true, provider: 'mock' };
+  if (provider !== 'resend') return { ok: false, reason: 'email_provider_not_configured' };
+  const apiKey = envValue('RESEND_API_KEY');
+  const from = envValue('EMAIL_FROM');
+  if (!apiKey || !from) return { ok: false, reason: 'email_provider_not_configured' };
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+        'user-agent': `huoke-compass/${APP_VERSION}`,
+      },
+      body: JSON.stringify({
+        from,
+        to: [email],
+        subject: '获客罗盘登录验证码',
+        text: `你的获客罗盘验证码是 ${code}，10 分钟内有效。请勿转发给他人。`,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return { ok: false, reason: `email_provider_error_${response.status}` };
+    return { ok: true, provider: 'resend' };
+  } catch (error) {
+    return { ok: false, reason: error?.name === 'TimeoutError' ? 'email_provider_timeout' : 'email_provider_error' };
+  }
+};
+const startEmailAccountChallenge = async (emailValue = '', request = null) => {
+  if (!accountAuthConfigured()) {
+    return { ok: false, status: 503, error: '账号绑定功能尚未开放，请稍后再试。', code: 'account_auth_unavailable' };
+  }
+  const email = normalizeEmail(emailValue);
+  if (!validEmail(email)) return { ok: false, status: 400, error: '请输入有效的邮箱地址。', code: 'invalid_email' };
+  const identityHash = accountDigest('identity:email', email);
+  const previous = await commercialBlobGet(accountChallengeKey(identityHash));
+  const resendAfterMs = accountEmailResendSeconds() * 1000;
+  const previousCreatedAt = Date.parse(previous?.created_at || '');
+  if (Number.isFinite(previousCreatedAt) && Date.now() - previousCreatedAt < resendAfterMs) {
+    return { ok: false, status: 429, error: '验证码发送太频繁，请稍后再试。', code: 'verification_rate_limited' };
+  }
+  const ipHash = meteringHash('account-auth-ip', requestIpValue(request));
+  const day = shanghaiDateIso();
+  const ipRateKey = `${ACCOUNT_CHALLENGE_PREFIX}/rate/${ipHash}/${day}`;
+  const ipRate = await commercialBlobGet(ipRateKey) || { count: 0 };
+  if (Number(ipRate.count || 0) >= accountEmailDailyIpMax()) {
+    return { ok: false, status: 429, error: '今天获取验证码次数较多，请明天再试。', code: 'verification_daily_limit' };
+  }
+  const code = String(randomInt(0, 1000000)).padStart(6, '0');
+  const sent = await sendEmailVerificationCode({ email, code });
+  if (!sent.ok) {
+    return { ok: false, status: 503, error: '验证码暂时无法发送，请稍后再试。', code: sent.reason || 'email_send_failed' };
+  }
+  const challengeId = `challenge_${randomUUID()}`;
+  await commercialBlobSet(accountChallengeKey(identityHash), {
+    challenge_id: challengeId,
+    identity_hash: identityHash,
+    code_hash: accountDigest('email-code', `${challengeId}:${code}`),
+    attempts: 0,
+    created_at: nowIso(),
+    expires_at: new Date(Date.now() + ACCOUNT_EMAIL_CODE_TTL_MS).toISOString(),
+    consumed_at: null,
+  });
+  await commercialBlobSet(ipRateKey, { count: Number(ipRate.count || 0) + 1, updated_at: nowIso() });
+  return {
+    ok: true,
+    status: 202,
+    body: {
+      sent: true,
+      challenge_id: challengeId,
+      expires_in_seconds: ACCOUNT_EMAIL_CODE_TTL_MS / 1000,
+      ...(accountAuthTestMode() ? { test_code: code } : {}),
+    },
+  };
+};
+const verifyEmailAccountChallenge = async ({ email: emailValue = '', code: codeValue = '', challenge_id: challengeId = '' } = {}) => {
+  if (!accountAuthConfigured()) {
+    return { ok: false, status: 503, error: '账号绑定功能尚未开放，请稍后再试。', code: 'account_auth_unavailable' };
+  }
+  const email = normalizeEmail(emailValue);
+  const code = String(codeValue || '').trim();
+  if (!validEmail(email) || !/^\d{6}$/.test(code) || !String(challengeId || '').trim()) {
+    return { ok: false, status: 400, error: '邮箱或验证码格式不正确。', code: 'invalid_verification' };
+  }
+  const identityHash = accountDigest('identity:email', email);
+  const key = accountChallengeKey(identityHash);
+  const challenge = await commercialBlobGet(key);
+  const expired = !challenge || Date.parse(challenge.expires_at || '') <= Date.now();
+  const invalid = expired
+    || challenge.consumed_at
+    || challenge.challenge_id !== challengeId
+    || Number(challenge.attempts || 0) >= ACCOUNT_EMAIL_MAX_ATTEMPTS
+    || !hashMatches(accountDigest('email-code', `${challengeId}:${code}`), challenge.code_hash);
+  if (invalid) {
+    if (challenge && !challenge.consumed_at) {
+      await commercialBlobSet(key, { ...challenge, attempts: Number(challenge.attempts || 0) + 1, updated_at: nowIso() });
+    }
+    return { ok: false, status: 401, error: '验证码无效或已过期，请重新获取。', code: 'invalid_or_expired_code' };
+  }
+
+  let identity = await commercialBlobGet(accountIdentityKey(identityHash));
+  const accountId = String(identity?.account_id || `acct_${randomUUID().replaceAll('-', '')}`);
+  let account = await commercialBlobGet(accountKey(accountId));
+  if (!account) {
+    account = {
+      account_id: accountId,
+      status: 'active',
+      plan_code: 'free',
+      identity_provider: 'email',
+      identity_hash: identityHash,
+      client_ids: [],
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+    await commercialBlobSet(accountKey(accountId), account);
+  }
+  if (!identity) {
+    identity = { identity_hash: identityHash, identity_provider: 'email', account_id: accountId, created_at: nowIso() };
+    await commercialBlobSet(accountIdentityKey(identityHash), identity);
+  }
+  await commercialBlobSet(key, { ...challenge, consumed_at: nowIso(), updated_at: nowIso() });
+
+  const sessionToken = `${randomUUID()}${randomUUID()}`;
+  const expiresAt = new Date(Date.now() + ACCOUNT_SESSION_TTL_SECONDS * 1000).toISOString();
+  await commercialBlobSet(accountSessionKey(sessionToken), {
+    session_id: `session_${randomUUID()}`,
+    account_id: accountId,
+    created_at: nowIso(),
+    expires_at: expiresAt,
+    revoked_at: null,
+  });
+  return {
+    ok: true,
+    status: 200,
+    account,
+    cookie: accountSessionCookie(sessionToken),
+  };
+};
+const linkAccountClient = async ({ request = null, clientId = '', internalAuthorized = false } = {}) => {
+  const auth = await readAccountSession(request);
+  if (!auth) return { ok: false, response: accountUnauthorized() };
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId || safeClientId === INTERNAL_CLIENT_ID) {
+    return { ok: false, response: json({ error: '当前项目不能绑定到客户账号。', code: 'invalid_client' }, 400) };
+  }
+  const access = await authorizeCustomerStateAccess({ request, clientId: safeClientId, internalAuthorized });
+  if (!access.ok || access.mode !== 'owner') {
+    return { ok: false, response: customerStateUnauthorized() };
+  }
+  const ownerKey = accountClientOwnerKey(safeClientId);
+  const existingOwner = await commercialBlobGet(ownerKey);
+  if (existingOwner?.account_id && existingOwner.account_id !== auth.account.account_id) {
+    return { ok: false, response: json({ error: '该项目已经绑定到其他账号。', code: 'client_already_linked' }, 409) };
+  }
+  const linkedAt = nowIso();
+  await commercialBlobSet(ownerKey, { client_id: safeClientId, account_id: auth.account.account_id, linked_at: existingOwner?.linked_at || linkedAt });
+  await commercialBlobSet(accountClientLinkKey(auth.account.account_id, safeClientId), {
+    account_id: auth.account.account_id,
+    client_id: safeClientId,
+    linked_at: linkedAt,
+  });
+  const clientIds = [...new Set([...ensureArray(auth.account.client_ids), safeClientId])];
+  const account = { ...auth.account, client_ids: clientIds, updated_at: linkedAt };
+  await commercialBlobSet(accountKey(account.account_id), account);
+  return { ok: true, account, client_id: safeClientId };
+};
+const accountProjectSummaries = async (account = {}) => {
+  const clients = [];
+  for (const clientId of ensureArray(account.client_ids)) {
+    const stateForClient = await readCloudState(clientId);
+    clients.push({
+      client_id: clientId,
+      projects: ensureArray(stateForClient.project_store?.projects).map((project) => ({
+        id: String(project?.id || ''),
+        name: String(project?.name || '未命名项目'),
+        stage: String(project?.stage || project?.state?.project_stage || ''),
+        updated_at: String(project?.updated_at || project?.state?.saved_at || ''),
+      })),
+    });
+  }
+  return clients;
+};
 const CUSTOMER_ACCESS_PREFIX = 'customer-access/v1';
 const CUSTOMER_SHARE_PREFIX = 'customer-shares/v1';
 const CUSTOMER_SHARE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -7375,7 +7627,7 @@ export default async (request, context = {}) => {
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -7390,7 +7642,21 @@ export default async (request, context = {}) => {
           glm: Boolean(glmApiKey()),
           script_provider: providerForGeneration('script'),
         },
+        account_auth: {
+          enabled: accountAuthConfigured(),
+          email_ready: emailProvider() === 'resend' && Boolean(envValue('RESEND_API_KEY')) && Boolean(envValue('EMAIL_FROM')),
+        },
       });
+      if (path === '/auth/session') {
+        if (!accountAuthConfigured()) return json({ enabled: false, signed_in: false });
+        const auth = await readAccountSession(request);
+        return json({ enabled: true, signed_in: Boolean(auth), ...(auth ? { account: publicAccount(auth.account) } : {}) });
+      }
+      if (path === '/account/projects') {
+        const auth = await readAccountSession(request);
+        if (!auth) return accountUnauthorized();
+        return json({ account: publicAccount(auth.account), clients: await accountProjectSummaries(auth.account) });
+      }
       if (path === '/delivery-profiles') {
         if (!internalAuthorized) return unauthorized();
         return json({
@@ -7575,6 +7841,28 @@ export default async (request, context = {}) => {
       });
       if (!settingsAccess.ok) return settingsAccess.response;
       return json(await writeUserSettings(settingsClientId, payload), 200, { internal: internalAuthorized });
+    }
+    if (request.method === 'POST' && path === '/auth/email/start') {
+      const result = await startEmailAccountChallenge(payload.email, request);
+      return result.ok ? json(result.body, result.status) : json({ error: result.error, code: result.code }, result.status);
+    }
+    if (request.method === 'POST' && path === '/auth/email/verify') {
+      const result = await verifyEmailAccountChallenge(payload);
+      return result.ok
+        ? json({ signed_in: true, account: publicAccount(result.account) }, result.status, { headers: { 'set-cookie': result.cookie } })
+        : json({ error: result.error, code: result.code }, result.status);
+    }
+    if (request.method === 'POST' && path === '/auth/logout') {
+      const auth = await readAccountSession(request);
+      if (auth) {
+        await commercialBlobSet(accountSessionKey(auth.token), { ...auth.session, revoked_at: nowIso(), updated_at: nowIso() });
+      }
+      return json({ signed_in: false }, 200, { headers: { 'set-cookie': accountSessionCookie('', 0) } });
+    }
+    if (request.method === 'POST' && path === '/account/link-client') {
+      const linked = await linkAccountClient({ request, clientId: payload.client_id || payload.customer_key, internalAuthorized });
+      if (!linked.ok) return linked.response;
+      return json({ account: publicAccount(linked.account), client_id: linked.client_id }, 200);
     }
     if (request.method === 'POST' && path === '/feishu/inbound') {
       if (!hasValidFeishuInboundAuth(request)) return json({ ok: false, error: '飞书回流鉴权失败' }, 401, { internal: true });
