@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.125';
-const VERSION_LABEL = 'v1.6.125 · 账号与跨端找回地基版';
+const APP_VERSION = '1.6.126';
+const VERSION_LABEL = 'v1.6.126 · 验证码重发时区修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';

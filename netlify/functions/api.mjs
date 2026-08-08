@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.125';
-const VERSION_LABEL = 'v1.6.125 · 账号与跨端找回地基版';
+const APP_VERSION = '1.6.126';
+const VERSION_LABEL = 'v1.6.126 · 验证码重发时区修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -379,7 +379,7 @@ const nowIso = () => {
   return `${utcDateIso(date)} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`;
 };
 const BUSINESS_TIMESTAMP_WITHOUT_ZONE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)$/;
-const timestampToEpoch = (value) => {
+export const timestampToEpoch = (value) => {
   if (value instanceof Date) {
     const epoch = value.getTime();
     return Number.isFinite(epoch) ? epoch : Number.NaN;
@@ -4106,7 +4106,7 @@ const startEmailAccountChallenge = async (emailValue = '', request = null) => {
   const identityHash = accountDigest('identity:email', email);
   const previous = await commercialBlobGet(accountChallengeKey(identityHash));
   const resendAfterMs = accountEmailResendSeconds() * 1000;
-  const previousCreatedAt = Date.parse(previous?.created_at || '');
+  const previousCreatedAt = timestampToEpoch(previous?.created_at);
   if (Number.isFinite(previousCreatedAt) && Date.now() - previousCreatedAt < resendAfterMs) {
     return { ok: false, status: 429, error: '验证码发送太频繁，请稍后再试。', code: 'verification_rate_limited' };
   }

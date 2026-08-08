@@ -22,7 +22,7 @@ process.env.ACCOUNT_AUTH_SECRET = 'smoke-account-auth-secret-v1-at-least-32-byte
 process.env.AUTH_TEST_MODE = 'true';
 process.env.EMAIL_PROVIDER = 'mock';
 process.env.NODE_ENV = 'test';
-const { default: handler, shanghaiDateIso, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
+const { default: handler, shanghaiDateIso, timestampToEpoch, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
 const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
 
@@ -167,7 +167,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.125', `public diagnosis should return app_version 1.6.125, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.126', `public diagnosis should return app_version 1.6.126, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1196,13 +1196,13 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.125'") && appJs.includes("v1.6.125 · 账号与跨端找回地基版"), 'public app should expose the reviewed v1.6.125 account foundation build');
+assert(appJs.includes("const APP_VERSION = '1.6.126'") && appJs.includes("v1.6.126 · 验证码重发时区修复版"), 'public app should expose the reviewed v1.6.126 verification resend timezone fix');
 ['delivery-profiles', 'delivery-projects', 'delivery-cycles', 'collaboration-tasks', 'collaboration-approvals', 'shooting-schedules', 'weekly-reports', 'delivery-feishu-bindings'].forEach((routeName) => {
   assert(!appJs.includes(`/api/${routeName}`) && !indexHtml.includes(routeName), `P0 internal API ${routeName} must not be wired into the shared customer UI`);
 });
 assert(appJs.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER') && apiSource.includes('CUSTOMER_PUBLIC_BRAND_PLACEHOLDER'), 'customer sanitization should preserve only the approved FP Matrix public brand phrase while retaining the internal-term filter');
 assert(appJs.includes("if (/^data:(?:image|video)\\//i.test(raw)) return raw;") && apiSource.includes("if (/^data:(?:image|video)\\//i.test(raw)) return raw;"), 'customer sanitizers must preserve embedded image and video data URLs byte-for-byte');
-assert(apiSource.includes('const timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
+assert(apiSource.includes('timestampToEpoch =') && apiSource.includes('const preferIncomingTimestamp =') && apiSource.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'cloud project merges and ordering should compare parsed timestamp epochs instead of timestamp strings');
 assert(appJs.includes('function timestampToEpoch') && appJs.includes('function preferIncomingTimestamp') && appJs.includes('compareTimestampDesc(a.updated_at, b.updated_at)'), 'browser local/cloud project merges should use the same mixed-format timestamp comparison rule');
 assert(apiSource.includes("'视频号': '更适合负责人/老板口播、真实案例复盘和信任建立") && apiSource.includes('好内容可被转发到群/朋友圈并经好友社交推荐') && apiSource.includes('公众号/社群/企业微信/私信等私域入口'), 'Video Account platform rule should cover mature-audience trust, social forwarding, and private-domain conversion');
 assert(appJs.includes("const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken'") && appJs.includes("headers['x-internal-token'] = token") && appJs.includes('function initInternalAccessGate') && appJs.includes('function verifyInternalAccessToken'), 'internal UI should require and attach a validated access token before loading admin data');
@@ -1385,11 +1385,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.125') && indexHtml.includes('/styles.css?v=1.6.125') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.125'), 'public customer page should use the v1.6.125 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.126') && indexHtml.includes('/styles.css?v=1.6.126') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.126'), 'public customer page should use the v1.6.126 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.125') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.125') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.125') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.126') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.126') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.126') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1466,6 +1466,7 @@ assert(warRoomCss.includes('v1.6.13 readability completion') && warRoomCss.inclu
 assert(indexHtml.includes('曝光｜查看') && indexHtml.includes('互动｜点赞') && indexHtml.includes('互动｜评论') && indexHtml.includes('互动｜收藏') && indexHtml.includes('转化｜咨询'), 'feedback fields should be grouped as growth judgment signals');
 assert(shanghaiDateIso(0, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-17', 'Shanghai business date should roll forward at UTC+8 midnight');
 assert(shanghaiDateIso(1, new Date('2026-05-16T16:05:00.000Z')) === '2026-05-18', 'Shanghai offset should advance from business date');
+assert(timestampToEpoch('2026-08-09 00:48:26') === Date.parse('2026-08-09T00:48:26+08:00'), 'account resend throttling must parse Shanghai business timestamps in UTC+8 instead of server-local UTC');
 assert(plans[0].planned_date === shanghaiDateIso(), `planned_date should start today in Asia/Shanghai, got ${plans[0].planned_date}`);
 assert(!plans[0].topic.includes('本地生活服务商家、中小企业负责人'), 'topic should use short audience label, not field-stuffed target_customer');
 assert(!plans[0].topic.includes('小老板'), 'first topic should avoid 小老板 wording');
@@ -1929,7 +1930,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.125' && health.version_label === 'v1.6.125 · 账号与跨端找回地基版', 'public application health version should report v1.6.125');
+assert(health.version === '1.6.126' && health.version_label === 'v1.6.126 · 验证码重发时区修复版', 'public application health version should report v1.6.126');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
