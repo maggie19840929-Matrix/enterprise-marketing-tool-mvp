@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.129';
-const VERSION_LABEL = 'v1.6.129 · 顶部导航细节精修版';
+const APP_VERSION = '1.6.130';
+const VERSION_LABEL = 'v1.6.130 · 信息页导航统一版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -3993,6 +3993,12 @@ function initCustomerAccount(){
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !$('#customerAccountDialog')?.hidden) closeCustomerAccountDialog();
   });
+  const accountEntryUrl = new URL(window.location.href);
+  if (accountEntryUrl.searchParams.get('account') === 'login') {
+    accountEntryUrl.searchParams.delete('account');
+    window.history.replaceState({}, '', `${accountEntryUrl.pathname}${accountEntryUrl.search}${accountEntryUrl.hash}`);
+    window.setTimeout(openCustomerAccountDialog, 0);
+  }
 }
 
 function hasLocalUserSettings(){

@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.129';
-const VERSION_LABEL = 'v1.6.129 · 顶部导航细节精修版';
+const APP_VERSION = '1.6.130';
+const VERSION_LABEL = 'v1.6.130 · 信息页导航统一版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
