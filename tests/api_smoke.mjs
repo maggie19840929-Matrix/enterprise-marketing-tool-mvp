@@ -1948,6 +1948,7 @@ const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
 assert(health.version === '1.6.127' && health.version_label === 'v1.6.127 · 账号与跨设备找回版', 'public application health version should report v1.6.127');
+assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
