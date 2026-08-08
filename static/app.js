@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.127';
-const VERSION_LABEL = 'v1.6.127 · 账号与跨设备找回版';
+const APP_VERSION = '1.6.128';
+const VERSION_LABEL = 'v1.6.128 · 账号导航层级优化版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -3758,11 +3758,19 @@ function renderCustomerAccountDialog(){
   const signedOut = $('#customerAccountSignedOut');
   const signedIn = $('#customerAccountSignedIn');
   const accountBtn = $('#customerAccountBtn');
+  const title = $('#customerAccountTitle');
+  const eyebrow = $('#customerAccountEyebrow');
+  const intro = $('#customerAccountIntro');
   if (loading) loading.hidden = !customerAccountState.loading;
   if (unavailable) unavailable.hidden = customerAccountState.loading || customerAccountState.enabled;
   if (signedOut) signedOut.hidden = customerAccountState.loading || !customerAccountState.enabled || customerAccountState.signed_in;
   if (signedIn) signedIn.hidden = customerAccountState.loading || !customerAccountState.signed_in;
-  if (accountBtn) accountBtn.textContent = customerAccountState.signed_in ? '我的项目' : '账号与项目';
+  if (accountBtn) accountBtn.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
+  if (title) title.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
+  if (eyebrow) eyebrow.textContent = customerAccountState.signed_in ? 'MY ACCOUNT' : 'ACCOUNT';
+  if (intro) intro.textContent = customerAccountState.signed_in
+    ? '管理已保存项目和隐私设置。'
+    : '登录后可跨设备找回项目。未登录也能继续使用。';
 
   const plan = $('#customerAccountPlan');
   if (plan) plan.textContent = customerAccountPlanLabel(customerAccountState.account?.plan_code);
@@ -3822,12 +3830,12 @@ function openCustomerAccountDialog(){
   });
 }
 
-function closeCustomerAccountDialog(){
+function closeCustomerAccountDialog({returnFocus = true} = {}){
   const dialog = $('#customerAccountDialog');
   if (!dialog) return;
   dialog.hidden = true;
   document.body.classList.remove('customer-privacy-open');
-  $('#customerAccountBtn')?.focus();
+  if (returnFocus) $('#customerAccountBtn')?.focus();
 }
 
 async function startCustomerEmailVerification(email = ''){
@@ -3913,7 +3921,7 @@ async function bindCurrentCustomerProject(){
   } catch (error) {
     setCustomerAccountMessage(error?.message || '项目绑定失败，请稍后再试。', 'error');
   } finally {
-    if (button) { button.disabled = false; button.textContent = '绑定当前项目'; }
+    if (button) { button.disabled = false; button.textContent = '保存当前项目到账号'; }
   }
 }
 
@@ -3976,6 +3984,10 @@ function initCustomerAccount(){
   $('#customerAccountProjects')?.addEventListener('click', (event) => {
     const button = event.target?.closest?.('[data-account-client][data-account-project]');
     if (button) openCustomerAccountProject(button.dataset.accountClient, button.dataset.accountProject);
+  });
+  $('#customerAccountPrivacySettings')?.addEventListener('click', () => {
+    closeCustomerAccountDialog({returnFocus: false});
+    openCustomerPrivacySettings($('#customerAccountBtn'));
   });
   $('#customerAccountLogout')?.addEventListener('click', logoutCustomerAccount);
   document.addEventListener('keydown', (event) => {
@@ -4055,9 +4067,12 @@ async function saveCustomerPrivacySettings(enabled = true){
   }
 }
 
-function openCustomerPrivacySettings(){
+let customerPrivacyReturnFocus = null;
+
+function openCustomerPrivacySettings(trigger = null){
   const dialog = $('#customerPrivacySettings');
   if (!dialog) return;
+  customerPrivacyReturnFocus = trigger instanceof Element ? trigger : document.activeElement;
   renderCustomerPrivacySettings();
   setCustomerPrivacySettingsMessage('');
   dialog.hidden = false;
@@ -4070,13 +4085,16 @@ function closeCustomerPrivacySettings(){
   if (!dialog) return;
   dialog.hidden = true;
   document.body.classList.remove('customer-privacy-open');
-  $('#customerPrivacySettingsBtn')?.focus();
+  const fallback = $('#customerFooterPrivacySettingsBtn') || $('#customerAccountBtn');
+  const focusTarget = customerPrivacyReturnFocus?.isConnected ? customerPrivacyReturnFocus : fallback;
+  customerPrivacyReturnFocus = null;
+  focusTarget?.focus();
 }
 
 function initCustomerPrivacySettings(){
   renderCustomerPrivacySettings();
   loadCustomerPrivacySettings();
-  $('#customerPrivacySettingsBtn')?.addEventListener('click', openCustomerPrivacySettings);
+  $('#customerFooterPrivacySettingsBtn')?.addEventListener('click', (event) => openCustomerPrivacySettings(event.currentTarget));
   $('#customerPrivacySettingsClose')?.addEventListener('click', closeCustomerPrivacySettings);
   $('#customerPrivacySettings')?.addEventListener('click', (event) => {
     if (event.target === event.currentTarget) closeCustomerPrivacySettings();

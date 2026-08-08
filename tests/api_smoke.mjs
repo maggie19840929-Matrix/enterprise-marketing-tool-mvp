@@ -167,7 +167,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.127', `public diagnosis should return app_version 1.6.127, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.128', `public diagnosis should return app_version 1.6.128, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1211,7 +1211,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.127'") && appJs.includes("v1.6.127 · 账号与跨设备找回版"), 'public app should expose the reviewed v1.6.127 account recovery release');
+assert(appJs.includes("const APP_VERSION = '1.6.128'") && appJs.includes("v1.6.128 · 账号导航层级优化版"), 'public app should expose the reviewed v1.6.128 account navigation release');
 ['delivery-profiles', 'delivery-projects', 'delivery-cycles', 'collaboration-tasks', 'collaboration-approvals', 'shooting-schedules', 'weekly-reports', 'delivery-feishu-bindings'].forEach((routeName) => {
   assert(!appJs.includes(`/api/${routeName}`) && !indexHtml.includes(routeName), `P0 internal API ${routeName} must not be wired into the shared customer UI`);
 });
@@ -1400,11 +1400,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.127') && indexHtml.includes('/styles.css?v=1.6.127') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.127'), 'public customer page should use the v1.6.127 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.128') && indexHtml.includes('/styles.css?v=1.6.128') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.128'), 'public customer page should use the v1.6.128 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.127') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.127') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.127') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.128') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.128') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.128') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1419,8 +1419,8 @@ assert(indexHtml.includes('customer-footer-primary') && indexHtml.includes('cust
 assert(!indexHtml.includes('id="customerInfoPages"') && !indexHtml.includes('本地存储与云端同步') && !indexHtml.includes('AI 内容说明'), 'homepage should not inline long policy and agreement content');
 assert(aboutHtml.includes('南京尚下联信息科技有限公司') && contactHtml.includes('contact@fpmatrix.cn'), 'independent info pages should expose the service entity and complaint email');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
-assert(indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'customer navigation should expose a real personalization privacy switch');
-assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"'), 'customer navigation should expose the optional account and project recovery flow');
+assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
+assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('>登录</button>') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose a clear login entry and keep projects and privacy inside the account panel');
 assert(appJs.includes("api('/api/auth/email/start'") && appJs.includes("api('/api/auth/email/verify'") && appJs.includes("api('/api/account/link-client'") && appJs.includes('ACCOUNT_RESTORE_PROJECT_KEY'), 'customer account UI should verify email, bind the current project, and restore a selected cloud project');
 assert(appJs.includes("api('/api/user/settings'") && appJs.includes("method:'PATCH'") && appJs.includes('personalized_recommendation_enabled') && appJs.includes('USER_SETTINGS_STORAGE_PREFIX'), 'customer personalization setting should persist locally and through the backend settings API');
 assert(apiSourceIncludes("path === '/user/settings'") && apiSourceIncludes('applyPersonalizationPolicy') && apiSourceIncludes('nonPersonalizedAssessment') && apiSourceIncludes('personalization_mode'), 'backend recommendation routes should enforce personalized and non-personalized modes');
@@ -1947,7 +1947,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.127' && health.version_label === 'v1.6.127 · 账号与跨设备找回版', 'public application health version should report v1.6.127');
+assert(health.version === '1.6.128' && health.version_label === 'v1.6.128 · 账号导航层级优化版', 'public application health version should report v1.6.128');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
