@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.134';
-const VERSION_LABEL = 'v1.6.134 · 登录与套餐排版精修版';
+const APP_VERSION = '1.6.135';
+const VERSION_LABEL = 'v1.6.135 · 账号菜单与流程排版精修版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -3810,7 +3810,11 @@ function renderCustomerAccountDialog(){
   if (unavailable) unavailable.hidden = customerAccountState.loading || customerAccountState.enabled;
   if (signedOut) signedOut.hidden = customerAccountState.loading || !customerAccountState.enabled || customerAccountState.signed_in;
   if (signedIn) signedIn.hidden = customerAccountState.loading || !customerAccountState.signed_in;
-  if (accountBtn) accountBtn.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
+  if (accountBtn) {
+    const accountLabel = accountBtn.querySelector('[data-public-account-label]');
+    if (accountLabel) accountLabel.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
+    else accountBtn.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
+  }
   if (title) title.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
   if (eyebrow) eyebrow.textContent = customerAccountState.signed_in ? 'MY ACCOUNT' : 'ACCOUNT';
   if (intro) intro.textContent = customerAccountState.signed_in
@@ -3948,6 +3952,7 @@ async function verifyCustomerEmailCode(code = ''){
     $('#customerAccountEmailForm')?.removeAttribute('hidden');
     $('#customerAccountCode') && ($('#customerAccountCode').value = '');
     await loadCustomerAccountSession();
+    window.dispatchEvent(new CustomEvent('customer-account:changed'));
     setCustomerAccountMessage('登录成功。你现在可以绑定或找回项目。');
   } catch (error) {
     setCustomerAccountMessage(error?.message || '验证码验证失败，请重新获取。', 'error');
@@ -4001,6 +4006,7 @@ async function logoutCustomerAccount(){
     await api('/api/auth/logout', {method: 'POST', timeoutMs: 10000});
     customerAccountState = {...customerAccountState, signed_in: false, account: null, entitlement: null, clients: [], challenge_id: '', email: ''};
     renderCustomerAccountDialog();
+    window.dispatchEvent(new CustomEvent('customer-account:changed'));
     setCustomerAccountMessage('已退出登录。当前浏览器里的项目仍然保留。');
   } catch {
     setCustomerAccountMessage('暂时无法退出，请稍后再试。', 'error');
@@ -4012,7 +4018,25 @@ async function logoutCustomerAccount(){
 function initCustomerAccount(){
   renderCustomerAccountDialog();
   loadCustomerAccountSession();
-  $('#customerAccountBtn')?.addEventListener('click', openCustomerAccountDialog);
+  $('#customerAccountBtn')?.addEventListener('click', () => {
+    if (!window.publicAccountMenu) openCustomerAccountDialog();
+  });
+  window.addEventListener('public-account:login-requested', (event) => {
+    event.preventDefault();
+    openCustomerAccountDialog();
+  });
+  window.addEventListener('public-account:profile-requested', (event) => {
+    event.preventDefault();
+    openCustomerAccountDialog();
+  });
+  window.addEventListener('public-account:settings-requested', (event) => {
+    event.preventDefault();
+    openCustomerPrivacySettings($('#customerAccountBtn'));
+  });
+  window.addEventListener('public-account:logged-out', () => {
+    customerAccountState = {...customerAccountState, signed_in: false, account: null, entitlement: null, clients: [], challenge_id: '', email: ''};
+    renderCustomerAccountDialog();
+  });
   $('#customerAccountClose')?.addEventListener('click', closeCustomerAccountDialog);
   $('#customerAccountDialog')?.addEventListener('click', (event) => {
     if (event.target === event.currentTarget) closeCustomerAccountDialog();
@@ -4051,10 +4075,14 @@ function initCustomerAccount(){
     if (event.key === 'Escape' && !$('#customerAccountDialog')?.hidden) closeCustomerAccountDialog();
   });
   const accountEntryUrl = new URL(window.location.href);
-  if (accountEntryUrl.searchParams.get('account') === 'login') {
+  const accountEntry = accountEntryUrl.searchParams.get('account');
+  if (['login', 'profile', 'settings'].includes(accountEntry)) {
     accountEntryUrl.searchParams.delete('account');
     window.history.replaceState({}, '', `${accountEntryUrl.pathname}${accountEntryUrl.search}${accountEntryUrl.hash}`);
-    window.setTimeout(openCustomerAccountDialog, 0);
+    window.setTimeout(() => {
+      if (accountEntry === 'settings') openCustomerPrivacySettings($('#customerAccountBtn'));
+      else openCustomerAccountDialog();
+    }, 0);
   }
 }
 
