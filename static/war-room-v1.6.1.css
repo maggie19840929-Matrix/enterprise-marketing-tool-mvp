@@ -1652,27 +1652,30 @@ body.customer-mode .customer-site-footer{
   }
 }
 
-/* v1.6.133 plans and entitlement summary */
+/* v1.6.134 plans and account presentation refinement */
 .customer-plans-page{
   width:min(1120px,calc(100% - 40px))!important;
   margin:0 auto!important;
   padding:92px 0 72px!important;
 }
 .customer-plans-head{
-  max-width:720px!important;
+  max-width:860px!important;
 }
 .customer-plans-head h1{
-  margin:10px 0 14px!important;
+  max-width:820px!important;
+  margin:12px 0 14px!important;
   color:#101828!important;
-  font-size:clamp(34px,4.2vw,54px)!important;
-  line-height:1.12!important;
+  font-size:clamp(34px,3.5vw,46px)!important;
+  font-weight:680!important;
+  line-height:1.18!important;
   letter-spacing:0!important;
+  text-wrap:balance!important;
 }
 .customer-plans-head>p:last-child{
   margin:0!important;
   color:#667085!important;
-  font-size:16px!important;
-  line-height:1.75!important;
+  font-size:15px!important;
+  line-height:1.7!important;
 }
 .customer-plan-status{
   margin:36px 0 18px!important;
@@ -1692,7 +1695,7 @@ body.customer-mode .customer-site-footer{
   display:flex!important;
   min-width:0!important;
   flex-direction:column!important;
-  padding:24px!important;
+  padding:26px!important;
   border:1px solid #e4e7ec!important;
   border-radius:8px!important;
   background:#fff!important;
@@ -1711,14 +1714,15 @@ body.customer-mode .customer-site-footer{
 .customer-plan-card-head p{
   margin:0 0 8px!important;
   color:#344054!important;
-  font-size:14px!important;
-  font-weight:850!important;
+  font-size:13px!important;
+  font-weight:700!important;
 }
 .customer-plan-card-head h2{
   margin:0!important;
   color:#101828!important;
-  font-size:18px!important;
-  line-height:1.45!important;
+  font-size:16px!important;
+  font-weight:650!important;
+  line-height:1.55!important;
   letter-spacing:0!important;
 }
 .customer-plan-card-head>span{
@@ -1728,7 +1732,7 @@ body.customer-mode .customer-site-footer{
   color:#312e81!important;
   padding:5px 8px!important;
   font-size:11px!important;
-  font-weight:800!important;
+  font-weight:700!important;
 }
 .customer-plan-price{
   display:grid!important;
@@ -1737,7 +1741,8 @@ body.customer-mode .customer-site-footer{
 }
 .customer-plan-price strong{
   color:#101828!important;
-  font-size:30px!important;
+  font-size:28px!important;
+  font-weight:700!important;
   line-height:1!important;
 }
 .customer-plan-price strong small{
@@ -1761,7 +1766,8 @@ body.customer-mode .customer-site-footer{
   padding-left:20px!important;
   color:#475467!important;
   font-size:13px!important;
-  line-height:1.55!important;
+  font-weight:450!important;
+  line-height:1.65!important;
 }
 .customer-plan-card li::before{
   position:absolute!important;
@@ -1781,7 +1787,7 @@ body.customer-mode .customer-site-footer{
   background:#0f766e!important;
   color:#fff!important;
   font-size:13px!important;
-  font-weight:800!important;
+  font-weight:700!important;
   text-decoration:none!important;
 }
 .customer-plan-action.is-secondary{
@@ -1814,6 +1820,11 @@ body.customer-mode .customer-site-footer{
   .customer-plans-page{
     width:min(100% - 28px,680px)!important;
     padding:62px 0 56px!important;
+  }
+  .customer-plans-head h1{
+    max-width:620px!important;
+    font-size:clamp(30px,8.4vw,40px)!important;
+    line-height:1.22!important;
   }
 }
 
@@ -4018,6 +4029,45 @@ body.customer-privacy-open{
   color:#344054!important;
   font-size:13px!important;
   font-weight:800!important;
+}
+.customer-account-code-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:16px!important;
+}
+body.customer-mode #customerAccountCodeForm .customer-account-change-email{
+  width:auto!important;
+  min-height:auto!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  color:#667085!important;
+  font:inherit!important;
+  font-size:12px!important;
+  font-weight:600!important;
+  line-height:1.5!important;
+  cursor:pointer!important;
+  box-shadow:none!important;
+  transform:none!important;
+  text-decoration:none!important;
+  text-underline-offset:3px!important;
+}
+body.customer-mode #customerAccountCodeForm .customer-account-change-email:hover{
+  color:#0f766e!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  transform:none!important;
+  text-decoration:underline!important;
+}
+body.customer-mode #customerAccountCodeForm .customer-account-change-email:focus-visible{
+  background:transparent!important;
+  border-radius:3px!important;
+  box-shadow:none!important;
+  outline:2px solid rgba(15,118,110,.22)!important;
+  outline-offset:3px!important;
 }
 .customer-account-inline{
   display:grid!important;
