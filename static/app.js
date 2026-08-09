@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.135';
-const VERSION_LABEL = 'v1.6.135 · 账号菜单与流程排版精修版';
+const APP_VERSION = '1.6.136';
+const VERSION_LABEL = 'v1.6.136 · 邀请奖励与权益闭环版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -11,6 +11,7 @@ const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
 const ACCOUNT_RESTORE_PROJECT_KEY = 'enterpriseMarketingAccountRestoreProject.v1';
+const REFERRAL_CODE_STORAGE_KEY = 'fpReferralCode.v1';
 const CUSTOMER_ACCESS_TOKEN_STORAGE_PREFIX = 'enterpriseMarketingCustomerAccessToken.v1';
 const USER_SETTINGS_STORAGE_PREFIX = 'enterpriseMarketingUserSettings.v1';
 const CUSTOMER_ANALYTICS_SESSION_KEY = 'enterpriseMarketingAnalyticsSession.v1';
@@ -3768,6 +3769,21 @@ function customerAccountPlanLabel(planCode = 'free'){
   return labels[String(planCode || '').toLowerCase()] || 'Free';
 }
 
+function pendingReferralCode(){
+  try {
+    const saved = JSON.parse(window.localStorage?.getItem(REFERRAL_CODE_STORAGE_KEY) || '{}');
+    const code = String(saved?.code || '').trim();
+    const savedAt = Date.parse(saved?.saved_at || '');
+    if (!/^[a-z0-9_-]{12,64}$/i.test(code) || !Number.isFinite(savedAt) || Date.now() - savedAt > 30 * 24 * 60 * 60 * 1000) {
+      window.localStorage?.removeItem(REFERRAL_CODE_STORAGE_KEY);
+      return '';
+    }
+    return code;
+  } catch {
+    return '';
+  }
+}
+
 function customerEntitlementUsageText(entitlement = {}){
   entitlement = entitlement || {};
   const used = Number(entitlement.usage?.strategy_cycles_used || 0);
@@ -3778,6 +3794,11 @@ function customerEntitlementUsageText(entitlement = {}){
 
 function customerEntitlementRefreshText(entitlement = {}){
   entitlement = entitlement || {};
+  const accessEndsAt = String(entitlement.access_ends_at || '').trim();
+  if (accessEndsAt) {
+    const accessTime = new Date(accessEndsAt);
+    if (!Number.isNaN(accessTime.getTime())) return `权益有效至 ${accessTime.toLocaleDateString('zh-CN', {timeZone:'Asia/Shanghai', month:'numeric', day:'numeric'})}`;
+  }
   const value = String(entitlement.refresh_at || '').trim();
   if (!value) return '登录后查看本期额度';
   const time = new Date(value);
@@ -3944,8 +3965,10 @@ async function verifyCustomerEmailCode(code = ''){
         email: customerAccountState.email,
         code: normalizedCode,
         challenge_id: customerAccountState.challenge_id,
+        referral_code: pendingReferralCode(),
       }),
     });
+    try { window.localStorage?.removeItem(REFERRAL_CODE_STORAGE_KEY); } catch {}
     customerAccountState.challenge_id = '';
     customerAccountState.email = '';
     $('#customerAccountCodeForm')?.setAttribute('hidden', '');
@@ -3954,6 +3977,8 @@ async function verifyCustomerEmailCode(code = ''){
     await loadCustomerAccountSession();
     window.dispatchEvent(new CustomEvent('customer-account:changed'));
     setCustomerAccountMessage('登录成功。你现在可以绑定或找回项目。');
+    const nextPath = new URLSearchParams(window.location.search).get('next') || '';
+    if (/^\/invite\/?$/.test(nextPath)) window.setTimeout(() => window.location.assign('/invite'), 450);
   } catch (error) {
     setCustomerAccountMessage(error?.message || '验证码验证失败，请重新获取。', 'error');
   } finally {

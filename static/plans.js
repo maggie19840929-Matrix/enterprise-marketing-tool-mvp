@@ -3,6 +3,10 @@ const planStatus = document.querySelector('#commercialPlanStatus');
 const planMessage = document.querySelector('#commercialPlanMessage');
 
 const money = (value) => Number(value || 0).toLocaleString('zh-CN');
+const entitlementEndText = (entitlement = null) => {
+  const date = new Date(entitlement?.access_ends_at || '');
+  return Number.isNaN(date.getTime()) ? '' : `，权益有效至 ${date.toLocaleDateString('zh-CN', {timeZone:'Asia/Shanghai', month:'numeric', day:'numeric'})}`;
+};
 const planAction = (plan) => {
   if (plan.code === 'free') return '<a class="customer-plan-action is-secondary" href="/#customerFormCard">开始免费使用</a>';
   if (plan.code === 'pro' && !plan.public_sales) return '<a class="customer-plan-action is-secondary" href="/contact">联系评估</a>';
@@ -40,7 +44,7 @@ const loadPlans = async () => {
     }
     renderPlans(Array.isArray(plans.plans) ? plans.plans : [], entitlement?.plan_code || session.account?.plan_code || '');
     planStatus.textContent = entitlement
-      ? `当前 ${entitlement.plan_name}：本期已使用 ${Math.max(Number(entitlement.usage?.strategy_cycles_used || 0), Number(entitlement.usage?.strategy_cycles_reserved || 0))} / ${Number(entitlement.limits?.strategy_cycles || 0)} 轮策略周期`
+      ? `当前 ${entitlement.plan_name}：本期已使用 ${Math.max(Number(entitlement.usage?.strategy_cycles_used || 0), Number(entitlement.usage?.strategy_cycles_reserved || 0))} / ${Number(entitlement.limits?.strategy_cycles || 0)} 轮策略周期${entitlementEndText(entitlement)}`
       : '未登录也可以先免费体验；登录后可查看本期用量并跨设备找回项目。';
   } catch (error) {
     planStatus.textContent = '套餐信息暂时没有加载出来。';

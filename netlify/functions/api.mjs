@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.135';
-const VERSION_LABEL = 'v1.6.135 · 账号菜单与流程排版精修版';
+const APP_VERSION = '1.6.136';
+const VERSION_LABEL = 'v1.6.136 · 邀请奖励与权益闭环版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -4088,7 +4088,9 @@ const publicEntitlementSnapshot = (snapshot = {}) => ({
   period: snapshot.period || '',
   period_type: snapshot.period_type || 'monthly',
   refresh_at: snapshot.refresh_at || '',
+  access_ends_at: snapshot.access_ends_at || '',
   trial_ends_at: snapshot.trial_ends_at || '',
+  referral_bonus_days: Number(snapshot.referral_bonus_days || 0),
   commercialization_enabled: Boolean(snapshot.commercialization_enabled),
   usage: snapshot.usage || {},
   limits: snapshot.limits || {},
@@ -4100,6 +4102,13 @@ const ACCOUNT_SESSION_PREFIX = 'account-sessions/v1';
 const ACCOUNT_CHALLENGE_PREFIX = 'account-challenges/v1';
 const ACCOUNT_CLIENT_LINK_PREFIX = 'account-client-links/v1';
 const ACCOUNT_CLIENT_OWNER_PREFIX = 'account-client-owners/v1';
+const REFERRAL_PROFILE_PREFIX = 'referrals/v1/profiles';
+const REFERRAL_CODE_PREFIX = 'referrals/v1/codes';
+const REFERRAL_ATTRIBUTION_PREFIX = 'referrals/v1/attributions';
+const REFERRAL_INVITER_PREFIX = 'referrals/v1/by-inviter';
+const REFERRAL_REWARD_PREFIX = 'referrals/v1/rewards';
+const REFERRAL_REWARD_DAYS = 7;
+const REFERRAL_MONTHLY_MAX_DAYS = 28;
 const ACCOUNT_SESSION_COOKIE = 'fp_account_session';
 const ACCOUNT_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ACCOUNT_EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
@@ -4124,6 +4133,16 @@ const accountChallengeKey = (identityHash = '') => `${ACCOUNT_CHALLENGE_PREFIX}/
 const accountSessionKey = (sessionToken = '') => `${ACCOUNT_SESSION_PREFIX}/${accountDigest('session', sessionToken)}`;
 const accountClientLinkKey = (accountId = '', clientId = '') => `${ACCOUNT_CLIENT_LINK_PREFIX}/${accountId}/${normalizeClientId(clientId)}`;
 const accountClientOwnerKey = (clientId = '') => `${ACCOUNT_CLIENT_OWNER_PREFIX}/${normalizeClientId(clientId)}`;
+const normalizeReferralCode = (value = '') => {
+  const code = String(value || '').trim();
+  return /^[a-z0-9_-]{12,64}$/i.test(code) ? code : '';
+};
+const referralProfileKey = (accountId = '') => `${REFERRAL_PROFILE_PREFIX}/${String(accountId || '').trim()}`;
+const referralCodeKey = (code = '') => `${REFERRAL_CODE_PREFIX}/${sha256Hex(`referral:${normalizeReferralCode(code)}`)}`;
+const referralAttributionKey = (inviteeAccountId = '') => `${REFERRAL_ATTRIBUTION_PREFIX}/${String(inviteeAccountId || '').trim()}`;
+const referralInviterPrefix = (inviterAccountId = '') => `${REFERRAL_INVITER_PREFIX}/${String(inviterAccountId || '').trim()}/`;
+const referralInviterKey = (inviterAccountId = '', inviteeAccountId = '') => `${referralInviterPrefix(inviterAccountId)}${String(inviteeAccountId || '').trim()}`;
+const referralRewardKey = (inviteeAccountId = '') => `${REFERRAL_REWARD_PREFIX}/${String(inviteeAccountId || '').trim()}`;
 const requestCookie = (request = null, name = '') => {
   const cookieHeader = String(request?.headers?.get('cookie') || '');
   const entry = cookieHeader.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
@@ -4156,6 +4175,207 @@ const readAccountSession = async (request = null) => {
   const account = await commercialBlobGet(accountKey(session.account_id));
   if (!account || account.status === 'disabled') return null;
   return { token, session, account };
+};
+const ensureReferralProfile = async (account = {}) => {
+  const accountId = String(account.account_id || '').trim();
+  if (!accountId) throw new Error('邀请链接缺少账号归属');
+  const key = referralProfileKey(accountId);
+  const existing = await commercialBlobGet(key);
+  if (existing?.code) {
+    const mapping = await commercialBlobGet(referralCodeKey(existing.code));
+    if (!mapping) await commercialBlobSet(referralCodeKey(existing.code), { account_id: accountId, status: 'active', created_at: existing.created_at || nowIso() });
+    return existing;
+  }
+  const code = `fp_${accountDigest('referral-code', accountId).slice(0, 20)}`;
+  const profile = {
+    account_id: accountId,
+    code,
+    status: 'active',
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  await commercialBlobSet(key, profile);
+  await commercialBlobSet(referralCodeKey(code), {
+    account_id: accountId,
+    status: 'active',
+    created_at: profile.created_at,
+  });
+  return profile;
+};
+const writeReferralAttribution = async (record = {}) => {
+  if (!record.inviter_account_id || !record.invitee_account_id) throw new Error('邀请归因缺少账号信息');
+  await commercialBlobSet(referralAttributionKey(record.invitee_account_id), record);
+  await commercialBlobSet(referralInviterKey(record.inviter_account_id, record.invitee_account_id), record);
+  return record;
+};
+const createReferralAttribution = async ({ inviteeAccount = {}, referralCode = '', request = null, isNewAccount = false } = {}) => {
+  const code = normalizeReferralCode(referralCode);
+  const inviteeAccountId = String(inviteeAccount.account_id || '').trim();
+  if (!isNewAccount || !code || !inviteeAccountId) return { status: 'ignored', reason: isNewAccount ? 'missing_referral_code' : 'existing_account' };
+  const existing = await commercialBlobGet(referralAttributionKey(inviteeAccountId));
+  if (existing) return { status: existing.status || 'pending', reason: 'existing_attribution' };
+  const codeRecord = await commercialBlobGet(referralCodeKey(code));
+  const inviterAccountId = String(codeRecord?.account_id || '').trim();
+  if (!inviterAccountId || codeRecord?.status !== 'active' || inviterAccountId === inviteeAccountId) {
+    return { status: 'ignored', reason: 'invalid_referral_code' };
+  }
+  const inviter = await commercialBlobGet(accountKey(inviterAccountId));
+  if (!inviter || inviter.status === 'disabled') return { status: 'ignored', reason: 'invalid_inviter' };
+  const createdAt = nowIso();
+  const record = await writeReferralAttribution({
+    referral_id: `ref_${sha256Hex(`${inviterAccountId}:${inviteeAccountId}`).slice(0, 24)}`,
+    inviter_account_id: inviterAccountId,
+    invitee_account_id: inviteeAccountId,
+    status: 'pending',
+    reward_days: REFERRAL_REWARD_DAYS,
+    attribution_ip_hash: meteringHash('referral-ip', requestIpValue(request)),
+    created_at: createdAt,
+    updated_at: createdAt,
+    qualified_at: '',
+    rewarded_at: '',
+    qualification_job_id: '',
+    failure_reason: '',
+  });
+  return { status: record.status, reason: null };
+};
+const referralRecordsForInviter = async (accountId = '') => {
+  const keys = await commercialBlobKeys(referralInviterPrefix(accountId));
+  const records = await Promise.all(keys.map((key) => commercialBlobGet(key)));
+  return records.filter(Boolean).sort((a, b) => timestampToEpoch(b.updated_at) - timestampToEpoch(a.updated_at));
+};
+const publicReferralRecord = (record = {}, index = 0) => ({
+  referral_id: String(record.referral_id || ''),
+  friend_label: `好友 ${index + 1}`,
+  status: String(record.status || 'pending'),
+  reward_days: Number(record.reward_days || 0),
+  created_at: String(record.created_at || ''),
+  qualified_at: String(record.qualified_at || ''),
+  rewarded_at: String(record.rewarded_at || ''),
+});
+const referralDashboard = async (account = {}) => {
+  const profile = await ensureReferralProfile(account);
+  let records = await referralRecordsForInviter(account.account_id);
+  for (const record of records.filter((item) => item.status === 'qualified')) {
+    await qualifyReferralForAccount({
+      inviteeAccountId: record.invitee_account_id,
+      jobId: record.qualification_job_id,
+      clientId: '',
+    }).catch(() => null);
+  }
+  if (records.some((item) => item.status === 'qualified')) records = await referralRecordsForInviter(account.account_id);
+  const month = commercialMonthPeriod();
+  const rewarded = records.filter((record) => record.status === 'rewarded');
+  const monthlyRewardDays = rewarded
+    .filter((record) => String(record.rewarded_at || '').slice(0, 7) === month)
+    .reduce((sum, record) => sum + Number(record.reward_days || 0), 0);
+  return {
+    invite_code: profile.code,
+    reward_days_per_friend: REFERRAL_REWARD_DAYS,
+    monthly_max_reward_days: REFERRAL_MONTHLY_MAX_DAYS,
+    summary: {
+      invited_count: records.length,
+      pending_count: records.filter((record) => record.status === 'pending').length,
+      rewarded_count: rewarded.length,
+      total_reward_days: rewarded.reduce((sum, record) => sum + Number(record.reward_days || 0), 0),
+      monthly_reward_days: monthlyRewardDays,
+    },
+    records: records.map(publicReferralRecord),
+  };
+};
+const applyReferralSubscriptionReward = async ({ inviterAccountId = '', rewardDays = REFERRAL_REWARD_DAYS, rewardId = '' } = {}) => {
+  const account = await commercialBlobGet(accountKey(inviterAccountId));
+  if (!account || account.status === 'disabled') throw new Error('邀请人账号不可用');
+  const key = commercialSubscriptionKey(inviterAccountId);
+  const current = await commercialBlobGet(key);
+  const appliedRewardIds = ensureArray(current?.referral_reward_ids).map(String);
+  if (rewardId && appliedRewardIds.includes(String(rewardId))) return current;
+  const nowMs = Date.now();
+  const currentEndsAt = Date.parse(current?.ends_at || '');
+  const currentActive = current?.status === 'active' && Number.isFinite(currentEndsAt) && currentEndsAt > nowMs;
+  const planCode = currentActive && ['plus', 'pro'].includes(planCodeValue(current?.plan_code))
+    ? planCodeValue(current.plan_code)
+    : 'plus';
+  const baseMs = currentActive ? currentEndsAt : nowMs;
+  const next = {
+    ...(current || {}),
+    account_id: inviterAccountId,
+    plan_code: planCode,
+    status: 'active',
+    source: currentActive ? (current.source || 'paid') : 'referral_reward',
+    starts_at: currentActive ? (current.starts_at || nowIso()) : nowIso(),
+    ends_at: new Date(baseMs + Number(rewardDays || 0) * 24 * 60 * 60 * 1000).toISOString(),
+    referral_bonus_days: Number(current?.referral_bonus_days || 0) + Number(rewardDays || 0),
+    referral_reward_ids: rewardId ? [...new Set([...appliedRewardIds, String(rewardId)])] : appliedRewardIds,
+    updated_at: nowIso(),
+    created_at: current?.created_at || nowIso(),
+  };
+  await commercialBlobSet(key, next);
+  return next;
+};
+const qualifyReferralForAccount = async ({ inviteeAccountId = '', jobId = '', clientId = '' } = {}) => {
+  const safeInviteeId = String(inviteeAccountId || '').trim();
+  if (!safeInviteeId) return null;
+  const existingReward = await commercialBlobGet(referralRewardKey(safeInviteeId));
+  if (existingReward?.status === 'rewarded') return existingReward;
+  const attribution = await commercialBlobGet(referralAttributionKey(safeInviteeId));
+  if (!attribution || !['pending', 'qualified'].includes(String(attribution.status || ''))) return null;
+  const records = await referralRecordsForInviter(attribution.inviter_account_id);
+  const month = commercialMonthPeriod();
+  const monthlyRewardDays = records
+    .filter((record) => record.status === 'rewarded' && String(record.rewarded_at || '').slice(0, 7) === month)
+    .reduce((sum, record) => sum + Number(record.reward_days || 0), 0);
+  const qualifiedAt = nowIso();
+  if (monthlyRewardDays + REFERRAL_REWARD_DAYS > REFERRAL_MONTHLY_MAX_DAYS) {
+    return writeReferralAttribution({
+      ...attribution,
+      status: 'reward_limit_reached',
+      qualified_at: qualifiedAt,
+      qualification_job_id: String(jobId || ''),
+      qualification_client_hash: meteringHash('referral-client', clientId),
+      failure_reason: 'monthly_reward_limit_reached',
+      updated_at: qualifiedAt,
+    });
+  }
+  const qualifiedAttribution = await writeReferralAttribution({
+    ...attribution,
+    status: 'qualified',
+    qualified_at: attribution.qualified_at || qualifiedAt,
+    qualification_job_id: String(jobId || attribution.qualification_job_id || ''),
+    qualification_client_hash: attribution.qualification_client_hash || meteringHash('referral-client', clientId),
+    failure_reason: '',
+    updated_at: qualifiedAt,
+  });
+  const reward = {
+    reward_id: `reward_${sha256Hex(`referral:${safeInviteeId}`).slice(0, 24)}`,
+    referral_id: qualifiedAttribution.referral_id,
+    inviter_account_id: qualifiedAttribution.inviter_account_id,
+    invitee_account_id: safeInviteeId,
+    reward_days: REFERRAL_REWARD_DAYS,
+    status: 'granting',
+    qualification_job_id: String(jobId || ''),
+    created_at: qualifiedAt,
+    rewarded_at: '',
+  };
+  await commercialBlobSet(referralRewardKey(safeInviteeId), reward);
+  const subscription = await applyReferralSubscriptionReward({
+    inviterAccountId: qualifiedAttribution.inviter_account_id,
+    rewardDays: REFERRAL_REWARD_DAYS,
+    rewardId: reward.reward_id,
+  });
+  const grantedReward = { ...reward, status: 'rewarded', rewarded_at: qualifiedAt, subscription_ends_at: subscription.ends_at };
+  await commercialBlobSet(referralRewardKey(safeInviteeId), grantedReward);
+  await writeReferralAttribution({
+    ...qualifiedAttribution,
+    status: 'rewarded',
+    qualified_at: qualifiedAt,
+    rewarded_at: qualifiedAt,
+    qualification_job_id: String(jobId || ''),
+    qualification_client_hash: qualifiedAttribution.qualification_client_hash || meteringHash('referral-client', clientId),
+    reward_subscription_ends_at: subscription.ends_at,
+    failure_reason: '',
+    updated_at: qualifiedAt,
+  });
+  return grantedReward;
 };
 const accountUnauthorized = () => json({
   error: '请先完成账号验证。',
@@ -4237,7 +4457,7 @@ const startEmailAccountChallenge = async (emailValue = '', request = null) => {
     },
   };
 };
-const verifyEmailAccountChallenge = async ({ email: emailValue = '', code: codeValue = '', challenge_id: challengeId = '' } = {}) => {
+const verifyEmailAccountChallenge = async ({ email: emailValue = '', code: codeValue = '', challenge_id: challengeId = '', referral_code: referralCode = '' } = {}, request = null) => {
   if (!accountAuthConfigured()) {
     return { ok: false, status: 503, error: '账号绑定功能尚未开放，请稍后再试。', code: 'account_auth_unavailable' };
   }
@@ -4265,6 +4485,7 @@ const verifyEmailAccountChallenge = async ({ email: emailValue = '', code: codeV
   let identity = await commercialBlobGet(accountIdentityKey(identityHash));
   const accountId = String(identity?.account_id || `acct_${randomUUID().replaceAll('-', '')}`);
   let account = await commercialBlobGet(accountKey(accountId));
+  const isNewAccount = !account;
   if (!account) {
     account = {
       account_id: accountId,
@@ -4293,11 +4514,23 @@ const verifyEmailAccountChallenge = async ({ email: emailValue = '', code: codeV
     expires_at: expiresAt,
     revoked_at: null,
   });
+  let referralAttribution = { status: 'ignored', reason: 'missing_referral_code' };
+  try {
+    referralAttribution = await createReferralAttribution({
+      inviteeAccount: account,
+      referralCode,
+      request,
+      isNewAccount,
+    });
+  } catch {
+    referralAttribution = { status: 'ignored', reason: 'referral_unavailable' };
+  }
   return {
     ok: true,
     status: 200,
     account,
     cookie: accountSessionCookie(sessionToken),
+    referral_attribution: referralAttribution,
   };
 };
 const linkAccountClient = async ({ request = null, clientId = '', internalAuthorized = false } = {}) => {
@@ -4410,7 +4643,9 @@ const commercialEntitlementSnapshot = async ({ request = null, clientId = '', ac
     period,
     period_type: trialActive ? 'trial' : 'monthly',
     refresh_at: trialActive ? new Date(trialEndsAtMs).toISOString() : commercialNextMonthIso(),
+    access_ends_at: subscriptionActive && Number.isFinite(subscriptionEndsAt) ? new Date(subscriptionEndsAt).toISOString() : '',
     trial_ends_at: trialActive ? new Date(trialEndsAtMs).toISOString() : '',
+    referral_bonus_days: Number(subscription?.referral_bonus_days || 0),
     commercialization_enabled: commercializationEnabled(),
     usage: {
       strategy_cycles_used: usageFor('strategy_cycle', consumedRows),
@@ -7759,7 +7994,7 @@ const planJobClientIdFrom = (payload = {}, url = null, request = null) => normal
   || ''
 );
 
-const createPlanJob = async (payload = {}, reservation = {}) => {
+const createPlanJob = async (payload = {}, reservation = {}, { accountId = '' } = {}) => {
   const client_id = planJobClientIdFrom(payload);
   if (!client_id) throw new Error('创建计划任务需要有效 client_id');
   const createdAt = nowIso();
@@ -7775,6 +8010,7 @@ const createPlanJob = async (payload = {}, reservation = {}) => {
     job_id: `planjob_${sha256Hex(`${client_id}:${requestId}`).slice(0, 24)}`,
     request_id: requestId,
     client_id,
+    submitted_account_id: String(accountId || ''),
     status: 'pending',
     assessment_payload: sanitizeCustomerPayload(assessmentPayload),
     personalization_mode: assessmentPayload.personalized_recommendation_enabled === false
@@ -7871,6 +8107,15 @@ const processPlanJob = async (clientId = '', jobId = '') => {
       result,
       outcome: 'completed',
     });
+    await qualifyReferralForAccount({
+      inviteeAccountId: job.submitted_account_id,
+      jobId: job.job_id,
+      clientId: job.client_id,
+    }).catch((error) => console.warn(JSON.stringify({
+      event: 'referral_reward_failed',
+      job_id: job.job_id,
+      reason: String(error?.message || 'referral_reward_failed').slice(0, 120),
+    })));
     return completed;
   } catch (error) {
     const failed = await savePlanJob({
@@ -7931,7 +8176,7 @@ export default async (request, context = {}) => {
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -7976,6 +8221,11 @@ export default async (request, context = {}) => {
         if (!auth) return accountUnauthorized();
         const snapshot = await commercialEntitlementSnapshot({ account: auth.account });
         return json({ entitlement: publicEntitlementSnapshot(snapshot) });
+      }
+      if (path === '/referrals/me') {
+        const auth = await readAccountSession(request);
+        if (!auth) return accountUnauthorized();
+        return json({ referral: await referralDashboard(auth.account) });
       }
       if (path === '/delivery-profiles') {
         if (!internalAuthorized) return unauthorized();
@@ -8167,9 +8417,9 @@ export default async (request, context = {}) => {
       return result.ok ? json(result.body, result.status) : json({ error: result.error, code: result.code }, result.status);
     }
     if (request.method === 'POST' && path === '/auth/email/verify') {
-      const result = await verifyEmailAccountChallenge(payload);
+      const result = await verifyEmailAccountChallenge(payload, request);
       return result.ok
-        ? json({ signed_in: true, account: publicAccount(result.account) }, result.status, { headers: { 'set-cookie': result.cookie } })
+        ? json({ signed_in: true, account: publicAccount(result.account), referral_attribution: result.referral_attribution }, result.status, { headers: { 'set-cookie': result.cookie } })
         : json({ error: result.error, code: result.code }, result.status);
     }
     if (request.method === 'POST' && path === '/auth/logout') {
@@ -8211,6 +8461,7 @@ export default async (request, context = {}) => {
       });
       if (!planJobAccess.ok) return planJobAccess.response;
       const personalization = await resolvePersonalizationForRequest(payload, clientId);
+      const planJobAccount = await readAccountSession(request);
       const requestId = generationRequestId(payload);
       const reservation = await reserveGenerationRequest({
         request,
@@ -8231,7 +8482,7 @@ export default async (request, context = {}) => {
           ...personalization.payload,
           client_id: clientId,
           request_id: requestId,
-        }, reservation);
+        }, reservation, { accountId: planJobAccount?.account?.account_id || '' });
       } catch (error) {
         await completeGenerationMetering({ reservation, clientId, outcome: 'failed', error: error?.message || 'plan_job_create_failed' });
         throw error;

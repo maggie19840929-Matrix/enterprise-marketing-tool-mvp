@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>邀请好友｜获客罗盘</title>
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.136" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.136" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.136" />
+</head>
+<body class="customer-mode customer-info-mode customer-invite-mode">
+  <div class="customer-trial-app">
+    <nav class="customer-site-nav" aria-label="主导航">
+      <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页"><span class="fp-matrix-lockup"><img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.136" alt="" /><span class="fp-matrix-type"><span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span><span class="fp-matrix-descriptor">企业第一方增长智能</span></span></span></a>
+      <div class="customer-site-links">
+        <a href="/#customerFormCard">使用工具</a>
+        <a href="/method">方法与案例</a>
+        <a href="/about">关于我们</a>
+        <div class="customer-account-menu" data-public-account-menu><button id="customerAccountBtn" class="customer-account-nav" type="button" aria-expanded="false"><span data-public-account-label>账号</span><span class="customer-account-chevron" aria-hidden="true">⌄</span></button></div>
+      </div>
+    </nav>
+
+    <main class="customer-invite-page">
+      <header class="customer-invite-head">
+        <p class="customer-kicker">INVITE &amp; REWARD</p>
+        <h1>邀请好友，获得 7 天 Plus 权益</h1>
+        <p>好友通过你的专属链接首次注册，并成功生成第一份内容建议后，奖励自动到账。</p>
+      </header>
+
+      <section id="inviteLoading" class="customer-invite-state" aria-live="polite">正在读取邀请信息...</section>
+      <section id="inviteSignedOut" class="customer-invite-signin" hidden>
+        <h2>登录后生成专属邀请链接</h2>
+        <p>邀请记录和奖励会保存在账号中，换设备也能继续查看。</p>
+        <a class="customer-invite-primary" href="/?account=login&amp;next=/invite">登录我的账号</a>
+      </section>
+      <div id="inviteDashboard" hidden>
+        <section class="customer-invite-share" aria-labelledby="inviteShareTitle">
+          <div>
+            <p>你的专属邀请链接</p>
+            <h2 id="inviteShareTitle">把获客罗盘分享给身边的商家朋友</h2>
+          </div>
+          <div class="customer-invite-link-row">
+            <input id="inviteLink" type="text" readonly aria-label="专属邀请链接" />
+            <button id="inviteCopy" type="button">复制链接</button>
+            <button id="inviteShare" class="is-secondary" type="button">分享给好友</button>
+          </div>
+          <p id="inviteMessage" class="customer-invite-message" role="status" aria-live="polite" hidden></p>
+        </section>
+
+        <section class="customer-invite-metrics" aria-label="邀请奖励概览">
+          <div><span>已邀请</span><strong id="inviteCount">0</strong><small>位好友</small></div>
+          <div><span>待生效</span><strong id="invitePending">0</strong><small>位好友</small></div>
+          <div><span>累计获得</span><strong id="inviteRewardDays">0</strong><small>天 Plus</small></div>
+          <div><span>本月获得</span><strong id="inviteMonthlyDays">0</strong><small>最多 28 天</small></div>
+        </section>
+
+        <section class="customer-invite-records" aria-labelledby="inviteRecordsTitle">
+          <div class="customer-invite-section-head">
+            <div><p>奖励记录</p><h2 id="inviteRecordsTitle">邀请进度</h2></div>
+            <span>每位有效好友奖励 7 天</span>
+          </div>
+          <div id="inviteRecordList"></div>
+        </section>
+
+        <section class="customer-invite-rules" aria-labelledby="inviteRulesTitle">
+          <h2 id="inviteRulesTitle">怎样算有效邀请</h2>
+          <ol>
+            <li><strong>好友打开专属链接</strong><span>通过链接进入获客罗盘。</span></li>
+            <li><strong>首次注册账号</strong><span>同一好友只能产生一次奖励。</span></li>
+            <li><strong>生成第一份建议</strong><span>成功生成内容建议后，7 天权益自动到账。</span></li>
+          </ol>
+          <p>免费用户获得 7 天 Plus 权益；付费用户的当前会员顺延 7 天。每月最多获得 28 天奖励。</p>
+        </section>
+      </div>
+    </main>
+
+    <footer class="customer-site-footer">
+      <div class="customer-footer-primary">
+        <div class="customer-footer-brand"><span class="fp-matrix-lockup fp-matrix-lockup-footer"><img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.136" alt="" /><span class="fp-matrix-type"><span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span><span class="fp-matrix-descriptor">企业第一方增长智能</span></span></span></div>
+        <nav class="customer-footer-links" aria-label="页脚导航"><a href="/method">方法与案例</a><a href="/about">关于我们</a><a href="/privacy">隐私政策</a><a href="/terms">用户协议</a><a href="/contact">联系我们</a></nav>
+      </div>
+      <div class="customer-footer-meta">
+        <span>© 2016–2026 南京尚下联信息科技有限公司</span>
+        <a class="customer-filing-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">苏ICP备2026037570号</a>
+      </div>
+    </footer>
+  </div>
+  <script src="/public-account-menu.js?v=1.6.136"></script>
+  <script src="/invite.js?v=1.6.136"></script>
+</body>
+</html>

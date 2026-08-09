@@ -1,4 +1,11 @@
 (() => {
+  const referralStorageKey = 'fpReferralCode.v1';
+  const referralCodeFromUrl = new URLSearchParams(window.location.search).get('ref') || '';
+  if (/^[a-z0-9_-]{12,64}$/i.test(referralCodeFromUrl)) {
+    try {
+      localStorage.setItem(referralStorageKey, JSON.stringify({ code: referralCodeFromUrl, saved_at: new Date().toISOString() }));
+    } catch {}
+  }
   const root = document.querySelector('[data-public-account-menu]');
   if (!root) return;
 
@@ -96,23 +103,6 @@
     }
     return state;
   };
-  const copyInviteLink = async () => {
-    const inviteUrl = new URL('/', window.location.origin).href;
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
-    } catch {
-      const input = document.createElement('textarea');
-      input.value = inviteUrl;
-      input.style.position = 'fixed';
-      input.style.opacity = '0';
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      input.remove();
-    }
-    close();
-    showToast('邀请链接已复制');
-  };
   const logout = async (button) => {
     button.disabled = true;
     try {
@@ -146,7 +136,8 @@
       close();
       requestHostAction('public-account:profile-requested', '/?account=profile');
     } else if (action === 'invite') {
-      await copyInviteLink();
+      close();
+      window.location.assign('/invite');
     } else if (action === 'settings') {
       close();
       requestHostAction('public-account:settings-requested', '/?account=settings');
