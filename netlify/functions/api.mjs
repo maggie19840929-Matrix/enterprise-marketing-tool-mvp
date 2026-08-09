@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.132';
-const VERSION_LABEL = 'v1.6.132 · AI 内容策略定位版';
+const APP_VERSION = '1.6.133';
+const VERSION_LABEL = 'v1.6.133 · 套餐与额度地基版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -204,6 +204,7 @@ const generationRateClientMax = () => envInteger('GENERATION_RATE_CLIENT_MAX', 3
 const generationRateIpMax = () => envInteger('GENERATION_RATE_IP_MAX', 10, { min: 1, max: 5000 });
 const generationDailyClientMax = () => envInteger('GENERATION_DAILY_CLIENT_MAX', 30, { min: 1, max: 10000 });
 const trackingEnabled = () => envFlag('TRACKING_ENABLED', true);
+const commercializationEnabled = () => envFlag('COMMERCIALIZATION_ENABLED', false);
 const arkModel = (override = '') => String(override || envValue('ARK_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL')).trim();
 const arkPlanModel = () => String(envValue('ARK_PLAN_MODEL') || arkModel()).trim();
 const arkChatCompletionsUrl = () => {
@@ -4001,6 +4002,98 @@ const commercialBlobSet = async (key = '', value = {}) => {
   return { ...value, storage: 'memory-fallback' };
 };
 
+const COMMERCIAL_SUBSCRIPTION_PREFIX = 'subscriptions/v1';
+const COMMERCIAL_ENTITLEMENT_PREFIX = 'entitlements/v1';
+const COMMERCIAL_USAGE_PREFIX = 'usage/v1';
+const commercialPlanDefinitions = () => ({
+  free: {
+    code: 'free',
+    name: 'Free',
+    audience: '适合先体验一个完整内容周期',
+    monthly_price_cny: 0,
+    yearly_price_cny: 0,
+    strategy_cycles: envInteger('FREE_MONTHLY_STRATEGY_CYCLES', 1, { min: 0, max: 1000 }),
+    trial_strategy_cycles: envInteger('FREE_TRIAL_STRATEGY_CYCLES', 3, { min: 0, max: 1000 }),
+    trial_valid_days: envInteger('FREE_TRIAL_VALID_DAYS', 30, { min: 1, max: 365 }),
+    complete_content: envInteger('FREE_MONTHLY_COMPLETE_CONTENT', 0, { min: 0, max: 10000 }),
+    daily_generations: envInteger('FREE_DAILY_GENERATIONS', 1, { min: 1, max: 1000 }),
+    active_projects: envInteger('FREE_ACTIVE_PROJECTS', 1, { min: 1, max: 1000 }),
+    history_months: 1,
+    public_sales: true,
+  },
+  plus: {
+    code: 'plus',
+    name: 'Plus',
+    audience: '适合稳定按月经营内容的门店与企业',
+    monthly_price_cny: envInteger('PLUS_MONTHLY_PRICE_CNY', 299, { min: 1, max: 1000000 }),
+    yearly_price_cny: envInteger('PLUS_YEARLY_PRICE_CNY', 2990, { min: 1, max: 10000000 }),
+    strategy_cycles: envInteger('PLUS_MONTHLY_STRATEGY_CYCLES', 4, { min: 0, max: 1000 }),
+    complete_content: envInteger('PLUS_MONTHLY_COMPLETE_CONTENT', 12, { min: 0, max: 10000 }),
+    daily_generations: envInteger('PLUS_DAILY_GENERATIONS', 10, { min: 1, max: 1000 }),
+    active_projects: envInteger('PLUS_ACTIVE_PROJECTS', 3, { min: 1, max: 1000 }),
+    history_months: 12,
+    public_sales: true,
+  },
+  pro: {
+    code: 'pro',
+    name: 'Pro',
+    audience: '适合多项目或更高频的专业运营团队',
+    monthly_price_cny: envInteger('PRO_MONTHLY_PRICE_CNY', 899, { min: 1, max: 1000000 }),
+    yearly_price_cny: envInteger('PRO_YEARLY_PRICE_CNY', 8990, { min: 1, max: 10000000 }),
+    strategy_cycles: envInteger('PRO_MONTHLY_STRATEGY_CYCLES', 12, { min: 0, max: 1000 }),
+    complete_content: envInteger('PRO_MONTHLY_COMPLETE_CONTENT', 40, { min: 0, max: 10000 }),
+    daily_generations: envInteger('PRO_DAILY_GENERATIONS', 30, { min: 1, max: 1000 }),
+    active_projects: envInteger('PRO_ACTIVE_PROJECTS', 10, { min: 1, max: 1000 }),
+    history_months: 24,
+    public_sales: envFlag('PRO_PUBLIC_SALES_ENABLED', false),
+  },
+});
+const publicCommercialPlans = () => Object.values(commercialPlanDefinitions()).map((plan) => ({
+  code: plan.code,
+  name: plan.name,
+  audience: plan.audience,
+  monthly_price_cny: plan.monthly_price_cny,
+  yearly_price_cny: plan.yearly_price_cny,
+  strategy_cycles: plan.strategy_cycles,
+  trial_strategy_cycles: plan.trial_strategy_cycles || 0,
+  trial_valid_days: plan.trial_valid_days || 0,
+  complete_content: plan.complete_content,
+  daily_generations: plan.daily_generations,
+  active_projects: plan.active_projects,
+  history_months: plan.history_months,
+  public_sales: plan.public_sales,
+}));
+const commercialMonthPeriod = () => shanghaiDateIso().slice(0, 7);
+const commercialNextMonthIso = () => {
+  const [year, month] = commercialMonthPeriod().split('-').map(Number);
+  return new Date(Date.UTC(month === 12 ? year + 1 : year, month === 12 ? 0 : month, 1) - 8 * 60 * 60 * 1000).toISOString();
+};
+const commercialSubscriptionKey = (accountId = '') => `${COMMERCIAL_SUBSCRIPTION_PREFIX}/${String(accountId || '').trim()}`;
+const commercialEntitlementKey = (subjectKey = '') => `${COMMERCIAL_ENTITLEMENT_PREFIX}/${subjectKey}`;
+const commercialUsagePrefix = (subjectKey = '', period = '') => `${COMMERCIAL_USAGE_PREFIX}/${subjectKey}/${period}/`;
+const commercialUsageKey = (subjectKey = '', period = '', requestId = '') =>
+  `${commercialUsagePrefix(subjectKey, period)}${meteringHash('commercial-usage', requestId)}`;
+const commercialSubjectForClient = (clientId = '') => `anonymous/${meteringHash('commercial-client', normalizeClientId(clientId))}`;
+const planCodeValue = (value = '') => ['free', 'plus', 'pro'].includes(String(value || '').trim().toLowerCase())
+  ? String(value || '').trim().toLowerCase()
+  : 'free';
+const usageLimitFor = (plan = {}, unit = 'strategy_cycle', trialActive = false) => {
+  if (unit === 'complete_content') return Number(plan.complete_content || 0);
+  if (unit === 'strategy_cycle') return Number(trialActive ? plan.trial_strategy_cycles : plan.strategy_cycles || 0);
+  return 0;
+};
+const publicEntitlementSnapshot = (snapshot = {}) => ({
+  plan_code: snapshot.plan_code || 'free',
+  plan_name: snapshot.plan_name || 'Free',
+  period: snapshot.period || '',
+  period_type: snapshot.period_type || 'monthly',
+  refresh_at: snapshot.refresh_at || '',
+  trial_ends_at: snapshot.trial_ends_at || '',
+  commercialization_enabled: Boolean(snapshot.commercialization_enabled),
+  usage: snapshot.usage || {},
+  limits: snapshot.limits || {},
+});
+
 const ACCOUNT_PREFIX = 'accounts/v1';
 const ACCOUNT_IDENTITY_PREFIX = 'account-identities/v1';
 const ACCOUNT_SESSION_PREFIX = 'account-sessions/v1';
@@ -4250,6 +4343,146 @@ const accountProjectSummaries = async (account = {}) => {
     });
   }
   return clients;
+};
+const commercialSubjectFromAccount = (account = {}) => ({
+  subject_key: `account/${String(account.account_id || '').trim()}`,
+  subject_type: 'account',
+  account,
+});
+const resolveCommercialSubject = async ({ request = null, clientId = '', account = null } = {}) => {
+  if (account?.account_id) return commercialSubjectFromAccount(account);
+  const safeClientId = normalizeClientId(clientId);
+  const auth = await readAccountSession(request);
+  if (auth && (!safeClientId || ensureArray(auth.account.client_ids).includes(safeClientId))) {
+    return commercialSubjectFromAccount(auth.account);
+  }
+  return {
+    subject_key: commercialSubjectForClient(safeClientId),
+    subject_type: 'anonymous',
+    account: null,
+  };
+};
+const readCommercialUsageRows = async (subjectKey = '', period = '') => {
+  const keys = await commercialBlobKeys(commercialUsagePrefix(subjectKey, period));
+  const rows = await Promise.all(keys.map((key) => commercialBlobGet(key)));
+  return rows.filter(Boolean);
+};
+const commercialEntitlementSnapshot = async ({ request = null, clientId = '', account = null } = {}) => {
+  const subject = await resolveCommercialSubject({ request, clientId, account });
+  let entitlement = await commercialBlobGet(commercialEntitlementKey(subject.subject_key));
+  if (!entitlement) {
+    entitlement = {
+      subject_key: subject.subject_key,
+      subject_type: subject.subject_type,
+      trial_started_at: nowIso(),
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+    await commercialBlobSet(commercialEntitlementKey(subject.subject_key), entitlement);
+  }
+  const subscription = subject.account
+    ? await commercialBlobGet(commercialSubscriptionKey(subject.account.account_id))
+    : null;
+  const subscriptionEndsAt = Date.parse(subscription?.ends_at || '');
+  const subscriptionActive = subscription?.status === 'active'
+    && (!Number.isFinite(subscriptionEndsAt) || subscriptionEndsAt > Date.now());
+  const planCode = planCodeValue(subscriptionActive ? subscription.plan_code : subject.account?.plan_code);
+  const plan = commercialPlanDefinitions()[planCode] || commercialPlanDefinitions().free;
+  const trialStartedAt = Date.parse(entitlement.trial_started_at || entitlement.created_at || '');
+  const trialEndsAtMs = Number.isFinite(trialStartedAt)
+    ? trialStartedAt + Number(plan.trial_valid_days || 0) * 24 * 60 * 60 * 1000
+    : 0;
+  const trialActive = planCode === 'free' && trialEndsAtMs > Date.now();
+  const period = trialActive
+    ? `trial-${String(entitlement.trial_started_at || '').slice(0, 10)}`
+    : commercialMonthPeriod();
+  const rows = await readCommercialUsageRows(subject.subject_key, period);
+  const activeRows = rows.filter((row) => ['reserved', 'consumed'].includes(String(row.status || '')));
+  const consumedRows = rows.filter((row) => row.status === 'consumed');
+  const usageFor = (unit, source = activeRows) => source.filter((row) => row.customer_unit === unit).reduce((sum, row) => sum + Number(row.quantity || 1), 0);
+  const strategyLimit = usageLimitFor(plan, 'strategy_cycle', trialActive);
+  const contentLimit = usageLimitFor(plan, 'complete_content', trialActive);
+  return {
+    subject_key: subject.subject_key,
+    subject_type: subject.subject_type,
+    plan_code: planCode,
+    plan_name: plan.name,
+    period,
+    period_type: trialActive ? 'trial' : 'monthly',
+    refresh_at: trialActive ? new Date(trialEndsAtMs).toISOString() : commercialNextMonthIso(),
+    trial_ends_at: trialActive ? new Date(trialEndsAtMs).toISOString() : '',
+    commercialization_enabled: commercializationEnabled(),
+    usage: {
+      strategy_cycles_used: usageFor('strategy_cycle', consumedRows),
+      strategy_cycles_reserved: usageFor('strategy_cycle', activeRows),
+      complete_content_used: usageFor('complete_content', consumedRows),
+      complete_content_reserved: usageFor('complete_content', activeRows),
+    },
+    limits: {
+      strategy_cycles: strategyLimit,
+      complete_content: contentLimit,
+      daily_generations: Number(plan.daily_generations || 0),
+      active_projects: Number(plan.active_projects || 0),
+      history_months: Number(plan.history_months || 0),
+    },
+    plan,
+    rows,
+  };
+};
+const reserveCommercialUsage = async ({ request = null, clientId = '', requestId = '', customerUnit = '', usageType = '' } = {}) => {
+  if (!customerUnit) return null;
+  const snapshot = await commercialEntitlementSnapshot({ request, clientId });
+  const key = commercialUsageKey(snapshot.subject_key, snapshot.period, requestId);
+  const existing = await commercialBlobGet(key);
+  if (existing && existing.status !== 'released') return { ...existing, usage_key: key, duplicate: true };
+  const limit = Number(snapshot.limits?.[customerUnit === 'strategy_cycle' ? 'strategy_cycles' : 'complete_content'] || 0);
+  const enforceableRows = snapshot.rows.filter((row) => row.commercialization_enabled === true);
+  const reserved = enforceableRows
+    .filter((row) => ['reserved', 'consumed'].includes(String(row.status || '')) && row.customer_unit === customerUnit)
+    .reduce((sum, row) => sum + Number(row.quantity || 1), 0);
+  const today = shanghaiDateIso();
+  const dailyUsed = enforceableRows
+    .filter((row) => ['reserved', 'consumed'].includes(String(row.status || '')) && String(row.created_at || '').slice(0, 10) === today)
+    .reduce((sum, row) => sum + Number(row.quantity || 1), 0);
+  const wouldExceedMonthly = reserved + 1 > limit;
+  const wouldExceedDaily = dailyUsed + 1 > Number(snapshot.limits.daily_generations || 0);
+  const wouldExceed = wouldExceedMonthly || wouldExceedDaily;
+  const record = {
+    usage_id: meteringHash('commercial-usage', requestId),
+    request_id_hash: meteringHash('commercial-request', requestId),
+    subject_type: snapshot.subject_type,
+    plan_code: snapshot.plan_code,
+    period: snapshot.period,
+    usage_type: usageType || 'generation',
+    customer_unit: customerUnit,
+    quantity: 1,
+    status: wouldExceed && commercializationEnabled() ? 'rejected' : 'reserved',
+    would_exceed: wouldExceed,
+    exceeded_scope: wouldExceedMonthly ? 'period' : (wouldExceedDaily ? 'daily' : ''),
+    limit,
+    used_before: reserved,
+    daily_limit: Number(snapshot.limits.daily_generations || 0),
+    daily_used_before: dailyUsed,
+    commercialization_enabled: commercializationEnabled(),
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  await commercialBlobSet(key, record);
+  return { ...record, usage_key: key, duplicate: false };
+};
+const settleCommercialUsage = async (usage = null, outcome = 'completed', reason = '') => {
+  if (!usage?.usage_key || usage.status === 'rejected') return usage;
+  const next = {
+    ...usage,
+    status: outcome === 'completed' ? 'consumed' : 'released',
+    reason: outcome === 'completed' ? 'delivered' : (reason || outcome || 'provider_failed'),
+    updated_at: nowIso(),
+    settled_at: nowIso(),
+  };
+  delete next.usage_key;
+  delete next.duplicate;
+  await commercialBlobSet(usage.usage_key, next);
+  return next;
 };
 const CUSTOMER_ACCESS_PREFIX = 'customer-access/v1';
 const CUSTOMER_SHARE_PREFIX = 'customer-shares/v1';
@@ -4534,8 +4767,32 @@ const countRateEvents = async (prefix = '', sinceMs = 0) => {
   return keys.filter((key) => rateEventTimestamp(key) >= sinceMs).length;
 };
 const generationRequestId = (payload = {}) => normalizeEventId(payload.request_id || payload.idempotency_key || '');
+const customerAdviceCurrentPlanIds = (payload = {}) => new Set(
+  ensureArray(payload.plans).map((plan) => planIdString(plan)).filter(Boolean)
+);
+const customerAdviceReservesStrategyCycle = (payload = {}) => {
+  const currentPlanIds = customerAdviceCurrentPlanIds(payload);
+  if (!currentPlanIds.size) return false;
+  const recordedPlanIds = new Set(ensureArray(payload.records)
+    .map((record) => planIdString(record?.content_plan_id || record?.plan_id || ''))
+    .filter((planId) => currentPlanIds.has(planId)));
+  const threshold = Math.max(1, Math.min(3, currentPlanIds.size));
+  return recordedPlanIds.size >= threshold;
+};
+const customerAdviceStrategyCycleId = (payload = {}) => {
+  const planIds = [...customerAdviceCurrentPlanIds(payload)].sort();
+  return planIds.length ? `next-round-${sha256Hex(planIds.join('|')).slice(0, 24)}` : '';
+};
 const reservationKeyFor = (clientHash = '', requestId = '') => `${COMMERCIAL_METERING_PREFIX}/reservations/${clientHash}/${meteringHash('request', requestId)}`;
-const reserveGenerationRequest = async ({ request = null, clientId = '', requestId = '', route = 'plan-jobs' } = {}) => {
+const reserveGenerationRequest = async ({
+  request = null,
+  clientId = '',
+  requestId = '',
+  route = 'plan-jobs',
+  customerUnit = '',
+  usageType = '',
+  usageReservationId = '',
+} = {}) => {
   const safeClientId = normalizeClientId(clientId);
   if (!safeClientId) throw new Error('generation_requires_client_id');
   const normalizedRequestId = normalizeEventId(requestId);
@@ -4559,6 +4816,33 @@ const reserveGenerationRequest = async ({ request = null, clientId = '', request
     created_at_ms: nowMs,
   };
   await commercialBlobSet(reservationKey, base);
+  const commercialUsage = await reserveCommercialUsage({
+    request,
+    clientId: safeClientId,
+    requestId: usageReservationId || normalizedRequestId,
+    customerUnit,
+    usageType,
+  });
+  if (commercialUsage?.would_exceed && commercialUsage.commercialization_enabled) {
+    const quotaDecision = {
+      ...base,
+      status: 'quota_exceeded',
+      duplicate: false,
+      quota_exceeded: true,
+      quota_enforced: true,
+      quota_scope: commercialUsage.exceeded_scope || 'period',
+      commercial_usage: commercialUsage,
+      reservation_key: reservationKey,
+    };
+    await commercialBlobSet(reservationKey, quotaDecision);
+    await writeFunnelEvent({
+      event: 'generation_submitted',
+      clientId: safeClientId,
+      eventId: normalizedRequestId,
+      properties: { route, outcome: 'quota_exceeded', reason_code: commercialUsage.exceeded_scope || 'period' },
+    });
+    return quotaDecision;
+  }
   const clientPrefix = `${COMMERCIAL_METERING_PREFIX}/rate/client/${clientHash}/${date}/`;
   const ipPrefix = `${COMMERCIAL_METERING_PREFIX}/rate/ip/${ipHash}/${date}/`;
   const rateSuffix = `${nowMs}-${requestHash}`;
@@ -4587,6 +4871,10 @@ const reserveGenerationRequest = async ({ request = null, clientId = '', request
     retry_after_seconds: scopes.includes('client_daily') ? 86400 : generationRateWindowSeconds(),
     counts: { client_window: clientWindowCount, ip_window: ipWindowCount, client_daily: clientDailyCount },
     limits: { client_window: generationRateClientMax(), ip_window: generationRateIpMax(), client_daily: generationDailyClientMax() },
+    quota_exceeded: Boolean(commercialUsage?.would_exceed),
+    quota_enforced: false,
+    quota_scope: commercialUsage?.exceeded_scope || '',
+    commercial_usage: commercialUsage,
     reservation_key: reservationKey,
   };
   await commercialBlobSet(reservationKey, decision);
@@ -4626,6 +4914,7 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
   const date = shanghaiDateIso();
   const stableId = String(jobId || reservation.request_id || randomUUID());
   const meta = normalizeModelMeta(result?.generation_meta || result?.model_info || {});
+  await settleCommercialUsage(reservation.commercial_usage, outcome, error);
   if (outcome === 'completed') {
     await commercialBlobSet(`${COMMERCIAL_METERING_PREFIX}/product/${clientHash}/${date}/${meteringHash('product', stableId)}`, {
       job_id_hash: meteringHash('job', stableId),
@@ -4672,6 +4961,9 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
       reason_code: meta.fallback_reason || error || '',
       would_rate_limit: Boolean(reservation.would_rate_limit),
       rate_scope: reservation.rate_scope || '',
+      quota_exceeded: Boolean(reservation.quota_exceeded),
+      quota_scope: reservation.quota_scope || '',
+      commercial_usage: reservation.commercial_usage || null,
     },
   });
 };
@@ -4750,6 +5042,13 @@ const rateLimitedResponse = (decision = {}) => new Response(JSON.stringify({
     'retry-after': String(Number(decision.retry_after_seconds || generationRateWindowSeconds())),
   },
 });
+const quotaExceededResponse = (decision = {}) => json({
+  error: '本月生成额度已用完',
+  code: 'quota_exceeded',
+  action: 'view_plans',
+  plan_url: '/plans',
+  scope: decision.quota_scope || 'period',
+}, 429);
 
 const assetHashBuffer = (payload = {}) => {
   if (payload.file_content_base64 || payload.content_base64) {
@@ -7632,7 +7931,7 @@ export default async (request, context = {}) => {
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -7651,7 +7950,17 @@ export default async (request, context = {}) => {
           enabled: accountAuthConfigured(),
           email_ready: emailProvider() === 'resend' && Boolean(envValue('RESEND_API_KEY')) && Boolean(envValue('EMAIL_FROM')),
         },
+        commercialization: {
+          enabled: commercializationEnabled(),
+          quota_mode: commercializationEnabled() ? 'enforced' : 'observe_only',
+        },
       });
+      if (path === '/commercial/plans') {
+        return json({
+          plans: publicCommercialPlans(),
+          pro_invite_only: !envFlag('PRO_PUBLIC_SALES_ENABLED', false),
+        });
+      }
       if (path === '/auth/session') {
         if (!accountAuthConfigured()) return json({ enabled: false, signed_in: false });
         const auth = await readAccountSession(request);
@@ -7661,6 +7970,12 @@ export default async (request, context = {}) => {
         const auth = await readAccountSession(request);
         if (!auth) return accountUnauthorized();
         return json({ account: publicAccount(auth.account), clients: await accountProjectSummaries(auth.account) });
+      }
+      if (path === '/account/entitlements') {
+        const auth = await readAccountSession(request);
+        if (!auth) return accountUnauthorized();
+        const snapshot = await commercialEntitlementSnapshot({ account: auth.account });
+        return json({ entitlement: publicEntitlementSnapshot(snapshot) });
       }
       if (path === '/delivery-profiles') {
         if (!internalAuthorized) return unauthorized();
@@ -7897,16 +8212,30 @@ export default async (request, context = {}) => {
       if (!planJobAccess.ok) return planJobAccess.response;
       const personalization = await resolvePersonalizationForRequest(payload, clientId);
       const requestId = generationRequestId(payload);
-      const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'plan-jobs' });
+      const reservation = await reserveGenerationRequest({
+        request,
+        clientId,
+        requestId,
+        route: 'plan-jobs',
+        customerUnit: 'strategy_cycle',
+        usageType: 'initial_plan',
+      });
+      if (reservation.quota_exceeded && reservation.quota_enforced) return quotaExceededResponse(reservation);
       if (reservation.would_rate_limit && reservation.rate_limit_enforced) {
         await completeGenerationMetering({ reservation, clientId, outcome: 'rate_limited', error: 'rate_limited' });
         return rateLimitedResponse(reservation);
       }
-      const job = await createPlanJob({
-        ...personalization.payload,
-        client_id: clientId,
-        request_id: requestId,
-      }, reservation);
+      let job;
+      try {
+        job = await createPlanJob({
+          ...personalization.payload,
+          client_id: clientId,
+          request_id: requestId,
+        }, reservation);
+      } catch (error) {
+        await completeGenerationMetering({ reservation, clientId, outcome: 'failed', error: error?.message || 'plan_job_create_failed' });
+        throw error;
+      }
       await linkGenerationReservation(reservation, job.job_id);
       if (!reservation.duplicate) queuePlanJob(context, clientId, job.job_id);
       return json(clientVisiblePlanJob(job), 202);
@@ -8007,7 +8336,17 @@ export default async (request, context = {}) => {
       if (!adviceAccess.ok) return adviceAccess.response;
       const personalization = await resolvePersonalizationForRequest(payload, clientId);
       const requestId = generationRequestId(payload);
-      const reservation = await reserveGenerationRequest({ request, clientId, requestId, route: 'customer-growth-advice' });
+      const reservesStrategyCycle = customerAdviceReservesStrategyCycle(personalization.payload);
+      const reservation = await reserveGenerationRequest({
+        request,
+        clientId,
+        requestId,
+        route: 'customer-growth-advice',
+        customerUnit: reservesStrategyCycle ? 'strategy_cycle' : '',
+        usageType: reservesStrategyCycle ? 'next_round' : 'daily_advice',
+        usageReservationId: reservesStrategyCycle ? customerAdviceStrategyCycleId(personalization.payload) : '',
+      });
+      if (reservation.quota_exceeded && reservation.quota_enforced) return quotaExceededResponse(reservation);
       if (reservation.would_rate_limit && reservation.rate_limit_enforced) {
         await completeGenerationMetering({ reservation, clientId, outcome: 'rate_limited', error: 'rate_limited' });
         return rateLimitedResponse(reservation);

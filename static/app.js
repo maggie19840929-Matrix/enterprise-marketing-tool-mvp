@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.132';
-const VERSION_LABEL = 'v1.6.132 · AI 内容策略定位版';
+const APP_VERSION = '1.6.133';
+const VERSION_LABEL = 'v1.6.133 · 套餐与额度地基版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -287,6 +287,7 @@ let customerAccountState = {
   enabled: false,
   signed_in: false,
   account: null,
+  entitlement: null,
   clients: [],
   challenge_id: '',
   email: '',
@@ -1867,6 +1868,7 @@ function customerPickShort(text, fallback){
 
 function customerFriendlyError(error){
   const raw = String(error?.message || '');
+  if (error?.code === 'quota_exceeded') return '本月生成额度已用完。已填写的信息还在，可先查看套餐或继续记录内容效果。';
   if (error?.status === 429 || error?.code === 'rate_limited') return '生成太频繁，稍等片刻再试。';
   if (raw.includes('缺少必填字段')) return '刚刚生成失败了，请检查必填信息是否填写完整。';
   if (raw.includes('生成时间过长') || raw.includes('timeout')) return '生成时间过长，请稍后重试；如果仍失败，请先检查网络后再提交。';
@@ -1887,6 +1889,11 @@ function setCustomerGenerationRetryVisible(visible, label = ''){
   if (!button) return;
   button.hidden = !visible || !lastCustomerGenerationPayload;
   button.textContent = label || (pendingCustomerPlanJob ? '继续获取结果' : '重新尝试生成');
+}
+
+function setCustomerQuotaPlanLinkVisible(visible){
+  const link = $('#customerQuotaPlanLink');
+  if (link) link.hidden = !visible;
 }
 
 function customerNeedsOfferDetail(payload = {}){
@@ -2157,6 +2164,7 @@ function applyCustomerPlanJobResult(result = {}, scopedPayload = {}){
   lastCustomerGenerationPayload = null;
   pendingCustomerPlanJob = null;
   setCustomerGenerationRetryVisible(false);
+  setCustomerQuotaPlanLinkVisible(false);
   hideCustomerCoCreation();
   renderCustomerGeneratedState(generatedState, {focus: true, step: 'plan'});
 }
@@ -2165,6 +2173,7 @@ async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton
   const errorBox = $('#customerCoCreationSection')?.hidden ? '#customerFormError' : '#customerCoCreationMessage';
   lastCustomerGenerationPayload = sanitizeCustomerPayload({...scopedPayload});
   setCustomerGenerationRetryVisible(false);
+  setCustomerQuotaPlanLinkVisible(false);
   setCustomerMessage(errorBox, '');
   await withBusy(triggerButton, ['正在分析业务...', '正在生成选题...', '正在适配平台...'], async () => {
     try {
@@ -2180,13 +2189,15 @@ async function submitCustomerAssessmentPayload(scopedPayload = {}, triggerButton
       const result = await pollCustomerPlanJob(submitted, clientId);
       applyCustomerPlanJobResult(result, scopedPayload);
     } catch (error) {
+      const quotaExceeded = error?.code === 'quota_exceeded';
       if (error?.code === 'plan_job_pending' && pendingCustomerPlanJob) {
         setCustomerMessage(errorBox, '内容建议仍在生成中。稍后点击“继续获取结果”，不会重复提交。', 'error');
       } else {
         pendingCustomerPlanJob = null;
         setCustomerMessage(errorBox, customerFriendlyError(error), 'error');
       }
-      setCustomerGenerationRetryVisible(true, error?.code === 'plan_job_pending' ? '继续获取结果' : '重新尝试生成');
+      setCustomerQuotaPlanLinkVisible(quotaExceeded);
+      setCustomerGenerationRetryVisible(!quotaExceeded, error?.code === 'plan_job_pending' ? '继续获取结果' : '重新尝试生成');
     }
   });
 }
@@ -3757,6 +3768,23 @@ function customerAccountPlanLabel(planCode = 'free'){
   return labels[String(planCode || '').toLowerCase()] || 'Free';
 }
 
+function customerEntitlementUsageText(entitlement = {}){
+  entitlement = entitlement || {};
+  const used = Number(entitlement.usage?.strategy_cycles_used || 0);
+  const reserved = Number(entitlement.usage?.strategy_cycles_reserved || used);
+  const limit = Number(entitlement.limits?.strategy_cycles || 0);
+  return `${Math.max(used, reserved)} / ${limit} 轮策略周期`;
+}
+
+function customerEntitlementRefreshText(entitlement = {}){
+  entitlement = entitlement || {};
+  const value = String(entitlement.refresh_at || '').trim();
+  if (!value) return '登录后查看本期额度';
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return '按当前套餐周期刷新';
+  return `${time.toLocaleDateString('zh-CN', {timeZone:'Asia/Shanghai', month:'numeric', day:'numeric'})} 刷新`;
+}
+
 function customerAccountProjectRows(){
   return (Array.isArray(customerAccountState.clients) ? customerAccountState.clients : [])
     .flatMap((client) => (Array.isArray(client?.projects) ? client.projects : []).map((project) => ({
@@ -3790,7 +3818,13 @@ function renderCustomerAccountDialog(){
     : '登录后可跨设备找回项目。未登录也能继续使用。';
 
   const plan = $('#customerAccountPlan');
-  if (plan) plan.textContent = customerAccountPlanLabel(customerAccountState.account?.plan_code);
+  if (plan) plan.textContent = customerAccountPlanLabel(customerAccountState.entitlement?.plan_code || customerAccountState.account?.plan_code);
+  const usage = $('#customerAccountUsage');
+  const refresh = $('#customerAccountUsageRefresh');
+  if (usage) usage.textContent = customerAccountState.entitlement
+    ? customerEntitlementUsageText(customerAccountState.entitlement)
+    : '正在读取本期额度...';
+  if (refresh) refresh.textContent = customerEntitlementRefreshText(customerAccountState.entitlement);
   const saved = loadCustomerTrialState({allowDedicatedFallback: true});
   const canBind = customerHasGeneratedState(saved);
   const bindButton = $('#customerAccountBindCurrent');
@@ -3817,16 +3851,22 @@ async function loadCustomerAccountSession({loadProjects = true} = {}){
     customerAccountState.enabled = session.enabled === true;
     customerAccountState.signed_in = session.signed_in === true;
     customerAccountState.account = session.account || null;
+    customerAccountState.entitlement = null;
     customerAccountState.clients = [];
     if (customerAccountState.signed_in && loadProjects) {
-      const projects = await api('/api/account/projects', {timeoutMs:10000});
+      const [projects, entitlement] = await Promise.all([
+        api('/api/account/projects', {timeoutMs:10000}),
+        api('/api/account/entitlements', {timeoutMs:10000}).catch(() => ({entitlement:null})),
+      ]);
       customerAccountState.account = projects.account || customerAccountState.account;
       customerAccountState.clients = Array.isArray(projects.clients) ? projects.clients : [];
+      customerAccountState.entitlement = entitlement.entitlement || null;
     }
   } catch {
     customerAccountState.enabled = false;
     customerAccountState.signed_in = false;
     customerAccountState.account = null;
+    customerAccountState.entitlement = null;
     customerAccountState.clients = [];
   } finally {
     customerAccountState.loading = false;
@@ -3959,7 +3999,7 @@ async function logoutCustomerAccount(){
   if (button) button.disabled = true;
   try {
     await api('/api/auth/logout', {method: 'POST', timeoutMs: 10000});
-    customerAccountState = {...customerAccountState, signed_in: false, account: null, clients: [], challenge_id: '', email: ''};
+    customerAccountState = {...customerAccountState, signed_in: false, account: null, entitlement: null, clients: [], challenge_id: '', email: ''};
     renderCustomerAccountDialog();
     setCustomerAccountMessage('已退出登录。当前浏览器里的项目仍然保留。');
   } catch {

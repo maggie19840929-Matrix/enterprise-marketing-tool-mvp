@@ -159,6 +159,35 @@ EMAIL_FROM=已验证发件域名下的发件地址
 
 P1a 目前只提供后端安全地基，公开首页不增加登录墙。未配置邮件服务或关闭 `ACCOUNT_AUTH_ENABLED` 时，邮箱验证接口返回友好不可用状态，现有匿名流程保持原样。
 
+### P2 套餐、权益与用量地基
+
+套餐配置、权益快照和产品用量分别使用 `subscriptions/v1`、`entitlements/v1`、`usage/v1` 命名空间，不迁移或修改客户的 `global-project-store.*` 数据。首轮完整内容计划计 1 轮策略周期；反馈达到下一轮解锁门槛时，同一轮计划集合只预留 1 次，成功交付后核销，失败或限流后释放。
+
+```bash
+COMMERCIALIZATION_ENABLED=false
+FREE_TRIAL_STRATEGY_CYCLES=3
+FREE_TRIAL_VALID_DAYS=30
+FREE_MONTHLY_STRATEGY_CYCLES=1
+PLUS_MONTHLY_STRATEGY_CYCLES=4
+PRO_MONTHLY_STRATEGY_CYCLES=12
+FREE_MONTHLY_COMPLETE_CONTENT=0
+PLUS_MONTHLY_COMPLETE_CONTENT=12
+PRO_MONTHLY_COMPLETE_CONTENT=40
+FREE_DAILY_GENERATIONS=1
+PLUS_DAILY_GENERATIONS=10
+PRO_DAILY_GENERATIONS=30
+FREE_ACTIVE_PROJECTS=1
+PLUS_ACTIVE_PROJECTS=3
+PRO_ACTIVE_PROJECTS=10
+PLUS_MONTHLY_PRICE_CNY=299
+PLUS_YEARLY_PRICE_CNY=2990
+PRO_MONTHLY_PRICE_CNY=899
+PRO_YEARLY_PRICE_CNY=8990
+PRO_PUBLIC_SALES_ENABLED=false
+```
+
+`COMMERCIALIZATION_ENABLED=false` 是上线前的观察模式：系统记录策略周期和本期用量，但不会拦截现有匿名或登录客户；观察期记录不会在以后开启强制模式时追溯扣减。只有人工确认后改为 `true`，服务端才会在额度不足时返回 `quota_exceeded`。客户界面只展示套餐、策略周期、完整内容和刷新时间，不展示 Token、模型供应商或内部成本。
+
 ### 客户连续内容周期
 
 客户版主路径：

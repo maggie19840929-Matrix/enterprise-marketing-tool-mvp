@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>联系我们 · 获客罗盘</title>
+  <title>套餐与额度｜获客罗盘</title>
   <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.133" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css?v=1.6.133" />
   <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.133" />
 </head>
-<body class="customer-mode customer-info-mode">
+<body class="customer-mode customer-info-mode customer-plans-mode">
   <div class="customer-trial-app">
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页"><span class="fp-matrix-lockup"><img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.133" alt="" /><span class="fp-matrix-type"><span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span><span class="fp-matrix-descriptor">企业第一方增长智能</span></span></span></a>
@@ -20,19 +20,19 @@
       </div>
     </nav>
 
-    <main class="customer-info-pages">
-      <article class="customer-info-page">
-        <p class="customer-kicker">联系我们</p>
-        <h1>需要接入企业版或协助试用，可以联系我们</h1>
-        <p>如果你希望把获客罗盘用于团队内部试用、客户项目管理或长期内容增长复盘，可以通过以下方式联系。</p>
-        <div class="customer-info-contact">
-          <span>服务主体</span>
-          <strong>南京尚下联信息科技有限公司</strong>
-          <span>联系与投诉邮箱</span>
-          <strong>contact@fpmatrix.cn</strong>
-          <p>我们会尽快处理试用支持、数据删除、更正、投诉举报和商务合作请求。</p>
-        </div>
-      </article>
+    <main class="customer-plans-page">
+      <header class="customer-plans-head">
+        <p class="customer-kicker">PLANS &amp; USAGE</p>
+        <h1>按经营节奏，选择合适的内容周期</h1>
+        <p>先免费完成一个真实周期。需要更稳定的月度内容经营时，再升级套餐。</p>
+      </header>
+      <section id="commercialPlanStatus" class="customer-plan-status" aria-live="polite">正在读取套餐...</section>
+      <section id="commercialPlanGrid" class="customer-plan-grid" aria-label="套餐列表"></section>
+      <p id="commercialPlanMessage" class="customer-plan-message" role="status" hidden></p>
+      <section class="customer-plan-note">
+        <h2>额度怎么计算</h2>
+        <p>生成一轮完整内容计划，计 1 轮策略周期；单纯记录发布效果不会重复扣减。完整文案、图片和视频等生产能力，将在稳定开放后按“份”计量。</p>
+      </section>
     </main>
 
     <footer class="customer-site-footer">
@@ -46,5 +46,6 @@
       </div>
     </footer>
   </div>
+  <script src="/plans.js?v=1.6.133"></script>
 </body>
 </html>
