@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.136" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.136" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.136" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.137" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.137" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.137" />
 </head>
 <body class="customer-mode">
   <script>
@@ -24,7 +24,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.136" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.137" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -57,7 +57,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.136" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.137" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -466,7 +466,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.136" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.137" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -576,7 +576,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.136" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.137" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -631,6 +631,21 @@
         <div id="allCustomersList" class="all-customers-toolbar-main generation-list empty">暂无客户。</div>
       </div>
       <div id="allCustomersStatus" class="customer-message success">正在读取客户列表...</div>
+    </section>
+
+    <section id="internalBillingPanel" class="customer-card internal-billing-panel" hidden>
+      <details>
+        <summary>
+          <span><strong>商业订单</strong><small>确认客户到账后，系统自动开通套餐</small></span>
+          <em id="internalBillingPendingCount">0 笔待确认</em>
+        </summary>
+        <div class="internal-billing-head">
+          <p>订单价格由服务端锁定。确认操作按订单号幂等，重复点击不会重复延长权益。</p>
+          <button id="internalBillingRefresh" class="secondary" type="button">刷新订单</button>
+        </div>
+        <div id="internalBillingStatus" class="customer-message success">展开后读取商业订单。</div>
+        <div id="internalBillingList" class="internal-billing-list empty">暂无订单。</div>
+      </details>
     </section>
 
     <section id="customerDetailDashboard" class="customer-card customer-detail-dashboard" hidden>
@@ -1124,7 +1139,7 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/public-account-menu.js?v=1.6.136"></script>
-  <script src="/app.js?v=1.6.136"></script>
+  <script src="/public-account-menu.js?v=1.6.137"></script>
+  <script src="/app.js?v=1.6.137"></script>
 </body>
 </html>

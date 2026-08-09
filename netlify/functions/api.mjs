@@ -9,8 +9,8 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 
-const APP_VERSION = '1.6.136';
-const VERSION_LABEL = 'v1.6.136 · 邀请奖励与权益闭环版';
+const APP_VERSION = '1.6.137';
+const VERSION_LABEL = 'v1.6.137 · 商业订单与权益开通版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
@@ -114,16 +114,17 @@ const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
 ];
 
 const CUSTOMER_PUBLIC_BRAND_PLACEHOLDER = '__fp_public_brand__';
+const CUSTOMER_PUBLIC_DOMAIN_PLACEHOLDER = '__fp_public_domain__';
 const sanitizeCustomerText = (value = '') => {
   const raw = String(value);
   if (/^data:(?:image|video)\//i.test(raw)) return raw;
-  const withPublicBrandProtected = raw.replace(
-    forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'),
-    CUSTOMER_PUBLIC_BRAND_PLACEHOLDER,
-  );
+  const withPublicBrandProtected = raw
+    .replace(forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'), CUSTOMER_PUBLIC_BRAND_PLACEHOLDER)
+    .replace(forbiddenPattern('fp' + 'matrix\\.cn', 'gi'), CUSTOMER_PUBLIC_DOMAIN_PLACEHOLDER);
   return CUSTOMER_FORBIDDEN_REPLACEMENTS
     .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), withPublicBrandProtected)
-    .replaceAll(CUSTOMER_PUBLIC_BRAND_PLACEHOLDER, 'FP ' + 'Ma' + 'trix');
+    .replaceAll(CUSTOMER_PUBLIC_BRAND_PLACEHOLDER, 'FP ' + 'Ma' + 'trix')
+    .replaceAll(CUSTOMER_PUBLIC_DOMAIN_PLACEHOLDER, 'fp' + 'matrix.cn');
 };
 
 const sanitizeCustomerPayload = (value) => {
@@ -4005,6 +4006,10 @@ const commercialBlobSet = async (key = '', value = {}) => {
 const COMMERCIAL_SUBSCRIPTION_PREFIX = 'subscriptions/v1';
 const COMMERCIAL_ENTITLEMENT_PREFIX = 'entitlements/v1';
 const COMMERCIAL_USAGE_PREFIX = 'usage/v1';
+const COMMERCIAL_ORDER_PREFIX = 'orders/v1';
+const COMMERCIAL_ORDER_INDEX_PREFIX = 'order-index/v1';
+const COMMERCIAL_ORDER_IDEMPOTENCY_PREFIX = 'order-idempotency/v1';
+const COMMERCIAL_BILLING_AUDIT_PREFIX = 'billing-audit/v1';
 const commercialPlanDefinitions = () => ({
   free: {
     code: 'free',
@@ -4070,6 +4075,12 @@ const commercialNextMonthIso = () => {
 };
 const commercialSubscriptionKey = (accountId = '') => `${COMMERCIAL_SUBSCRIPTION_PREFIX}/${String(accountId || '').trim()}`;
 const commercialEntitlementKey = (subjectKey = '') => `${COMMERCIAL_ENTITLEMENT_PREFIX}/${subjectKey}`;
+const commercialOrderPrefix = (accountId = '') => `${COMMERCIAL_ORDER_PREFIX}/${String(accountId || '').trim()}/`;
+const commercialOrderKey = (accountId = '', orderId = '') => `${commercialOrderPrefix(accountId)}${String(orderId || '').trim()}`;
+const commercialOrderIndexKey = (orderId = '') => `${COMMERCIAL_ORDER_INDEX_PREFIX}/${String(orderId || '').trim()}`;
+const commercialOrderIdempotencyKey = (accountId = '', key = '') =>
+  `${COMMERCIAL_ORDER_IDEMPOTENCY_PREFIX}/${String(accountId || '').trim()}/${accountDigest('billing-order', key)}`;
+const commercialBillingAuditPrefix = (orderId = '') => `${COMMERCIAL_BILLING_AUDIT_PREFIX}/${String(orderId || '').trim()}/`;
 const commercialUsagePrefix = (subjectKey = '', period = '') => `${COMMERCIAL_USAGE_PREFIX}/${subjectKey}/${period}/`;
 const commercialUsageKey = (subjectKey = '', period = '', requestId = '') =>
   `${commercialUsagePrefix(subjectKey, period)}${meteringHash('commercial-usage', requestId)}`;
@@ -4576,6 +4587,251 @@ const accountProjectSummaries = async (account = {}) => {
     });
   }
   return clients;
+};
+const billingIntervalValue = (value = '') => ['month', 'year'].includes(String(value || '').trim().toLowerCase())
+  ? String(value || '').trim().toLowerCase()
+  : 'month';
+const billingOrderStatusValue = (value = '') => [
+  'pending_payment',
+  'processing',
+  'paid',
+  'canceled',
+  'expired',
+  'failed',
+].includes(String(value || '').trim()) ? String(value || '').trim() : 'pending_payment';
+const billingOrderTtlHours = () => envInteger('BILLING_ORDER_TTL_HOURS', 72, { min: 1, max: 24 * 30 });
+const billingContactEmail = () => normalizeEmail(envValue('BILLING_CONTACT_EMAIL') || 'contact@fpmatrix.cn');
+const billingPaymentMode = () => 'manual_review';
+const billingOrderAmount = (plan = {}, interval = 'month') => {
+  const priceCny = interval === 'year' ? Number(plan.yearly_price_cny || 0) : Number(plan.monthly_price_cny || 0);
+  return {
+    currency: 'CNY',
+    amount_cny: priceCny,
+    amount_fen: Math.round(priceCny * 100),
+  };
+};
+const billingOrderReference = (orderId = '') => String(orderId || '').replace(/^order_/, '').slice(-12).toUpperCase();
+const publicBillingOrder = (order = {}) => ({
+  order_id: String(order.order_id || ''),
+  order_no: String(order.order_no || ''),
+  plan_code: planCodeValue(order.plan_code),
+  plan_name: String(order.plan_name || ''),
+  billing_interval: billingIntervalValue(order.billing_interval),
+  amount_cny: Number(order.amount_cny || 0),
+  currency: String(order.currency || 'CNY'),
+  status: billingOrderStatusValue(order.status),
+  payment_mode: String(order.payment_mode || 'manual_review'),
+  payment: {
+    contact_email: String(order.payment?.contact_email || billingContactEmail()),
+    reference: String(order.payment?.reference || order.order_no || ''),
+    instructions: String(order.payment?.instructions || ''),
+  },
+  created_at: String(order.created_at || ''),
+  expires_at: String(order.expires_at || ''),
+  paid_at: String(order.paid_at || ''),
+  activated_at: String(order.activated_at || ''),
+  subscription_ends_at: String(order.subscription_ends_at || ''),
+});
+const internalBillingOrder = (order = {}) => ({
+  ...publicBillingOrder(order),
+  account_reference: String(order.account_id || '').slice(-10),
+  payment_reference: String(order.payment_reference || ''),
+  operator_note: String(order.operator_note || ''),
+  updated_at: String(order.updated_at || ''),
+});
+const readBillingOrder = async (orderId = '') => {
+  const safeOrderId = String(orderId || '').trim();
+  if (!/^order_[a-z0-9]+$/i.test(safeOrderId)) return null;
+  const index = await commercialBlobGet(commercialOrderIndexKey(safeOrderId));
+  if (!index?.account_id) return null;
+  return commercialBlobGet(commercialOrderKey(index.account_id, safeOrderId));
+};
+const readBillingOrdersForAccount = async (accountId = '') => {
+  const keys = await commercialBlobKeys(commercialOrderPrefix(accountId));
+  const orders = (await Promise.all(keys.map((key) => commercialBlobGet(key)))).filter(Boolean);
+  return orders.sort((a, b) => timestampToEpoch(b.created_at) - timestampToEpoch(a.created_at));
+};
+const listInternalBillingOrders = async ({ status = '', limit = 100 } = {}) => {
+  const keys = (await commercialBlobKeys(`${COMMERCIAL_ORDER_INDEX_PREFIX}/`)).slice(0, 1000);
+  const indexes = (await Promise.all(keys.map((key) => commercialBlobGet(key)))).filter(Boolean);
+  const orders = (await Promise.all(indexes.map((item) => commercialBlobGet(commercialOrderKey(item.account_id, item.order_id))))).filter(Boolean);
+  const safeStatus = String(status || '').trim();
+  return orders
+    .filter((order) => !safeStatus || order.status === safeStatus)
+    .sort((a, b) => timestampToEpoch(b.updated_at || b.created_at) - timestampToEpoch(a.updated_at || a.created_at))
+    .slice(0, Math.max(1, Math.min(200, Number(limit || 100))))
+    .map(internalBillingOrder);
+};
+const writeBillingAudit = async ({ order = {}, action = '', actor = '', before = null, after = null, note = '' } = {}) => {
+  const occurredAt = nowIso();
+  const auditId = `audit_${randomUUID().replaceAll('-', '')}`;
+  const record = {
+    audit_id: auditId,
+    order_id: String(order.order_id || ''),
+    action: String(action || ''),
+    actor: String(actor || 'system').slice(0, 80),
+    before_status: String(before?.status || ''),
+    after_status: String(after?.status || ''),
+    note: String(note || '').trim().slice(0, 300),
+    occurred_at: occurredAt,
+  };
+  await commercialBlobSet(`${commercialBillingAuditPrefix(order.order_id)}${occurredAt}_${auditId}`, record);
+  return record;
+};
+const createBillingOrder = async ({ account = {}, payload = {} } = {}) => {
+  const accountId = String(account.account_id || '').trim();
+  if (!accountId) throw new Error('创建订单需要登录账号');
+  const planCode = planCodeValue(payload.plan_code);
+  const plan = commercialPlanDefinitions()[planCode];
+  if (!plan || planCode === 'free') throw new Error('请选择 Plus 或 Pro 套餐');
+  if (!plan.public_sales) throw new Error('Pro 当前为邀请开通，请联系团队评估');
+  const requestedInterval = String(payload.billing_interval || '').trim().toLowerCase();
+  if (!['month', 'year'].includes(requestedInterval)) throw new Error('请选择月付或年付周期');
+  const interval = billingIntervalValue(requestedInterval);
+  const idempotencyKey = String(payload.idempotency_key || '').trim();
+  if (!/^[a-z0-9_-]{16,100}$/i.test(idempotencyKey)) throw new Error('订单请求标识无效，请刷新后重试');
+  const existingIdempotency = await commercialBlobGet(commercialOrderIdempotencyKey(accountId, idempotencyKey));
+  if (existingIdempotency?.order_id) {
+    const existing = await commercialBlobGet(commercialOrderKey(accountId, existingIdempotency.order_id));
+    if (existing) return { order: existing, duplicate: true };
+  }
+  const createdAt = nowIso();
+  const orderId = `order_${accountDigest('billing-order-id', `${accountId}:${idempotencyKey}`).slice(0, 32)}`;
+  const amount = billingOrderAmount(plan, interval);
+  const orderNo = `FP${shanghaiDateIso().replaceAll('-', '')}${billingOrderReference(orderId)}`;
+  const order = {
+    order_id: orderId,
+    order_no: orderNo,
+    account_id: accountId,
+    plan_code: planCode,
+    plan_name: plan.name,
+    billing_interval: interval,
+    ...amount,
+    status: 'pending_payment',
+    payment_mode: billingPaymentMode(),
+    payment: {
+      contact_email: billingContactEmail(),
+      reference: orderNo,
+      instructions: `请联系 ${billingContactEmail()} 完成付款，并在付款备注中填写订单号 ${orderNo}。到账确认后权益自动开通。`,
+    },
+    idempotency_hash: accountDigest('billing-idempotency', idempotencyKey),
+    price_version: APP_VERSION,
+    created_at: createdAt,
+    updated_at: createdAt,
+    expires_at: new Date(Date.now() + billingOrderTtlHours() * 60 * 60 * 1000).toISOString(),
+    paid_at: '',
+    activated_at: '',
+    subscription_ends_at: '',
+  };
+  await commercialBlobSet(commercialOrderKey(accountId, orderId), order);
+  await commercialBlobSet(commercialOrderIndexKey(orderId), { order_id: orderId, account_id: accountId, created_at: createdAt });
+  await commercialBlobSet(commercialOrderIdempotencyKey(accountId, idempotencyKey), { order_id: orderId, created_at: createdAt });
+  await writeBillingAudit({ order, action: 'order_created', actor: 'customer', after: order });
+  return { order, duplicate: false };
+};
+const cancelBillingOrder = async ({ account = {}, orderId = '' } = {}) => {
+  const order = await commercialBlobGet(commercialOrderKey(account.account_id, orderId));
+  if (!order) return null;
+  if (order.status === 'canceled') return order;
+  if (order.status !== 'pending_payment') throw new Error('当前订单状态不能取消');
+  const next = { ...order, status: 'canceled', canceled_at: nowIso(), updated_at: nowIso() };
+  await commercialBlobSet(commercialOrderKey(account.account_id, orderId), next);
+  await writeBillingAudit({ order, action: 'order_canceled', actor: 'customer', before: order, after: next });
+  return next;
+};
+const billingPeriodEnd = (startIso = '', interval = 'month') => {
+  const start = new Date(startIso || Date.now());
+  const year = start.getUTCFullYear();
+  const month = start.getUTCMonth();
+  const day = start.getUTCDate();
+  const targetMonth = month + (interval === 'year' ? 12 : 1);
+  const targetYear = year + Math.floor(targetMonth / 12);
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(
+    targetYear,
+    normalizedMonth,
+    Math.min(day, lastDay),
+    start.getUTCHours(),
+    start.getUTCMinutes(),
+    start.getUTCSeconds(),
+    start.getUTCMilliseconds(),
+  )).toISOString();
+};
+const applyPaidOrderSubscription = async (order = {}) => {
+  const key = commercialSubscriptionKey(order.account_id);
+  const current = await commercialBlobGet(key);
+  const appliedOrderIds = ensureArray(current?.payment_order_ids).map(String);
+  if (appliedOrderIds.includes(String(order.order_id))) return current;
+  const now = nowIso();
+  const currentEndsAt = Date.parse(current?.ends_at || '');
+  const samePaidPlanActive = current?.status === 'active'
+    && planCodeValue(current?.plan_code) === planCodeValue(order.plan_code)
+    && Number.isFinite(currentEndsAt)
+    && currentEndsAt > Date.now();
+  const periodStart = samePaidPlanActive ? new Date(currentEndsAt).toISOString() : now;
+  const next = {
+    ...(current || {}),
+    subscription_id: current?.subscription_id || `sub_${randomUUID().replaceAll('-', '')}`,
+    account_id: order.account_id,
+    plan_code: planCodeValue(order.plan_code),
+    status: 'active',
+    billing_interval: billingIntervalValue(order.billing_interval),
+    source: 'manual_payment',
+    starts_at: samePaidPlanActive ? (current.starts_at || now) : now,
+    period_start: periodStart,
+    ends_at: billingPeriodEnd(periodStart, order.billing_interval),
+    period_end: billingPeriodEnd(periodStart, order.billing_interval),
+    payment_order_ids: [...new Set([...appliedOrderIds, String(order.order_id)])],
+    updated_by: 'internal_operator',
+    updated_at: now,
+    created_at: current?.created_at || now,
+  };
+  await commercialBlobSet(key, next);
+  return next;
+};
+const confirmBillingOrder = async ({ orderId = '', payload = {} } = {}) => {
+  const order = await readBillingOrder(orderId);
+  if (!order) return null;
+  if (order.status === 'paid' && order.activated_at) return { order, duplicate: true };
+  if (!['pending_payment', 'processing'].includes(order.status)) throw new Error('当前订单状态不能确认付款');
+  if (Date.parse(order.expires_at || '') <= Date.now()) {
+    const expired = { ...order, status: 'expired', updated_at: nowIso() };
+    await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), expired);
+    await writeBillingAudit({ order, action: 'order_expired', actor: 'internal_operator', before: order, after: expired });
+    throw new Error('订单已经过期，请客户重新下单');
+  }
+  const paymentReference = String(payload.payment_reference || '').trim();
+  if (paymentReference.length < 3 || paymentReference.length > 120) throw new Error('请填写有效的到账凭证或流水号');
+  if (payload.amount_fen !== undefined && Number(payload.amount_fen) !== Number(order.amount_fen)) throw new Error('到账金额与订单金额不一致');
+  const processing = {
+    ...order,
+    status: 'processing',
+    payment_reference: paymentReference,
+    operator_note: String(payload.operator_note || '').trim().slice(0, 300),
+    updated_at: nowIso(),
+  };
+  await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), processing);
+  const subscription = await applyPaidOrderSubscription(processing);
+  const activatedAt = nowIso();
+  const paid = {
+    ...processing,
+    status: 'paid',
+    paid_at: processing.paid_at || activatedAt,
+    activated_at: activatedAt,
+    subscription_ends_at: subscription.ends_at,
+    updated_at: activatedAt,
+  };
+  await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), paid);
+  await writeBillingAudit({
+    order,
+    action: 'payment_confirmed',
+    actor: 'internal_operator',
+    before: order,
+    after: paid,
+    note: processing.operator_note,
+  });
+  return { order: paid, duplicate: false };
 };
 const commercialSubjectFromAccount = (account = {}) => ({
   subject_key: `account/${String(account.account_id || '').trim()}`,
@@ -8176,7 +8432,7 @@ export default async (request, context = {}) => {
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -8198,6 +8454,7 @@ export default async (request, context = {}) => {
         commercialization: {
           enabled: commercializationEnabled(),
           quota_mode: commercializationEnabled() ? 'enforced' : 'observe_only',
+          billing_mode: billingPaymentMode(),
         },
       });
       if (path === '/commercial/plans') {
@@ -8226,6 +8483,28 @@ export default async (request, context = {}) => {
         const auth = await readAccountSession(request);
         if (!auth) return accountUnauthorized();
         return json({ referral: await referralDashboard(auth.account) });
+      }
+      if (path === '/billing/orders') {
+        const auth = await readAccountSession(request);
+        if (!auth) return accountUnauthorized();
+        const orders = await readBillingOrdersForAccount(auth.account.account_id);
+        return json({ orders: orders.map(publicBillingOrder) });
+      }
+      const billingOrderMatch = path.match(/^\/billing\/orders\/([^/]+)$/);
+      if (billingOrderMatch) {
+        const auth = await readAccountSession(request);
+        if (!auth) return accountUnauthorized();
+        const order = await commercialBlobGet(commercialOrderKey(auth.account.account_id, decodeURIComponent(billingOrderMatch[1])));
+        return order ? json({ order: publicBillingOrder(order) }) : json({ error: '订单不存在' }, 404);
+      }
+      if (path === '/internal/billing/orders') {
+        if (!internalAuthorized) return unauthorized();
+        return json({
+          orders: await listInternalBillingOrders({
+            status: url.searchParams.get('status') || '',
+            limit: url.searchParams.get('limit') || 100,
+          }),
+        }, 200, { internal: true });
       }
       if (path === '/delivery-profiles') {
         if (!internalAuthorized) return unauthorized();
@@ -8433,6 +8712,27 @@ export default async (request, context = {}) => {
       const linked = await linkAccountClient({ request, clientId: payload.client_id || payload.customer_key, internalAuthorized });
       if (!linked.ok) return linked.response;
       return json({ account: publicAccount(linked.account), client_id: linked.client_id }, 200);
+    }
+    if (request.method === 'POST' && path === '/billing/orders') {
+      const auth = await readAccountSession(request);
+      if (!auth) return accountUnauthorized();
+      const created = await createBillingOrder({ account: auth.account, payload });
+      return json({ order: publicBillingOrder(created.order), duplicate: created.duplicate }, created.duplicate ? 200 : 201);
+    }
+    const cancelBillingOrderMatch = path.match(/^\/billing\/orders\/([^/]+)\/cancel$/);
+    if (request.method === 'POST' && cancelBillingOrderMatch) {
+      const auth = await readAccountSession(request);
+      if (!auth) return accountUnauthorized();
+      const order = await cancelBillingOrder({ account: auth.account, orderId: decodeURIComponent(cancelBillingOrderMatch[1]) });
+      return order ? json({ order: publicBillingOrder(order) }) : json({ error: '订单不存在' }, 404);
+    }
+    const confirmBillingOrderMatch = path.match(/^\/internal\/billing\/orders\/([^/]+)\/confirm$/);
+    if (request.method === 'POST' && confirmBillingOrderMatch) {
+      if (!internalAuthorized) return unauthorized();
+      const confirmed = await confirmBillingOrder({ orderId: decodeURIComponent(confirmBillingOrderMatch[1]), payload });
+      return confirmed
+        ? json({ order: internalBillingOrder(confirmed.order), duplicate: confirmed.duplicate }, 200, { internal: true })
+        : json({ error: '订单不存在' }, 404, { internal: true });
     }
     if (request.method === 'POST' && path === '/feishu/inbound') {
       if (!hasValidFeishuInboundAuth(request)) return json({ ok: false, error: '飞书回流鉴权失败' }, 401, { internal: true });

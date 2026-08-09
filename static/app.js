@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.136';
-const VERSION_LABEL = 'v1.6.136 · 邀请奖励与权益闭环版';
+const APP_VERSION = '1.6.137';
+const VERSION_LABEL = 'v1.6.137 · 商业订单与权益开通版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -157,16 +157,17 @@ const CUSTOMER_FORBIDDEN_REPLACEMENTS = [
   [forbiddenPattern('Op' + 'enClaw', 'gi'), ''],
 ];
 const CUSTOMER_PUBLIC_BRAND_PLACEHOLDER = '__fp_public_brand__';
+const CUSTOMER_PUBLIC_DOMAIN_PLACEHOLDER = '__fp_public_domain__';
 const sanitizeCustomerText = (value = '') => {
   const raw = String(value);
   if (/^data:(?:image|video)\//i.test(raw)) return raw;
-  const withPublicBrandProtected = raw.replace(
-    forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'),
-    CUSTOMER_PUBLIC_BRAND_PLACEHOLDER,
-  );
+  const withPublicBrandProtected = raw
+    .replace(forbiddenPattern('FP\\s+' + 'Ma' + 'trix', 'gi'), CUSTOMER_PUBLIC_BRAND_PLACEHOLDER)
+    .replace(forbiddenPattern('fp' + 'matrix\\.cn', 'gi'), CUSTOMER_PUBLIC_DOMAIN_PLACEHOLDER);
   return CUSTOMER_FORBIDDEN_REPLACEMENTS
     .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), withPublicBrandProtected)
-    .replaceAll(CUSTOMER_PUBLIC_BRAND_PLACEHOLDER, 'FP ' + 'Ma' + 'trix');
+    .replaceAll(CUSTOMER_PUBLIC_BRAND_PLACEHOLDER, 'FP ' + 'Ma' + 'trix')
+    .replaceAll(CUSTOMER_PUBLIC_DOMAIN_PLACEHOLDER, 'fp' + 'matrix.cn');
 };
 const sanitizeCustomerPayload = (value) => {
   if (typeof value === 'string') return sanitizeCustomerText(value);
@@ -294,6 +295,7 @@ let customerAccountState = {
   email: '',
 };
 let allCustomersState = { customers: [], errors: [], loading: false, error: '' };
+let internalBillingState = { orders: [], loading: false, error: '' };
 let customerDetailEditMode = false;
 let internalOpsTab = 'plans';
 let allCustomersLoadInFlight = null;
@@ -1614,6 +1616,7 @@ async function verifyInternalAccessToken(token = ''){
     allCustomersState = { ...allCustomersState, customers: [], errors: [], loading: true, error: '' };
     renderAllCustomersPanel();
     refreshAllCustomers({ force: true }).catch(() => {});
+    loadInternalBillingOrders().catch(() => {});
     setAppShell();
     syncRouteState();
     return true;
@@ -5042,6 +5045,81 @@ function renderAllCustomersPanel(){
   list.innerHTML = pickerHtml + multiHtml;
 }
 
+const internalBillingStatusLabel = (status = '') => ({
+  pending_payment: '待确认',
+  processing: '开通中',
+  paid: '已开通',
+  canceled: '已取消',
+  expired: '已过期',
+  failed: '处理失败',
+}[String(status || '')] || '未知状态');
+
+function renderInternalBillingPanel(){
+  const panel = $('#internalBillingPanel');
+  if (!panel) return;
+  const visible = isInternalProfile() && !isGenerationWorkbenchRoute();
+  panel.hidden = !visible;
+  if (!visible) return;
+  const pending = internalBillingState.orders.filter((order) => order.status === 'pending_payment');
+  const count = $('#internalBillingPendingCount');
+  const status = $('#internalBillingStatus');
+  const list = $('#internalBillingList');
+  if (count) count.textContent = `${pending.length} 笔待确认`;
+  if (status) {
+    status.hidden = false;
+    status.classList.toggle('error', Boolean(internalBillingState.error));
+    status.classList.toggle('success', !internalBillingState.error);
+    status.textContent = internalBillingState.loading
+      ? '正在读取商业订单...'
+      : (internalBillingState.error || `共 ${internalBillingState.orders.length} 笔订单，其中 ${pending.length} 笔等待到账确认。`);
+  }
+  if (!list) return;
+  list.classList.toggle('empty', !internalBillingState.orders.length);
+  if (!internalBillingState.orders.length) {
+    list.textContent = internalBillingState.loading ? '正在读取...' : '暂无订单。';
+    return;
+  }
+  list.innerHTML = internalBillingState.orders.map((order) => `<article class="internal-billing-order" data-billing-order-id="${esc(order.order_id)}">
+    <div class="internal-billing-order-head">
+      <div><strong>${esc(order.plan_name)} · ${order.billing_interval === 'year' ? '年付' : '月付'}</strong><span>${esc(order.order_no)} · 账号 ${esc(order.account_reference || '未知')}</span></div>
+      <em class="is-${esc(order.status)}">${esc(internalBillingStatusLabel(order.status))}</em>
+    </div>
+    <div class="internal-billing-order-meta"><span>¥${Number(order.amount_cny || 0).toLocaleString('zh-CN')}</span><span>${esc(order.created_at || '')}</span>${order.subscription_ends_at ? `<span>权益至 ${esc(order.subscription_ends_at)}</span>` : ''}</div>
+    ${order.status === 'pending_payment' ? `<div class="internal-billing-confirm"><input name="payment_reference" placeholder="到账流水号 / 凭证编号" aria-label="到账流水号" /><input name="operator_note" placeholder="备注（可选）" aria-label="订单备注" /><button type="button" data-billing-confirm="${esc(order.order_id)}">确认到账并开通</button></div>` : ''}
+  </article>`).join('');
+}
+
+async function loadInternalBillingOrders(){
+  if (!isInternalProfile() || isGenerationWorkbenchRoute()) return;
+  internalBillingState = { ...internalBillingState, loading: true, error: '' };
+  renderInternalBillingPanel();
+  try {
+    const result = await api('/api/internal/billing/orders?limit=100', { suppressInternalUnauthorized: true });
+    internalBillingState = { orders: Array.isArray(result.orders) ? result.orders : [], loading: false, error: '' };
+  } catch (error) {
+    internalBillingState = { orders: [], loading: false, error: error.message || '商业订单读取失败' };
+  }
+  renderInternalBillingPanel();
+}
+
+async function confirmInternalBillingOrder(orderId = '', card = null){
+  const paymentReference = String(card?.querySelector('[name="payment_reference"]')?.value || '').trim();
+  const operatorNote = String(card?.querySelector('[name="operator_note"]')?.value || '').trim();
+  if (!paymentReference) throw new Error('请先填写到账流水号或凭证编号');
+  const button = card?.querySelector('[data-billing-confirm]');
+  if (button) { button.disabled = true; button.textContent = '正在开通...'; }
+  try {
+    const result = await api(`/api/internal/billing/orders/${encodeURIComponent(orderId)}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ payment_reference: paymentReference, operator_note: operatorNote }),
+    });
+    toast(result.duplicate ? '该订单已经开通过，没有重复增加权益。' : '到账已确认，客户套餐权益已开通。');
+    await loadInternalBillingOrders();
+  } finally {
+    if (button?.isConnected) { button.disabled = false; button.textContent = '确认到账并开通'; }
+  }
+}
+
 function shouldReloadAllCustomers(){
   if (allCustomersLoadInFlight) return false;
   if (!allCustomersState.error && Array.isArray(allCustomersState.customers) && allCustomersState.customers.length) {
@@ -6811,6 +6889,7 @@ function renderGenerationWorkbenchRoute(){
   if (!isInternalProfile()) return;
   const routeDependentElements = [
     '#allCustomersPanel',
+    '#internalBillingPanel',
     '#customerDetailDashboard',
     '#internalOpsTabbar',
     '#feishuCollaborationPanel',
@@ -7068,6 +7147,7 @@ function syncRouteState(){
   if (clientChanged && !isGenerationWorkbenchRoute()) {
     loadAll().catch((error)=>toast(error.message));
     refreshAllCustomers({ force: true }).catch(() => {});
+    loadInternalBillingOrders().catch(() => {});
     return;
   }
   if (isGenerationWorkbenchRoute()) {
@@ -7075,6 +7155,7 @@ function syncRouteState(){
   } else {
     renderAllFromClient();
     refreshAllCustomers().catch(() => {});
+    renderInternalBillingPanel();
   }
 }
 
@@ -7239,6 +7320,7 @@ function initInternalApp(){
     .then(()=>loadFeishuCollaborationStatus())
     .catch(err=>toast(err.message));
   refreshAllCustomers({ force: true }).catch((error)=>toast(error.message || '客户列表读取失败'));
+  loadInternalBillingOrders().catch((error)=>toast(error.message || '商业订单读取失败'));
 }
 
 setAppShell();
@@ -7254,6 +7336,15 @@ $('#allCustomersPanel')?.addEventListener('click', (event) => {
   const button = event.target?.closest?.('[data-all-customer-client]');
   if (!button?.dataset?.allCustomerClient) return;
   window.location.href = '/internal/?client_id=' + encodeURIComponent(button.dataset.allCustomerClient);
+});
+$('#internalBillingRefresh')?.addEventListener('click', () => {
+  loadInternalBillingOrders().catch((error)=>toast(error.message || '商业订单读取失败'));
+});
+$('#internalBillingPanel')?.addEventListener('click', (event) => {
+  const button = event.target?.closest?.('[data-billing-confirm]');
+  if (!button?.dataset?.billingConfirm) return;
+  confirmInternalBillingOrder(button.dataset.billingConfirm, button.closest('[data-billing-order-id]'))
+    .catch((error)=>toast(error.message || '订单确认失败'));
 });
 $('#customerDetailDashboard')?.addEventListener('click', (event) => {
   const button = event.target?.closest?.('[data-detail-action]');

@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>套餐与额度｜获客罗盘</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.136" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.136" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.136" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.137" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.137" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.137" />
 </head>
 <body class="customer-mode customer-info-mode customer-plans-mode">
   <div class="customer-trial-app">
     <nav class="customer-site-nav" aria-label="主导航">
-      <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页"><span class="fp-matrix-lockup"><img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.136" alt="" /><span class="fp-matrix-type"><span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span><span class="fp-matrix-descriptor">企业第一方增长智能</span></span></span></a>
+      <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页"><span class="fp-matrix-lockup"><img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.137" alt="" /><span class="fp-matrix-type"><span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span><span class="fp-matrix-descriptor">企业第一方增长智能</span></span></span></a>
       <div class="customer-site-links">
         <a href="/#customerFormCard">使用工具</a>
         <a href="/method">方法与案例</a>
@@ -29,6 +29,28 @@
       <section id="commercialPlanStatus" class="customer-plan-status" aria-live="polite">正在读取套餐...</section>
       <section id="commercialPlanGrid" class="customer-plan-grid" aria-label="套餐列表"></section>
       <p id="commercialPlanMessage" class="customer-plan-message" role="status" hidden></p>
+      <section id="billingCheckout" class="billing-checkout" aria-labelledby="billingCheckoutTitle" hidden>
+        <div class="billing-checkout-head">
+          <div><p>确认订购</p><h2 id="billingCheckoutTitle">Plus 套餐</h2></div>
+          <button id="billingCheckoutClose" type="button" aria-label="关闭订购区域">×</button>
+        </div>
+        <div class="billing-interval" role="group" aria-label="付费周期">
+          <button type="button" data-billing-interval="month" class="is-active">月付</button>
+          <button type="button" data-billing-interval="year">年付</button>
+        </div>
+        <div class="billing-order-summary">
+          <span>本次应付</span>
+          <strong id="billingCheckoutAmount">¥299</strong>
+          <small id="billingCheckoutPeriod">Plus · 1 个月</small>
+        </div>
+        <button id="billingCreateOrder" class="customer-plan-action" type="button">创建付款订单</button>
+        <p class="billing-checkout-note">当前采用人工到账确认。订单创建后会显示唯一订单号；确认到账后，套餐权益自动生效。</p>
+        <div id="billingCheckoutResult" class="billing-checkout-result" hidden></div>
+      </section>
+      <section id="billingOrderHistory" class="billing-order-history" hidden>
+        <div class="billing-order-history-head"><div><p>MY ORDERS</p><h2>我的订单</h2></div><button id="billingOrdersRefresh" type="button">刷新状态</button></div>
+        <div id="billingOrderList" class="billing-order-list empty">暂无订单。</div>
+      </section>
       <section class="customer-plan-note">
         <h2>额度怎么计算</h2>
         <p>生成一轮完整内容计划，计 1 轮策略周期；单纯记录发布效果不会重复扣减。完整文案、图片和视频等生产能力，将在稳定开放后按“份”计量。</p>
@@ -37,7 +59,7 @@
 
     <footer class="customer-site-footer">
       <div class="customer-footer-primary">
-        <div class="customer-footer-brand"><span class="fp-matrix-lockup fp-matrix-lockup-footer"><img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.136" alt="" /><span class="fp-matrix-type"><span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span><span class="fp-matrix-descriptor">企业第一方增长智能</span></span></span></div>
+        <div class="customer-footer-brand"><span class="fp-matrix-lockup fp-matrix-lockup-footer"><img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.137" alt="" /><span class="fp-matrix-type"><span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span><span class="fp-matrix-descriptor">企业第一方增长智能</span></span></span></div>
         <nav class="customer-footer-links" aria-label="页脚导航"><a href="/method">方法与案例</a><a href="/about">关于我们</a><a href="/privacy">隐私政策</a><a href="/terms">用户协议</a><a href="/contact">联系我们</a></nav>
       </div>
       <div class="customer-footer-meta">
@@ -46,7 +68,7 @@
       </div>
     </footer>
   </div>
-  <script src="/public-account-menu.js?v=1.6.136"></script>
-  <script src="/plans.js?v=1.6.136"></script>
+  <script src="/public-account-menu.js?v=1.6.137"></script>
+  <script src="/plans.js?v=1.6.137"></script>
 </body>
 </html>
