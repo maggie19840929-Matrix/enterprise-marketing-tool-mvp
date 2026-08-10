@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'ACCOUNT_AUTH_ENABLED', 'ACCOUNT_AUTH_SECRET', 'ACCOUNT_EMAIL_RESEND_SECONDS', 'ACCOUNT_EMAIL_DAILY_IP_MAX', 'AUTH_TEST_MODE', 'EMAIL_PROVIDER', 'EMAIL_FROM', 'RESEND_API_KEY', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'ACCOUNT_AUTH_ENABLED', 'ACCOUNT_AUTH_SECRET', 'ACCOUNT_EMAIL_RESEND_SECONDS', 'ACCOUNT_EMAIL_DAILY_IP_MAX', 'AUTH_TEST_MODE', 'EMAIL_PROVIDER', 'EMAIL_FROM', 'RESEND_API_KEY', 'PAYMENT_P1_INTERNAL_ENABLED', 'PAYMENT_P1_SANDBOX_ENABLED', 'PAYMENT_P1_SANDBOX_TOKEN', 'WECHATPAY_MCHID', 'WECHATPAY_APPID', 'WECHATPAY_API_V3_KEY', 'ALIPAY_APP_ID', 'ALIPAY_APP_PRIVATE_KEY', 'ALIPAY_PUBLIC_KEY', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
 ['COMMERCIALIZATION_ENABLED', 'FREE_TRIAL_STRATEGY_CYCLES', 'FREE_TRIAL_VALID_DAYS', 'FREE_MONTHLY_STRATEGY_CYCLES', 'PLUS_MONTHLY_STRATEGY_CYCLES', 'PRO_MONTHLY_STRATEGY_CYCLES', 'FREE_MONTHLY_COMPLETE_CONTENT', 'PLUS_MONTHLY_COMPLETE_CONTENT', 'PRO_MONTHLY_COMPLETE_CONTENT', 'PRO_PUBLIC_SALES_ENABLED', 'FREE_DAILY_GENERATIONS', 'PLUS_DAILY_GENERATIONS', 'PRO_DAILY_GENERATIONS', 'FREE_ACTIVE_PROJECTS', 'PLUS_ACTIVE_PROJECTS', 'PRO_ACTIVE_PROJECTS', 'PLUS_MONTHLY_PRICE_CNY', 'PRO_MONTHLY_PRICE_CNY', 'PLUS_YEARLY_PRICE_CNY', 'PRO_YEARLY_PRICE_CNY', 'BILLING_ORDER_TTL_HOURS', 'BILLING_CONTACT_EMAIL'].forEach((key) => {
@@ -24,6 +24,9 @@ process.env.ACCOUNT_AUTH_ENABLED = 'true';
 process.env.ACCOUNT_AUTH_SECRET = 'smoke-account-auth-secret-v1-at-least-32-bytes';
 process.env.AUTH_TEST_MODE = 'true';
 process.env.EMAIL_PROVIDER = 'mock';
+process.env.PAYMENT_P1_INTERNAL_ENABLED = 'true';
+process.env.PAYMENT_P1_SANDBOX_ENABLED = 'true';
+process.env.PAYMENT_P1_SANDBOX_TOKEN = 'smoke-payment-sandbox-token-v1-at-least-16';
 process.env.NODE_ENV = 'test';
 const { default: handler, shanghaiDateIso, timestampToEpoch, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
 const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
@@ -1234,6 +1237,79 @@ const cancelBillingOrderData = await cancelBillingOrderResponse.json();
 assert(cancelBillingOrderResponse.status === 200 && cancelBillingOrderData.order?.status === 'canceled', 'customer should be able to cancel an unpaid order without changing active access');
 const cancelBillingOrderAgain = await handler(request('POST', `billing/orders/${canceledOrderId}/cancel`, undefined, { headers: { cookie: billingAccountCookie } }));
 assert(cancelBillingOrderAgain.status === 200, 'canceling the same unpaid order twice should be idempotent');
+
+const paymentP1OrderCreate = await handler(request('POST', 'billing/orders', {
+  plan_code: 'plus',
+  billing_interval: 'month',
+  idempotency_key: 'billing-payment-p1-order-0001',
+}, { headers: { cookie: billingAccountCookie } }));
+const paymentP1OrderData = await paymentP1OrderCreate.json();
+const paymentP1OrderId = String(paymentP1OrderData.order?.order_id || '');
+assert(paymentP1OrderCreate.status === 201 && paymentP1OrderId, 'payment P1 test requires a new pending order');
+const nakedPaymentIntentCreate = await handler(request('POST', `internal/billing/orders/${paymentP1OrderId}/payment-intents`, {
+  provider: 'wechat_pay',
+  idempotency_key: 'payment-p1-naked-request-0001',
+}));
+assert(nakedPaymentIntentCreate.status === 401, 'payment intent creation must require internal access');
+const paymentIntentCreatePayload = {
+  provider: 'wechat_pay',
+  idempotency_key: 'payment-p1-intent-request-0001',
+};
+const paymentIntentCreate = await handler(internalRequest('POST', `internal/billing/orders/${paymentP1OrderId}/payment-intents`, paymentIntentCreatePayload));
+const paymentIntentCreateData = await paymentIntentCreate.json();
+const paymentP1Id = String(paymentIntentCreateData.payment?.payment_id || '');
+assert(paymentIntentCreate.status === 201 && /^pay_[a-z0-9]+$/i.test(paymentP1Id), 'internal P1 should create a server-owned payment intent');
+assert(paymentIntentCreateData.payment?.mode === 'sandbox_mock' && paymentIntentCreateData.payment?.status === 'created' && paymentIntentCreateData.payment?.amount_fen === 29900, 'P1 must only use an explicit sandbox mock and preserve the locked order amount');
+const duplicatePaymentIntentCreate = await handler(internalRequest('POST', `internal/billing/orders/${paymentP1OrderId}/payment-intents`, paymentIntentCreatePayload));
+const duplicatePaymentIntentCreateData = await duplicatePaymentIntentCreate.json();
+assert(duplicatePaymentIntentCreate.status === 200 && duplicatePaymentIntentCreateData.duplicate === true && duplicatePaymentIntentCreateData.payment?.payment_id === paymentP1Id, 'payment intent retries must reuse the idempotent payment intent');
+const internalPaymentsForOrder = await handler(internalRequest('GET', `internal/billing/payments?order_id=${encodeURIComponent(paymentP1OrderId)}`));
+const internalPaymentsForOrderData = await internalPaymentsForOrder.json();
+assert(internalPaymentsForOrder.status === 200 && internalPaymentsForOrderData.payments?.length === 1 && internalPaymentsForOrderData.payments[0]?.payment_id === paymentP1Id, 'internal payment list should return only the requested order payment intents');
+const publicPaymentNotificationDenied = await handler(request('POST', 'payments/wechat_pay/notify', {
+  event_id: 'sandbox-payment-event-denied-0001',
+  payment_id: paymentP1Id,
+  amount_fen: 29900,
+  trade_state: 'SUCCESS',
+}));
+assert(publicPaymentNotificationDenied.status === 401, 'payment callback must reject missing sandbox/provider authentication');
+const mismatchedPaymentNotification = await handler(request('POST', 'payments/wechat_pay/notify', {
+  event_id: 'sandbox-payment-event-mismatch-0001',
+  payment_id: paymentP1Id,
+  amount_fen: 1,
+  trade_state: 'SUCCESS',
+}, { headers: { 'x-payment-sandbox-token': process.env.PAYMENT_P1_SANDBOX_TOKEN } }));
+assert(mismatchedPaymentNotification.status === 400, 'payment callback must reject an amount that does not match the server-owned order');
+const paymentNotification = await handler(request('POST', 'payments/wechat_pay/notify', {
+  event_id: 'sandbox-payment-event-success-0001',
+  payment_id: paymentP1Id,
+  amount_fen: 29900,
+  trade_state: 'SUCCESS',
+  provider_transaction_id: 'sandbox-wechat-transaction-0001',
+}, { headers: { 'x-payment-sandbox-token': process.env.PAYMENT_P1_SANDBOX_TOKEN } }));
+const paymentNotificationData = await paymentNotification.json();
+assert(paymentNotification.status === 200 && paymentNotificationData.received === true && paymentNotificationData.duplicate === false, 'signed sandbox callback should activate the matching payment exactly once');
+const duplicatePaymentNotification = await handler(request('POST', 'payments/wechat_pay/notify', {
+  event_id: 'sandbox-payment-event-success-0001',
+  payment_id: paymentP1Id,
+  amount_fen: 29900,
+  trade_state: 'SUCCESS',
+  provider_transaction_id: 'sandbox-wechat-transaction-0001',
+}, { headers: { 'x-payment-sandbox-token': process.env.PAYMENT_P1_SANDBOX_TOKEN } }));
+const duplicatePaymentNotificationData = await duplicatePaymentNotification.json();
+assert(duplicatePaymentNotification.status === 200 && duplicatePaymentNotificationData.duplicate === true, 'duplicate payment callbacks must not activate entitlement twice');
+const paymentP1Detail = await handler(internalRequest('GET', `internal/billing/payments/${paymentP1Id}`));
+const paymentP1DetailData = await paymentP1Detail.json();
+assert(paymentP1Detail.status === 200 && paymentP1DetailData.payment?.status === 'succeeded' && paymentP1DetailData.payment?.provider_transaction_id === 'sandbox-wechat-transaction-0001', 'internal payment detail should retain provider settlement evidence without exposing it publicly');
+const publicPaymentP1Order = await handler(request('GET', `billing/orders/${paymentP1OrderId}`, undefined, { headers: { cookie: billingAccountCookie } }));
+const publicPaymentP1OrderData = await publicPaymentP1Order.json();
+assert(publicPaymentP1Order.status === 200 && publicPaymentP1OrderData.order?.status === 'paid' && !('payment_intent_id' in publicPaymentP1OrderData.order) && !('payment_reference' in publicPaymentP1OrderData.order), 'customer order response must not expose internal payment identifiers or settlement references');
+const refundRequest = await handler(internalRequest('POST', `internal/billing/payments/${paymentP1Id}/refunds`, { reason: 'P1 sandbox refund workflow verification' }));
+const refundRequestData = await refundRequest.json();
+assert(refundRequest.status === 201 && refundRequestData.refund?.status === 'requested' && refundRequestData.payment?.refund_status === 'requested', 'P1 refund endpoint must create an auditable request without simulating a provider refund');
+const reconciliation = await handler(internalRequest('GET', 'internal/billing/reconciliation'));
+const reconciliationData = await reconciliation.json();
+assert(reconciliation.status === 200 && reconciliationData.reconciliation?.mode === 'internal_skeleton' && reconciliationData.reconciliation?.total_payment_intents >= 1, 'internal reconciliation skeleton should report payment intent state without calling an external provider');
 
 const accountLogout = await handler(request('POST', 'auth/logout', undefined, { headers: { cookie: accountCookie } }));
 assert(accountLogout.status === 200 && String(accountLogout.headers.get('set-cookie') || '').includes('Max-Age=0'), 'logout should revoke the server session and clear the browser cookie');

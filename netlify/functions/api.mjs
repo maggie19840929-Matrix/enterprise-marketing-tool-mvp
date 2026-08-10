@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { normalizePaymentProvider, paymentAdapterFor, paymentProviderCodes } from './payment-adapters.mjs';
 
 let state;
 let memoryCloudState = null;
@@ -4010,6 +4011,11 @@ const COMMERCIAL_ORDER_PREFIX = 'orders/v1';
 const COMMERCIAL_ORDER_INDEX_PREFIX = 'order-index/v1';
 const COMMERCIAL_ORDER_IDEMPOTENCY_PREFIX = 'order-idempotency/v1';
 const COMMERCIAL_BILLING_AUDIT_PREFIX = 'billing-audit/v1';
+const COMMERCIAL_PAYMENT_INTENT_PREFIX = 'payment-intents/v1';
+const COMMERCIAL_PAYMENT_INTENT_INDEX_PREFIX = 'payment-intent-index/v1';
+const COMMERCIAL_PAYMENT_INTENT_IDEMPOTENCY_PREFIX = 'payment-intent-idempotency/v1';
+const COMMERCIAL_PAYMENT_EVENT_PREFIX = 'payment-events/v1';
+const COMMERCIAL_REFUND_PREFIX = 'refunds/v1';
 const commercialPlanDefinitions = () => ({
   free: {
     code: 'free',
@@ -4081,6 +4087,14 @@ const commercialOrderIndexKey = (orderId = '') => `${COMMERCIAL_ORDER_INDEX_PREF
 const commercialOrderIdempotencyKey = (accountId = '', key = '') =>
   `${COMMERCIAL_ORDER_IDEMPOTENCY_PREFIX}/${String(accountId || '').trim()}/${accountDigest('billing-order', key)}`;
 const commercialBillingAuditPrefix = (orderId = '') => `${COMMERCIAL_BILLING_AUDIT_PREFIX}/${String(orderId || '').trim()}/`;
+const commercialPaymentIntentPrefix = (orderId = '') => `${COMMERCIAL_PAYMENT_INTENT_PREFIX}/${String(orderId || '').trim()}/`;
+const commercialPaymentIntentKey = (orderId = '', paymentId = '') => `${commercialPaymentIntentPrefix(orderId)}${String(paymentId || '').trim()}`;
+const commercialPaymentIntentIndexKey = (paymentId = '') => `${COMMERCIAL_PAYMENT_INTENT_INDEX_PREFIX}/${String(paymentId || '').trim()}`;
+const commercialPaymentIntentIdempotencyKey = (orderId = '', key = '') =>
+  `${COMMERCIAL_PAYMENT_INTENT_IDEMPOTENCY_PREFIX}/${String(orderId || '').trim()}/${accountDigest('payment-intent', key)}`;
+const commercialPaymentEventKey = (paymentId = '', eventId = '') =>
+  `${COMMERCIAL_PAYMENT_EVENT_PREFIX}/${String(paymentId || '').trim()}/${accountDigest('payment-event', eventId)}`;
+const commercialRefundPrefix = (paymentId = '') => `${COMMERCIAL_REFUND_PREFIX}/${String(paymentId || '').trim()}/`;
 const commercialUsagePrefix = (subjectKey = '', period = '') => `${COMMERCIAL_USAGE_PREFIX}/${subjectKey}/${period}/`;
 const commercialUsageKey = (subjectKey = '', period = '', requestId = '') =>
   `${commercialUsagePrefix(subjectKey, period)}${meteringHash('commercial-usage', requestId)}`;
@@ -4593,6 +4607,8 @@ const billingIntervalValue = (value = '') => ['month', 'year'].includes(String(v
   : 'month';
 const billingOrderStatusValue = (value = '') => [
   'pending_payment',
+  'payment_creating',
+  'awaiting_payment',
   'processing',
   'paid',
   'canceled',
@@ -4602,6 +4618,29 @@ const billingOrderStatusValue = (value = '') => [
 const billingOrderTtlHours = () => envInteger('BILLING_ORDER_TTL_HOURS', 72, { min: 1, max: 24 * 30 });
 const billingContactEmail = () => normalizeEmail(envValue('BILLING_CONTACT_EMAIL') || 'contact@fpmatrix.cn');
 const billingPaymentMode = () => 'manual_review';
+const paymentP1InternalEnabled = () => envFlag('PAYMENT_P1_INTERNAL_ENABLED', false);
+const paymentSandboxEnabled = () => envFlag('PAYMENT_P1_SANDBOX_ENABLED', false);
+const paymentSandboxToken = () => envValue('PAYMENT_P1_SANDBOX_TOKEN');
+const paymentAdapter = (provider = '') => paymentAdapterFor({
+  provider,
+  envValue,
+  sandboxEnabled: paymentSandboxEnabled(),
+  sandboxToken: paymentSandboxToken(),
+});
+const paymentProviderReadiness = () => Object.fromEntries(paymentProviderCodes().map((provider) => {
+  const adapter = paymentAdapter(provider);
+  return [provider, { configured: Boolean(adapter.configured), mode: adapter.mode }];
+}));
+const paymentIntentStatusValue = (value = '') => [
+  'created',
+  'awaiting_payment',
+  'awaiting_transfer',
+  'succeeded',
+  'failed',
+  'closed',
+  'refund_pending',
+  'refunded',
+].includes(String(value || '').trim()) ? String(value || '').trim() : 'created';
 const billingOrderAmount = (plan = {}, interval = 'month') => {
   const priceCny = interval === 'year' ? Number(plan.yearly_price_cny || 0) : Number(plan.monthly_price_cny || 0);
   return {
@@ -4639,12 +4678,221 @@ const internalBillingOrder = (order = {}) => ({
   operator_note: String(order.operator_note || ''),
   updated_at: String(order.updated_at || ''),
 });
+const internalPaymentIntent = (intent = {}) => ({
+  payment_id: String(intent.payment_id || ''),
+  order_id: String(intent.order_id || ''),
+  order_no: String(intent.order_no || ''),
+  account_reference: String(intent.account_id || '').slice(-10),
+  provider: normalizePaymentProvider(intent.provider),
+  provider_name: String(intent.provider_name || ''),
+  provider_payment_id: String(intent.provider_payment_id || ''),
+  mode: String(intent.mode || ''),
+  currency: String(intent.currency || 'CNY'),
+  amount_fen: Number(intent.amount_fen || 0),
+  status: paymentIntentStatusValue(intent.status),
+  created_at: String(intent.created_at || ''),
+  expires_at: String(intent.expires_at || ''),
+  succeeded_at: String(intent.succeeded_at || ''),
+  provider_transaction_id: String(intent.provider_transaction_id || ''),
+  failure_reason: String(intent.failure_reason || ''),
+  refund_status: String(intent.refund_status || ''),
+});
 const readBillingOrder = async (orderId = '') => {
   const safeOrderId = String(orderId || '').trim();
   if (!/^order_[a-z0-9]+$/i.test(safeOrderId)) return null;
   const index = await commercialBlobGet(commercialOrderIndexKey(safeOrderId));
   if (!index?.account_id) return null;
   return commercialBlobGet(commercialOrderKey(index.account_id, safeOrderId));
+};
+const readPaymentIntent = async (paymentId = '') => {
+  const safePaymentId = String(paymentId || '').trim();
+  if (!/^pay_[a-z0-9]+$/i.test(safePaymentId)) return null;
+  const index = await commercialBlobGet(commercialPaymentIntentIndexKey(safePaymentId));
+  if (!index?.order_id) return null;
+  return commercialBlobGet(commercialPaymentIntentKey(index.order_id, safePaymentId));
+};
+const paymentIntentsForOrder = async (orderId = '') => {
+  const keys = await commercialBlobKeys(commercialPaymentIntentPrefix(orderId));
+  const intents = (await Promise.all(keys.map((key) => commercialBlobGet(key)))).filter(Boolean);
+  return intents.sort((a, b) => timestampToEpoch(b.created_at) - timestampToEpoch(a.created_at));
+};
+const writePaymentEvent = async ({ intent = {}, eventId = '', eventType = '', source = '', details = {} } = {}) => {
+  const safeEventId = String(eventId || '').trim();
+  if (!safeEventId) throw new Error('支付事件缺少唯一标识');
+  const key = commercialPaymentEventKey(intent.payment_id, safeEventId);
+  const existing = await commercialBlobGet(key);
+  if (existing) return { event: existing, duplicate: true };
+  const event = {
+    event_id: safeEventId.slice(0, 128),
+    payment_id: String(intent.payment_id || ''),
+    order_id: String(intent.order_id || ''),
+    provider: normalizePaymentProvider(intent.provider),
+    event_type: String(eventType || '').slice(0, 80),
+    source: String(source || '').slice(0, 80),
+    details: {
+      amount_fen: Number(details.amount_fen || intent.amount_fen || 0),
+      provider_transaction_id: String(details.provider_transaction_id || '').slice(0, 160),
+      status: String(details.status || '').slice(0, 80),
+    },
+    occurred_at: nowIso(),
+  };
+  await commercialBlobSet(key, event);
+  return { event, duplicate: false };
+};
+const createPaymentIntent = async ({ orderId = '', payload = {} } = {}) => {
+  if (!paymentP1InternalEnabled()) throw new Error('支付基础设施尚未在内部环境启用');
+  const order = await readBillingOrder(orderId);
+  if (!order) return null;
+  if (!['pending_payment', 'payment_creating', 'awaiting_payment'].includes(order.status)) throw new Error('当前订单状态不能创建支付单');
+  if (Date.parse(order.expires_at || '') <= Date.now()) throw new Error('订单已经过期，请重新下单');
+  const provider = normalizePaymentProvider(payload.provider);
+  if (!paymentProviderCodes().includes(provider)) throw new Error('请选择受支持的支付渠道');
+  const idempotencyKey = String(payload.idempotency_key || '').trim();
+  if (!/^[a-z0-9_-]{16,100}$/i.test(idempotencyKey)) throw new Error('支付请求标识无效，请刷新后重试');
+  const idempotency = await commercialBlobGet(commercialPaymentIntentIdempotencyKey(order.order_id, idempotencyKey));
+  if (idempotency?.payment_id) {
+    const existing = await readPaymentIntent(idempotency.payment_id);
+    if (existing) return { intent: existing, duplicate: true };
+  }
+  const paymentId = `pay_${accountDigest('payment-intent-id', `${order.order_id}:${idempotencyKey}`).slice(0, 32)}`;
+  const adapter = paymentAdapter(provider);
+  const submission = adapter.createIntent({ paymentId, order });
+  if (!submission.ok) throw new Error(submission.error || '支付渠道暂不可用');
+  const createdAt = nowIso();
+  const intent = {
+    payment_id: paymentId,
+    order_id: order.order_id,
+    order_no: order.order_no,
+    account_id: order.account_id,
+    provider,
+    provider_name: adapter.provider_name,
+    provider_payment_id: String(submission.provider_payment_id || ''),
+    mode: adapter.mode,
+    currency: order.currency,
+    amount_fen: Number(order.amount_fen || 0),
+    status: paymentIntentStatusValue(submission.status),
+    client_action: submission.client_action || {},
+    created_at: createdAt,
+    updated_at: createdAt,
+    expires_at: new Date(Math.min(Date.parse(order.expires_at || '') || Date.now(), Date.now() + 30 * 60 * 1000)).toISOString(),
+    succeeded_at: '',
+    provider_transaction_id: '',
+    failure_reason: '',
+    refund_status: '',
+  };
+  await commercialBlobSet(commercialPaymentIntentKey(order.order_id, paymentId), intent);
+  await commercialBlobSet(commercialPaymentIntentIndexKey(paymentId), { payment_id: paymentId, order_id: order.order_id, account_id: order.account_id, created_at: createdAt });
+  await commercialBlobSet(commercialPaymentIntentIdempotencyKey(order.order_id, idempotencyKey), { payment_id: paymentId, created_at: createdAt });
+  await writePaymentEvent({ intent, eventId: `created:${paymentId}`, eventType: 'payment_intent_created', source: 'internal' });
+  const nextOrder = {
+    ...order,
+    status: 'awaiting_payment',
+    payment_attempt_ids: [...new Set([...ensureArray(order.payment_attempt_ids), paymentId])],
+    updated_at: nowIso(),
+  };
+  await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), nextOrder);
+  await writeBillingAudit({ order, action: 'payment_intent_created', actor: 'internal_operator', before: order, after: nextOrder, note: provider });
+  return { intent, duplicate: false };
+};
+const queryPaymentIntent = async (paymentId = '') => {
+  const intent = await readPaymentIntent(paymentId);
+  if (!intent) return null;
+  const provider = paymentAdapter(intent.provider);
+  return { intent, provider: provider.query({ intent }) };
+};
+const settlePaymentNotification = async ({ provider = '', request = null, payload = {} } = {}) => {
+  if (!paymentP1InternalEnabled()) return { ok: false, status: 403, error: 'payment_infrastructure_disabled' };
+  const safeProvider = normalizePaymentProvider(provider);
+  const adapter = paymentAdapter(safeProvider);
+  const verified = adapter.verifyNotification({ headers: request?.headers || new Headers(), payload });
+  if (!verified.ok) return { ok: false, status: 401, error: verified.error || 'payment_notification_rejected' };
+  const intent = await readPaymentIntent(verified.payment_id);
+  if (!intent || normalizePaymentProvider(intent.provider) !== safeProvider) return { ok: false, status: 404, error: 'payment_intent_not_found' };
+  if (Number(intent.amount_fen) !== Number(verified.amount_fen)) return { ok: false, status: 400, error: 'payment_amount_mismatch' };
+  const existingEvent = await commercialBlobGet(commercialPaymentEventKey(intent.payment_id, verified.event_id));
+  if (existingEvent || intent.status === 'succeeded') return { ok: true, duplicate: true, intent: await readPaymentIntent(intent.payment_id) };
+  const order = await readBillingOrder(intent.order_id);
+  if (!order) return { ok: false, status: 404, error: 'payment_order_not_found' };
+  if (!['pending_payment', 'payment_creating', 'awaiting_payment', 'processing'].includes(order.status)) return { ok: false, status: 409, error: 'payment_order_not_payable' };
+  const succeededAt = nowIso();
+  const paidIntent = {
+    ...intent,
+    status: 'succeeded',
+    succeeded_at: succeededAt,
+    provider_transaction_id: verified.provider_transaction_id,
+    updated_at: succeededAt,
+  };
+  await commercialBlobSet(commercialPaymentIntentKey(intent.order_id, intent.payment_id), paidIntent);
+  await writePaymentEvent({
+    intent: paidIntent,
+    eventId: verified.event_id,
+    eventType: 'payment_succeeded',
+    source: 'provider_notification',
+    details: { amount_fen: verified.amount_fen, provider_transaction_id: verified.provider_transaction_id, status: 'succeeded' },
+  });
+  const processing = {
+    ...order,
+    status: 'processing',
+    payment_mode: safeProvider,
+    payment_reference: verified.provider_transaction_id,
+    payment_intent_id: paidIntent.payment_id,
+    updated_at: succeededAt,
+  };
+  await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), processing);
+  const subscription = await applyPaidOrderSubscription(processing, { source: safeProvider, actor: 'payment_provider' });
+  const paid = {
+    ...processing,
+    status: 'paid',
+    paid_at: succeededAt,
+    activated_at: succeededAt,
+    subscription_ends_at: subscription.ends_at,
+    updated_at: succeededAt,
+  };
+  await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), paid);
+  await writeBillingAudit({ order, action: 'payment_provider_confirmed', actor: 'payment_provider', before: order, after: paid, note: safeProvider });
+  return { ok: true, duplicate: false, intent: paidIntent, order: paid };
+};
+const createRefundRequest = async ({ paymentId = '', payload = {} } = {}) => {
+  if (!paymentP1InternalEnabled()) throw new Error('支付基础设施尚未在内部环境启用');
+  const intent = await readPaymentIntent(paymentId);
+  if (!intent) return null;
+  if (intent.status !== 'succeeded') throw new Error('只有已成功支付的订单可以申请退款');
+  if (intent.refund_status === 'requested' || intent.refund_status === 'succeeded') throw new Error('该支付单已有退款处理记录');
+  const reason = String(payload.reason || '').trim();
+  if (reason.length < 2 || reason.length > 300) throw new Error('请填写退款原因');
+  const refund = {
+    refund_id: `refund_${randomUUID().replaceAll('-', '')}`,
+    payment_id: intent.payment_id,
+    order_id: intent.order_id,
+    account_id: intent.account_id,
+    provider: intent.provider,
+    amount_fen: Number(intent.amount_fen || 0),
+    status: 'requested',
+    reason: reason.slice(0, 300),
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  await commercialBlobSet(`${commercialRefundPrefix(intent.payment_id)}${refund.refund_id}`, refund);
+  const nextIntent = { ...intent, refund_status: 'requested', updated_at: nowIso() };
+  await commercialBlobSet(commercialPaymentIntentKey(intent.order_id, intent.payment_id), nextIntent);
+  await writePaymentEvent({ intent: nextIntent, eventId: `refund-request:${refund.refund_id}`, eventType: 'refund_requested', source: 'internal', details: { amount_fen: refund.amount_fen, status: refund.status } });
+  return { intent: nextIntent, refund };
+};
+const paymentReconciliationSnapshot = async () => {
+  const keys = await commercialBlobKeys(`${COMMERCIAL_PAYMENT_INTENT_PREFIX}/`);
+  const intents = (await Promise.all(keys.map((key) => commercialBlobGet(key)))).filter(Boolean);
+  const statuses = intents.reduce((summary, intent) => {
+    const status = paymentIntentStatusValue(intent.status);
+    summary[status] = Number(summary[status] || 0) + 1;
+    return summary;
+  }, {});
+  return {
+    mode: 'internal_skeleton',
+    total_payment_intents: intents.length,
+    statuses,
+    refund_requested: intents.filter((intent) => intent.refund_status === 'requested').length,
+    note: '尚未接入真实渠道账单；此接口只用于内部结构和状态核验。',
+  };
 };
 const readBillingOrdersForAccount = async (accountId = '') => {
   const keys = await commercialBlobKeys(commercialOrderPrefix(accountId));
@@ -4758,7 +5006,7 @@ const billingPeriodEnd = (startIso = '', interval = 'month') => {
     start.getUTCMilliseconds(),
   )).toISOString();
 };
-const applyPaidOrderSubscription = async (order = {}) => {
+const applyPaidOrderSubscription = async (order = {}, { source = 'manual_payment', actor = 'internal_operator' } = {}) => {
   const key = commercialSubscriptionKey(order.account_id);
   const current = await commercialBlobGet(key);
   const appliedOrderIds = ensureArray(current?.payment_order_ids).map(String);
@@ -4777,13 +5025,13 @@ const applyPaidOrderSubscription = async (order = {}) => {
     plan_code: planCodeValue(order.plan_code),
     status: 'active',
     billing_interval: billingIntervalValue(order.billing_interval),
-    source: 'manual_payment',
+    source: String(source || 'manual_payment').slice(0, 80),
     starts_at: samePaidPlanActive ? (current.starts_at || now) : now,
     period_start: periodStart,
     ends_at: billingPeriodEnd(periodStart, order.billing_interval),
     period_end: billingPeriodEnd(periodStart, order.billing_interval),
     payment_order_ids: [...new Set([...appliedOrderIds, String(order.order_id)])],
-    updated_by: 'internal_operator',
+    updated_by: String(actor || 'internal_operator').slice(0, 80),
     updated_at: now,
     created_at: current?.created_at || now,
   };
@@ -4794,7 +5042,7 @@ const confirmBillingOrder = async ({ orderId = '', payload = {} } = {}) => {
   const order = await readBillingOrder(orderId);
   if (!order) return null;
   if (order.status === 'paid' && order.activated_at) return { order, duplicate: true };
-  if (!['pending_payment', 'processing'].includes(order.status)) throw new Error('当前订单状态不能确认付款');
+  if (!['pending_payment', 'payment_creating', 'awaiting_payment', 'processing'].includes(order.status)) throw new Error('当前订单状态不能确认付款');
   if (Date.parse(order.expires_at || '') <= Date.now()) {
     const expired = { ...order, status: 'expired', updated_at: nowIso() };
     await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), expired);
@@ -8432,7 +8680,7 @@ export default async (request, context = {}) => {
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -8455,6 +8703,9 @@ export default async (request, context = {}) => {
           enabled: commercializationEnabled(),
           quota_mode: commercializationEnabled() ? 'enforced' : 'observe_only',
           billing_mode: billingPaymentMode(),
+          payment_p1_internal_enabled: paymentP1InternalEnabled(),
+          payment_sandbox_enabled: paymentSandboxEnabled(),
+          payment_providers: paymentProviderReadiness(),
         },
       });
       if (path === '/commercial/plans') {
@@ -8505,6 +8756,22 @@ export default async (request, context = {}) => {
             limit: url.searchParams.get('limit') || 100,
           }),
         }, 200, { internal: true });
+      }
+      if (path === '/internal/billing/payments') {
+        if (!internalAuthorized) return unauthorized();
+        const orderId = String(url.searchParams.get('order_id') || '').trim();
+        if (!orderId) return json({ error: '读取支付单需要 order_id' }, 400, { internal: true });
+        return json({ payments: (await paymentIntentsForOrder(orderId)).map(internalPaymentIntent) }, 200, { internal: true });
+      }
+      const internalPaymentMatch = path.match(/^\/internal\/billing\/payments\/([^/]+)$/);
+      if (internalPaymentMatch) {
+        if (!internalAuthorized) return unauthorized();
+        const detail = await queryPaymentIntent(decodeURIComponent(internalPaymentMatch[1]));
+        return detail ? json({ payment: internalPaymentIntent(detail.intent), provider: detail.provider }, 200, { internal: true }) : json({ error: '支付单不存在' }, 404, { internal: true });
+      }
+      if (path === '/internal/billing/reconciliation') {
+        if (!internalAuthorized) return unauthorized();
+        return json({ reconciliation: await paymentReconciliationSnapshot() }, 200, { internal: true });
       }
       if (path === '/delivery-profiles') {
         if (!internalAuthorized) return unauthorized();
@@ -8719,6 +8986,14 @@ export default async (request, context = {}) => {
       const created = await createBillingOrder({ account: auth.account, payload });
       return json({ order: publicBillingOrder(created.order), duplicate: created.duplicate }, created.duplicate ? 200 : 201);
     }
+    const createPaymentIntentMatch = path.match(/^\/internal\/billing\/orders\/([^/]+)\/payment-intents$/);
+    if (request.method === 'POST' && createPaymentIntentMatch) {
+      if (!internalAuthorized) return unauthorized();
+      const created = await createPaymentIntent({ orderId: decodeURIComponent(createPaymentIntentMatch[1]), payload });
+      return created
+        ? json({ payment: internalPaymentIntent(created.intent), duplicate: created.duplicate }, created.duplicate ? 200 : 201, { internal: true })
+        : json({ error: '订单不存在' }, 404, { internal: true });
+    }
     const cancelBillingOrderMatch = path.match(/^\/billing\/orders\/([^/]+)\/cancel$/);
     if (request.method === 'POST' && cancelBillingOrderMatch) {
       const auth = await readAccountSession(request);
@@ -8733,6 +9008,27 @@ export default async (request, context = {}) => {
       return confirmed
         ? json({ order: internalBillingOrder(confirmed.order), duplicate: confirmed.duplicate }, 200, { internal: true })
         : json({ error: '订单不存在' }, 404, { internal: true });
+    }
+    const internalPaymentQueryMatch = path.match(/^\/internal\/billing\/payments\/([^/]+)\/query$/);
+    if (request.method === 'POST' && internalPaymentQueryMatch) {
+      if (!internalAuthorized) return unauthorized();
+      const detail = await queryPaymentIntent(decodeURIComponent(internalPaymentQueryMatch[1]));
+      return detail ? json({ payment: internalPaymentIntent(detail.intent), provider: detail.provider }, 200, { internal: true }) : json({ error: '支付单不存在' }, 404, { internal: true });
+    }
+    const refundRequestMatch = path.match(/^\/internal\/billing\/payments\/([^/]+)\/refunds$/);
+    if (request.method === 'POST' && refundRequestMatch) {
+      if (!internalAuthorized) return unauthorized();
+      const result = await createRefundRequest({ paymentId: decodeURIComponent(refundRequestMatch[1]), payload });
+      return result
+        ? json({ payment: internalPaymentIntent(result.intent), refund: result.refund }, 201, { internal: true })
+        : json({ error: '支付单不存在' }, 404, { internal: true });
+    }
+    const paymentNotificationMatch = path.match(/^\/payments\/(wechat_pay|alipay)\/notify$/);
+    if (request.method === 'POST' && paymentNotificationMatch) {
+      const result = await settlePaymentNotification({ provider: paymentNotificationMatch[1], request, payload });
+      return result.ok
+        ? json({ received: true, duplicate: Boolean(result.duplicate), payment_id: String(result.intent?.payment_id || '') }, 200)
+        : json({ received: false, error: result.error || 'payment_notification_rejected' }, result.status || 400);
     }
     if (request.method === 'POST' && path === '/feishu/inbound') {
       if (!hasValidFeishuInboundAuth(request)) return json({ ok: false, error: '飞书回流鉴权失败' }, 401, { internal: true });
