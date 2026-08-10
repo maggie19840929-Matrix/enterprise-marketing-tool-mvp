@@ -31,6 +31,7 @@ process.env.NODE_ENV = 'test';
 const { default: handler, shanghaiDateIso, timestampToEpoch, extractBitableFieldValue, toBitableFieldValue, buildFeishuPlanFields } = await import('../netlify/functions/api.mjs');
 const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
+const { benchmarkIndustryGuard, normalizeBenchmarkInsightOutput } = await import('../netlify/functions/benchmark-insights.mjs');
 
 const stateClientIdForRequest = (path = '', body = {}) => {
   const url = new URL(String(path || ''), 'http://localhost');
@@ -173,7 +174,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.138', `public diagnosis should return app_version 1.6.138, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.139', `public diagnosis should return app_version 1.6.139, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1482,7 +1483,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.138'") && appJs.includes("v1.6.138 · 导航反馈增强版"), 'public app should expose the reviewed v1.6.138 commercial-order release');
+assert(appJs.includes("const APP_VERSION = '1.6.139'") && appJs.includes("v1.6.139 · 对标内容洞察内测版"), 'application should expose the reviewed v1.6.139 benchmark-insights release');
 assert(indexHtml.includes('id="customerAccountUsage"') && indexHtml.includes('href="/plans"') && appJs.includes("api('/api/account/entitlements'"), 'signed-in account panel should show strategy-cycle usage and link to the plan page');
 assert(appJs.match(/entitlement = entitlement \|\| \{\};/g)?.length >= 2, 'signed-out account rendering should tolerate a missing entitlement snapshot');
 assert(plansHtml.includes('选择适合你经营节奏的套餐') && plansHtml.includes('额度怎么计算') && plansJs.includes("fetch('/api/commercial/plans'") && plansJs.includes("fetch('/api/account/entitlements'"), 'public plan page should explain customer-facing units and load server-owned entitlements');
@@ -1581,10 +1582,10 @@ assert(!appJs.includes('function isAnbiaoCustomerProject()') && !appJs.includes(
 assert(!appJs.includes('安标检测 / 发布链接回填') && !appJs.includes('查看回填链接表'), 'anbiao publish-link refill UI should not be rendered');
 assert(appJs.includes('function initCustomerTrial()') && appJs.includes('CUSTOMER_STORAGE_KEY'), 'default app should initialize the customer trial flow');
 assert(appJs.includes("normalizedUrl.pathname = '/internal/'") && !appJs.includes("params.get('mode') === 'internal'"), 'public ?mode=internal entries must not open the internal workbench');
-assert(appJs.includes("return path === '/internal' || path.startsWith('/internal/');") && appJs.includes("currentPath() === '/internal/generation-workbench'"), 'internal rendering should be path-gated to /internal/ and the generation workbench route');
+assert(appJs.includes("return path === '/internal' || path.startsWith('/internal/');") && appJs.includes("currentPath() === '/internal/generation-workbench'") && appJs.includes("currentPath() === '/internal/benchmark-insights'"), 'internal rendering should be path-gated to /internal/ and both standalone workbench routes');
 assert(appJs.includes('function syncRouteState') && appJs.includes('function initInternalRouteNavigation') && appJs.includes('history.pushState') && appJs.includes("window.addEventListener('popstate', syncRouteState)") && appJs.includes('generationWorkbenchInitialized'), 'internal navigation should re-apply shell/workbench visibility and initialize the workbench after route changes');
-assert(indexHtml.includes('id="internalHeroTitle"') && indexHtml.includes('客户运营工作区') && indexHtml.includes('素材生产工作台'), 'internal hero should label operations and production workspaces separately');
-assert(appJs.includes('function renderInternalWorkspaceShell') && appJs.includes('document.body.dataset.internalWorkspace') && appJs.includes('internal-production-mode') && appJs.includes('if (planLink) planLink.hidden = active'), 'internal shell should switch copy/actions between operations and production routes');
+assert(indexHtml.includes('id="internalHeroTitle"') && indexHtml.includes('客户运营工作区') && indexHtml.includes('对标内容洞察') && indexHtml.includes('素材生产工作台'), 'internal hero should label operations, benchmark evidence and production workspaces separately');
+assert(appJs.includes('function renderInternalWorkspaceShell') && appJs.includes('document.body.dataset.internalWorkspace') && appJs.includes('internal-production-mode') && appJs.includes('internal-benchmark-mode') && appJs.includes('if (planLink) planLink.hidden = standaloneActive'), 'internal shell should switch copy/actions across operations, benchmark and production routes');
 assert(warRoomCss.includes('body.internal-mode:not(.generation-workbench-mode) #generationWorkbench') && warRoomCss.includes('body.internal-mode.generation-workbench-mode #diagnosisWorkflow') && warRoomCss.includes('body.internal-mode.generation-workbench-mode #allCustomersPanel'), 'internal CSS should prevent production workbench and operations modules from rendering together');
 assert(indexHtml.includes('脚本 · Kimi K2.6') && indexHtml.includes('文案 · Kimi K2.6') && !indexHtml.includes('script · Claude Opus'), 'internal generation form should label the configured Kimi script and copy provider instead of the stale Claude label');
 assert(appJs.includes("script: 'Kimi (kimi-k2.6)'") && appJs.includes('function generationOutputTextForTask') && appJs.includes('function renderGenerationOutput') && appJs.includes('data-gw-action="copy-output"'), 'internal generation workbench should map Kimi tasks and render copyable output text from generated assets');
@@ -1683,16 +1684,16 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.138') && indexHtml.includes('/styles.css?v=1.6.138') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.138'), 'public customer page should use the v1.6.138 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.139') && indexHtml.includes('/styles.css?v=1.6.139') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.139'), 'public customer page should use the v1.6.139 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.138') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.138') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.138') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.139') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.139') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.139') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
 assert(warRoomCss.includes('v1.6.99 FP Matrix and Huoke Compass brand lockups') && warRoomCss.includes('color:#1a1c24') && warRoomCss.includes('color:#4d4d4d') && warRoomCss.includes('letter-spacing:.18em'), 'official lockups should use the approved brand colors, medium MATRIX weight, and tightened Chinese descriptor');
-assert([methodHtml, aboutHtml, privacyHtml, termsHtml, contactHtml].every((html) => html.includes('fp-matrix-lockup') && html.includes('企业第一方增长智能') && html.includes('/fp-matrix-elephant.svg?v=1.6.138') && html.includes('/fp-matrix-favicon.svg?v=1.6.138')), 'all independent customer information pages should use the same finalized FP Matrix identity and current cache version');
+assert([methodHtml, aboutHtml, privacyHtml, termsHtml, contactHtml].every((html) => html.includes('fp-matrix-lockup') && html.includes('企业第一方增长智能')), 'all independent customer information pages should use the same finalized FP Matrix identity');
 assert(aboutHtml.includes('让企业拥有自己的增长判断') && aboutHtml.includes('第一方真实') && aboutHtml.includes('持续学习') && aboutHtml.includes('智能辅助') && aboutHtml.includes('为什么叫 FP Matrix') && aboutHtml.includes('First Party'), 'about page should tell the approved first-party growth brand story instead of reading like a feature list');
 assert(warRoomCss.includes('v1.6.97 customer information-page spacing and text rhythm') && warRoomCss.includes('body.customer-mode.customer-info-mode .customer-info-pages') && warRoomCss.includes('max-width:none!important'), 'information pages should keep breathing room below the header and use the full card width for lead copy');
 assert(indexHtml.includes('class="customer-site-nav"') && indexHtml.includes('使用工具') && !indexHtml.includes('开始填写') && indexHtml.includes('关于我们') && indexHtml.includes('隐私政策') && indexHtml.includes('用户协议') && indexHtml.includes('联系我们'), 'customer page should expose mature website-level trust/navigation entries');
@@ -1707,7 +1708,7 @@ const publicHeaderNav = (html) => html.match(/<div class="customer-site-links">[
   assert(nav.includes('使用工具') && nav.includes('方法与案例') && nav.includes('关于我们') && nav.includes('data-public-account-menu'), 'every public page should use the same primary navigation and shared account-menu slot');
   assert(!nav.includes('联系我们') && !nav.includes('隐私政策') && !nav.includes('用户协议') && !nav.includes('返回首页'), 'secondary company and policy links must not reappear in the primary navigation');
 });
-assert([plansHtml, methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml, inviteHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.138') && html.includes('/public-account-menu.js?v=1.6.138') && !html.includes('class="customer-account-nav" href="/?account=login"')), 'all independent public pages should load the shared session-aware account menu instead of a static login link');
+assert([plansHtml, methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml, inviteHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.138') && html.includes('/public-account-menu.js?v=1.6.138') && !html.includes('class="customer-account-nav" href="/?account=login"')), 'unchanged independent public pages should retain the shared session-aware account menu instead of a static login link');
 assert([aboutHtml, contactHtml, privacyHtml, termsHtml].every((html) => !html.includes('>· 苏ICP备')), 'information-page filing links should rely on the shared separator and never render a duplicated dot');
 assert(aboutHtml.includes('<h2>联系我们</h2>') && aboutHtml.includes('href="/contact"'), 'contact details should sit beneath the About page while retaining the dedicated support page');
 assert(warRoomCss.includes('v1.6.131 public information pages: restrained editorial typography') && warRoomCss.includes('max-width:980px!important') && warRoomCss.includes('font-size:clamp(30px,3.2vw,40px)!important') && warRoomCss.includes('border-radius:0!important'), 'public information pages should use the restrained editorial typography system instead of nested oversized cards');
@@ -1719,7 +1720,7 @@ assert(warRoomCss.includes('v1.6.133 method entry and scenario page') && warRoom
 assert(warRoomCss.includes('.customer-growth-path li{') && warRoomCss.includes('margin-top:0!important'), 'method growth-path steps should override generic adjacent-list spacing so labels and arrows stay aligned');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
 assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
-assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.138') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
+assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.139') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
 assert(publicAccountMenuJs.includes("fetch('/api/auth/session'") && publicAccountMenuJs.includes("fetch('/api/account/entitlements'") && publicAccountMenuJs.includes("fetch('/api/auth/logout'") && publicAccountMenuJs.includes("window.location.assign('/invite')") && publicAccountMenuJs.includes('剩余用量'), 'shared public account menu should read the real session and quota, enter the invitation center, and perform backend logout');
 assert(publicAccountMenuJs.includes('initPublicNavigationState') && publicAccountMenuJs.includes('publicNavIcon') && publicAccountMenuJs.includes("link.setAttribute('aria-current', 'page')") && !publicAccountMenuJs.includes("link.classList.add('is-navigating')"), 'public navigation should add consistent leading icons and retain a destination-page state without a synthetic loading indicator');
 assert(warRoomCss.includes('a[aria-current="page"]') && warRoomCss.includes('.public-nav-icon') && warRoomCss.includes('a:hover') && !warRoomCss.includes('.public-navigation-status') && !warRoomCss.includes('public-nav-progress') && !warRoomCss.includes('public-nav-soft-glow'), 'public navigation should change icon and label color on hover/current state without a spinner, progress bar, status toast or glow animation');
@@ -2256,7 +2257,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.138' && health.version_label === 'v1.6.138 · 导航反馈增强版', 'public application health version should report v1.6.138');
+assert(health.version === '1.6.139' && health.version_label === 'v1.6.139 · 对标内容洞察内测版', 'public application health version should report v1.6.139');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.features?.includes('commercial_entitlements_p2') && health.features?.includes('commercial_usage_reservations'), 'health should expose P2 entitlements and usage reservations');
 assert(health.features?.includes('referral_rewards_v1'), 'health should expose the account-scoped referral reward capability');
@@ -2269,6 +2270,255 @@ assert(Array.isArray(health.features) && health.features.includes('async_video_p
 assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_bitable_pull_v1') && health.features.includes('feishu_bitable_push_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound, stage-B pull, stage-C push and webhook capabilities');
 assert(health.providers?.openai === false && health.providers?.image_model === 'gpt-image-2' && health.providers?.image_background === true, 'health should expose non-secret image provider readiness, model and background execution evidence');
 assert(health.providers?.ark === false && health.providers?.seedance_model === 'doubao-seedance-2-0-260128', 'health should expose non-secret video provider readiness and model evidence');
+assert(health.benchmark_module_version === 'benchmark-insights-p0' && health.features.includes('benchmark_insights_p0') && health.features.includes('benchmark_evidence_review'), 'health should expose the internal benchmark-insights P0 capability');
+
+const benchmarkProjectId = 'project-benchmark-martial';
+const benchmarkOtherProjectId = 'project-benchmark-other';
+const benchmarkClientId = 'benchmark-martial-client';
+const benchmarkProjectStore = {
+  activeProjectId: benchmarkProjectId,
+  projects: [
+    {
+      id: benchmarkProjectId,
+      name: '子武限武术搏击俱乐部',
+      updated_at: '2026-08-11 10:00:00',
+      state: {
+        project: { id: benchmarkProjectId, name: '子武限武术搏击俱乐部' },
+        assessment: {
+          company_name: '子武限武术搏击俱乐部',
+          industry: '少儿武术与搏击培训',
+          main_goal: '获得附近家长体验课咨询',
+          target_customer: '附近有6-12岁孩子的家长',
+          offer: '少儿武术搏击体验课',
+          customer_pain: '担心受伤，不知道孩子是否适合',
+          current_channels: '小红书',
+          posting_frequency: '每周3条',
+          biggest_problem: '不知道发什么',
+          content_assets: '课堂保护细节、教练分层和家长观察素材',
+        },
+        diagnosis: { id: 'diagnosis-benchmark-martial' },
+        plans: [], feedback: [], review: null,
+      },
+    },
+    {
+      id: benchmarkOtherProjectId,
+      name: '其他项目',
+      updated_at: '2026-08-10 10:00:00',
+      state: { project: { id: benchmarkOtherProjectId, name: '其他项目' }, assessment: { industry: '本地服务' }, plans: [] },
+    },
+  ],
+};
+const benchmarkStateWrite = await handler(internalRequest('POST', 'state', { client_id: benchmarkClientId, project_store: benchmarkProjectStore }));
+assert(benchmarkStateWrite.status === 201, 'benchmark fixture project store should persist');
+const benchmarkStateBefore = await (await handler(internalRequest('GET', `state?client_id=${benchmarkClientId}&mode=internal`))).json();
+const benchmarkProjectStoreBefore = JSON.stringify(benchmarkStateBefore.project_store);
+
+for (const path of ['benchmark-profiles', 'benchmark-contents', 'benchmark-jobs', 'benchmark-insights']) {
+  const unauthorizedBenchmark = await handler(request('GET', `${path}?client_id=${benchmarkClientId}&project_id=${benchmarkProjectId}`));
+  assert(unauthorizedBenchmark.status === 401, `GET /${path} must require internal authentication`);
+}
+
+const benchmarkProfileResponse = await handler(internalRequest('POST', 'benchmark-profiles', {
+  client_id: benchmarkClientId,
+  project_id: benchmarkProjectId,
+  platform: '小红书',
+  account_name: '少儿武术家长观察账号',
+  account_url: 'https://example.com/martial-account',
+  reference_reason: ['选题', '安全感表达'],
+  operator_notes: '重点观察家长对课堂安全和教练分层的关注',
+}));
+assert(benchmarkProfileResponse.status === 201, `benchmark profile should be created, got ${benchmarkProfileResponse.status}`);
+const benchmarkProfile = (await benchmarkProfileResponse.json()).profile;
+
+const benchmarkBareLink = await handler(internalRequest('POST', 'benchmark-contents', {
+  client_id: benchmarkClientId,
+  project_id: benchmarkProjectId,
+  benchmark_profile_id: benchmarkProfile.benchmark_profile_id,
+  content_url: 'https://example.com/bare-link',
+}));
+assert(benchmarkBareLink.status === 400 && (await benchmarkBareLink.json()).error.includes('链接暂不能自动读取'), 'bare benchmark link must be rejected with an actionable message');
+
+const crossProjectAssetResponse = await handler(internalRequest('POST', 'assets', {
+  client_id: benchmarkClientId,
+  project_id: benchmarkOtherProjectId,
+  text_content: 'cross-project-screenshot',
+  original_filename: 'cross-project.txt',
+  mime_type: 'text/plain',
+}));
+const crossProjectAsset = (await crossProjectAssetResponse.json()).asset;
+const crossProjectScreenshot = await handler(internalRequest('POST', 'benchmark-contents', {
+  client_id: benchmarkClientId,
+  project_id: benchmarkProjectId,
+  benchmark_profile_id: benchmarkProfile.benchmark_profile_id,
+  title: '武术课安全观察内容',
+  screenshot_asset_id: crossProjectAsset.asset_id,
+}));
+assert(crossProjectScreenshot.status === 404, 'benchmark screenshot asset must belong to the same project');
+
+const benchmarkContentPayloads = [
+  {
+    title: '孩子第一次上武术课，家长最该看什么',
+    content_url: 'https://example.com/martial-first-class',
+    content_summary: '讲课堂秩序、安全保护和教练分层',
+    operator_observation: '家长集中询问安全和孩子是否适合',
+    visible_metrics: { likes: 24, favorites: 18, comments: 7, shares: null, views: null },
+    confidence: 'C',
+  },
+  {
+    title: '搏击课会不会受伤？先看课堂里的3个保护细节',
+    content_summary: '展示热身、护具检查和分组训练',
+    operator_observation: '仅有运营观察，公开指标未知',
+    visible_metrics: { likes: null, favorites: null, comments: null, shares: null, views: null },
+    confidence: 'C',
+  },
+];
+const benchmarkContents = [];
+for (const content of benchmarkContentPayloads) {
+  const response = await handler(internalRequest('POST', 'benchmark-contents', {
+    ...content,
+    client_id: benchmarkClientId,
+    project_id: benchmarkProjectId,
+    benchmark_profile_id: benchmarkProfile.benchmark_profile_id,
+    platform: '小红书',
+  }));
+  assert(response.status === 201, `benchmark content should be created, got ${response.status}`);
+  benchmarkContents.push((await response.json()).content);
+}
+assert(benchmarkContents[0].visible_metrics.views === null && benchmarkContents[0].visible_metrics.shares === null, 'missing benchmark metrics must stay null instead of becoming zero');
+assert(benchmarkContents[1].confidence === 'E', 'confidence C without a link, screenshot or visible metric must downgrade to E');
+
+const crossClientPatch = await handler(internalRequest('PATCH', `benchmark-profiles/${encodeURIComponent(benchmarkProfile.benchmark_profile_id)}`, {
+  client_id: 'benchmark-other-client',
+  account_name: '不应成功',
+}));
+assert(crossClientPatch.status === 404, 'cross-client benchmark profile update must not reveal or modify the record');
+
+const martialGuard = benchmarkIndustryGuard({ projectText: '少儿武术搏击培训', sourceText: '武术体验课、安全防护、家长观察', outputText: '教练分层和规则感' });
+const basketballGuard = benchmarkIndustryGuard({ projectText: '少儿篮球训练营', sourceText: '篮球体能、运球投篮、体验课', outputText: '孩子和家长' });
+const beautyGuard = benchmarkIndustryGuard({ projectText: '本地美容美甲门店', sourceText: '通勤款、甲型和持久度', outputText: '到店预约' });
+const dentalGuard = benchmarkIndustryGuard({ projectText: '社区口腔门诊', sourceText: '口腔检查、正畸和医生专业度', outputText: '价格和信任' });
+assert(martialGuard.passed && basketballGuard.passed && beautyGuard.passed && dentalGuard.passed, 'four supported industries should pass their own evidence guard');
+const mismatchGuard = benchmarkIndustryGuard({ projectText: '少儿武术搏击培训', sourceText: '篮球运球和投篮体验课', outputText: '篮筐训练' });
+assert(!mismatchGuard.passed && mismatchGuard.source_mismatch, 'basketball evidence on a martial-arts project must fail the industry guard');
+const mismatchInsight = normalizeBenchmarkInsightOutput({
+  projectSnapshot: { industry: '少儿武术搏击培训' },
+  contents: [{ benchmark_content_id: 'basketball-source', title: '孩子投篮训练', content_summary: '篮球运球和篮筐练习', observed_at: '2026-08-11' }],
+  modelOutput: {
+    fit_summary: '可以参考', fit_status: 'high',
+    market_signals: [{ statement: '家长关注投篮', source_content_ids: ['basketball-source'], confidence: 'C', adaptation_reason: '孩子训练' }],
+    transferable_directions: [{ statement: '篮球训练方法', source_content_ids: ['basketball-source'], confidence: 'C', adaptation_reason: '课程获客' }],
+  },
+});
+assert(mismatchInsight.fit_status === 'low' && mismatchInsight.transferable_directions.length === 0, 'cross-industry model output must be downgraded and prevented from application');
+
+let benchmarkFailurePromise = null;
+const benchmarkFailureResponse = await handler(internalRequest('POST', 'benchmark-jobs', {
+  client_id: benchmarkClientId,
+  project_id: benchmarkProjectId,
+  benchmark_profile_ids: [benchmarkProfile.benchmark_profile_id],
+  benchmark_content_ids: benchmarkContents.map((item) => item.benchmark_content_id),
+  request_id: 'benchmark-missing-model-001',
+}), { waitUntil(promise) { benchmarkFailurePromise = promise; } });
+assert(benchmarkFailureResponse.status === 202 && benchmarkFailurePromise, 'benchmark model failure should still use the async task path');
+const benchmarkFailureJob = await benchmarkFailureResponse.json();
+await benchmarkFailurePromise;
+const benchmarkFailureResult = await (await handler(internalRequest('GET', `benchmark-jobs/${encodeURIComponent(benchmarkFailureJob.job.job_id)}?client_id=${benchmarkClientId}`))).json();
+assert(benchmarkFailureResult.job.status === 'failed' && benchmarkFailureResult.job.fallback === true && benchmarkFailureResult.job.actual_model === 'rule_template', 'missing Ark configuration must fail explicitly and never masquerade as a market insight');
+
+const benchmarkFetchBefore = globalThis.fetch;
+process.env.SAFE_TO_RUN = 'true';
+process.env.ARK_API_KEY = 'benchmark-smoke-ark-key';
+process.env.ARK_MODEL = 'benchmark-smoke-ark-model';
+globalThis.fetch = async (_url, options = {}) => {
+  const requestBody = JSON.parse(options.body || '{}');
+  const promptText = JSON.stringify(requestBody.messages || []);
+  const modelContent = promptText.includes('分析对标内容并生成可审核的市场洞察')
+    ? {
+      fit_summary: '来源与少儿武术项目高度匹配，家长关注安全、规则感和体验课观察。',
+      fit_status: 'high',
+      market_signals: [{ statement: '家长会先确认课堂安全和训练秩序', source_content_ids: [benchmarkContents[0].benchmark_content_id], confidence: 'C', adaptation_reason: '当前项目同样服务附近6-12岁孩子家长' }],
+      proven_pains: [{ statement: '家长担心受伤，也担心孩子跟不上', source_content_ids: benchmarkContents.map((item) => item.benchmark_content_id), confidence: 'C', adaptation_reason: '与当前项目的咨询顾虑一致' }],
+      title_patterns: [{ statement: '先提出家长顾虑，再给出可观察的课堂细节', source_content_ids: [benchmarkContents[1].benchmark_content_id], confidence: 'E', adaptation_reason: '可转成当前门店的真实课堂观察' }],
+      content_formats: [{ statement: '课堂纪实短视频配家长检查清单', source_content_ids: [benchmarkContents[1].benchmark_content_id], confidence: 'E', adaptation_reason: '项目已有课堂保护素材' }],
+      trust_evidence_patterns: [{ statement: '展示热身、护具检查和教练分层', source_content_ids: [benchmarkContents[1].benchmark_content_id], confidence: 'E', adaptation_reason: '用真实流程建立信任' }],
+      conversion_paths: [{ statement: '内容后承接到店体验课观察', source_content_ids: [benchmarkContents[0].benchmark_content_id], confidence: 'C', adaptation_reason: '符合当前获得体验课咨询的目标' }],
+      transferable_directions: [{ statement: '用课堂保护细节回答家长的安全顾虑', source_content_ids: benchmarkContents.map((item) => item.benchmark_content_id), confidence: 'C', adaptation_reason: '当前项目可用自有课堂素材重新表达' }],
+      avoid_copying: [{ statement: '不照抄来源标题，不搬运其他教练案例', source_content_ids: [benchmarkContents[0].benchmark_content_id], confidence: 'C', adaptation_reason: '必须保持当前门店事实边界' }],
+      platform_risks: [{ statement: '避免承诺零受伤或保证训练效果', source_content_ids: [benchmarkContents[1].benchmark_content_id], confidence: 'E', adaptation_reason: '教育培训内容不能夸大效果和安全承诺' }],
+    }
+    : {
+      plans: Array.from({ length: 7 }, (_, index) => ({
+        topic: `武术体验课第${index + 1}个家长观察角度`,
+        angle: `用当前门店的真实课堂细节说明安全、规则感和教练分层${index + 1}`,
+        content_type: index % 2 ? '短视频' : '图文',
+        cta: '主页咨询体验课',
+        target_metric: '咨询',
+      })),
+    };
+  return new Response(JSON.stringify({
+    model: 'benchmark-smoke-ark-model',
+    choices: [{ message: { content: JSON.stringify(modelContent) } }],
+    usage: { prompt_tokens: 100, completion_tokens: 200, total_tokens: 300 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+
+let benchmarkJobPromise = null;
+const benchmarkJobResponse = await handler(internalRequest('POST', 'benchmark-jobs', {
+  client_id: benchmarkClientId,
+  project_id: benchmarkProjectId,
+  benchmark_profile_ids: [benchmarkProfile.benchmark_profile_id],
+  benchmark_content_ids: benchmarkContents.map((item) => item.benchmark_content_id),
+  request_id: 'benchmark-martial-idempotency-001',
+}), { waitUntil(promise) { benchmarkJobPromise = promise; } });
+assert(benchmarkJobResponse.status === 202 && benchmarkJobPromise, 'benchmark job should return 202 and continue through waitUntil');
+const benchmarkJobCreated = await benchmarkJobResponse.json();
+const benchmarkJobRetry = await handler(internalRequest('POST', 'benchmark-jobs', {
+  client_id: benchmarkClientId,
+  project_id: benchmarkProjectId,
+  request_id: 'benchmark-martial-idempotency-001',
+}));
+const benchmarkJobRetryData = await benchmarkJobRetry.json();
+assert(benchmarkJobRetryData.duplicate === true && benchmarkJobRetryData.job.job_id === benchmarkJobCreated.job.job_id, 'same benchmark request_id must reuse the original job');
+await benchmarkJobPromise;
+const completedBenchmarkJob = await (await handler(internalRequest('GET', `benchmark-jobs/${encodeURIComponent(benchmarkJobCreated.job.job_id)}?client_id=${benchmarkClientId}`))).json();
+assert(completedBenchmarkJob.job.status === 'review_required' && completedBenchmarkJob.job.fallback === false, 'successful benchmark job should wait for human review without fallback');
+const benchmarkInsightList = await (await handler(internalRequest('GET', `benchmark-insights?client_id=${benchmarkClientId}&project_id=${benchmarkProjectId}`))).json();
+const benchmarkInsight = benchmarkInsightList.insights[0];
+assert(benchmarkInsight.market_signals.every((item) => item.source_content_ids.length && item.adaptation_reason), 'every benchmark signal must retain evidence ids and an adaptation reason');
+assert(!JSON.stringify(benchmarkInsight).includes('运球') && !JSON.stringify(benchmarkInsight).includes('投篮') && !JSON.stringify(benchmarkInsight).includes('篮筐'), 'martial-arts benchmark insight must not contain basketball terms');
+
+const approvedBenchmark = await handler(internalRequest('PATCH', `benchmark-insights/${encodeURIComponent(benchmarkInsight.benchmark_insight_id)}/review`, {
+  client_id: benchmarkClientId,
+  status: 'approved',
+  reviewer: 'smoke-qa',
+  notes: '行业、证据和适配理由已确认',
+}));
+assert(approvedBenchmark.status === 200 && (await approvedBenchmark.json()).insight.status === 'approved', 'valid benchmark insight should support human approval');
+const benchmarkTestPlanResponse = await handler(internalRequest('POST', `benchmark-insights/${encodeURIComponent(benchmarkInsight.benchmark_insight_id)}/test-plan`, {
+  client_id: benchmarkClientId,
+}));
+assert(benchmarkTestPlanResponse.status === 200, `approved benchmark insight should generate a test plan, got ${benchmarkTestPlanResponse.status}`);
+const benchmarkTestPlan = (await benchmarkTestPlanResponse.json()).test_plan;
+assert(benchmarkTestPlan.plans?.length === 7, 'benchmark test plan should contain seven rows');
+assert(benchmarkTestPlan.plans.every((plan) => !benchmarkContents.some((source) => plan.topic === source.title)), 'benchmark test plan must not copy a source title verbatim');
+assert(benchmarkTestPlan.plans.every((plan) => !/篮球|运球|投篮|篮筐/.test(`${plan.topic} ${plan.angle}`)), 'martial-arts benchmark test plan must remain industry-isolated');
+
+globalThis.fetch = benchmarkFetchBefore;
+delete process.env.SAFE_TO_RUN;
+delete process.env.ARK_API_KEY;
+delete process.env.ARK_MODEL;
+const benchmarkStateAfter = await (await handler(internalRequest('GET', `state?client_id=${benchmarkClientId}&mode=internal`))).json();
+assert(JSON.stringify(benchmarkStateAfter.project_store) === benchmarkProjectStoreBefore, 'benchmark collections and test-plan generation must not modify global-project-store data');
+
+const benchmarkSourceAssertions = [
+  "currentPath() === '/internal/benchmark-insights'",
+  'id="benchmarkInsightsWorkbench"',
+  '对标内容洞察',
+  'benchmark-insights-mode',
+];
+benchmarkSourceAssertions.forEach((needle) => assert(`${appJs}\n${indexHtml}\n${stylesCss}`.includes(needle), `benchmark workbench source should include ${needle}`));
+const publicCustomerAppHtml = indexHtml.split('<main id="internalAccessGate"')[0];
+assert(!publicCustomerAppHtml.includes('/internal/benchmark-insights'), 'public customer app must not expose the internal benchmark workbench link');
 
 const timestampProject = ({ id, name, updatedAt, marker }) => ({
   id,

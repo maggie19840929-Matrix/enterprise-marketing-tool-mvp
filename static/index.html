@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.138" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.138" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.138" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.139" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.139" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.139" />
 </head>
 <body class="customer-mode">
   <script>
@@ -24,7 +24,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.138" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.139" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -57,7 +57,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.138" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.139" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -466,7 +466,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.138" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.139" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -576,7 +576,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.138" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.139" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -597,6 +597,7 @@
         <a class="customer-hero-primary" href="/internal/#diagnosisWorkflow">客户运营工作区</a>
         <a class="customer-hero-secondary" href="/internal/#planSection">查看内容计划</a>
         <a class="customer-hero-secondary" href="/internal/#feedbackWorkflow">回填与复盘</a>
+        <a class="customer-hero-secondary" href="/internal/benchmark-insights">对标内容洞察</a>
         <a class="customer-hero-secondary" href="/internal/generation-workbench">素材生产工作台</a>
         <button id="topReturnProjectBtn" class="customer-hero-secondary top-return-project" type="button" onclick="returnToActiveProject()" hidden>返回当前运营项目</button>
       </div>
@@ -696,6 +697,99 @@
         </div>
       </div>
     </details>
+
+    <section id="benchmarkInsightsWorkbench" class="benchmark-workbench customer-card" hidden>
+      <div class="benchmark-workbench-head">
+        <div>
+          <p>INTERNAL · MARKET EVIDENCE</p>
+          <h2>对标内容洞察</h2>
+          <span>录入真实对标内容和证据，先由模型提炼市场信号，再由团队审核后用于内测方案。</span>
+        </div>
+        <button id="benchmarkRefreshBtn" class="secondary" type="button">刷新数据</button>
+      </div>
+
+      <div id="benchmarkWorkbenchStatus" class="customer-message success" role="status" aria-live="polite">请选择客户和项目。</div>
+
+      <section class="benchmark-panel benchmark-scope-panel">
+        <div class="benchmark-panel-head">
+          <div><span>01</span><h3>选择客户与项目</h3></div>
+          <p>只读取所选客户桶，任何对标记录都不会跨客户共享。</p>
+        </div>
+        <div class="benchmark-scope-grid">
+          <label>客户
+            <select id="benchmarkClientSelect"><option value="">正在读取客户...</option></select>
+          </label>
+          <label>项目
+            <select id="benchmarkProjectSelect"><option value="">请先选择客户</option></select>
+          </label>
+        </div>
+        <div id="benchmarkProjectSummary" class="benchmark-project-summary empty">选择项目后显示行业、客群、服务和平台摘要。</div>
+      </section>
+
+      <div class="benchmark-editor-grid">
+        <section class="benchmark-panel">
+          <div class="benchmark-panel-head">
+            <div><span>02</span><h3>对标账号</h3></div>
+            <p>先登记账号和参考原因，不自动抓取平台内容。</p>
+          </div>
+          <form id="benchmarkProfileForm" class="benchmark-form">
+            <label>平台
+              <select name="platform"><option>小红书</option><option>抖音</option><option>视频号</option><option>其他</option></select>
+            </label>
+            <label>账号名称 *<input name="account_name" required placeholder="如：某少儿武术账号" /></label>
+            <label class="wide-field">主页链接（可选）<input name="account_url" placeholder="https://..." /></label>
+            <label class="wide-field">参考原因<input name="reference_reason" placeholder="如：选题、信任表达、咨询承接" /></label>
+            <label class="wide-field">运营观察<textarea name="operator_notes" placeholder="为什么认为这个账号值得参考？"></textarea></label>
+            <button type="submit">保存对标账号</button>
+          </form>
+          <div id="benchmarkProfileList" class="benchmark-list empty">暂无对标账号。</div>
+        </section>
+
+        <section class="benchmark-panel">
+          <div class="benchmark-panel-head">
+            <div><span>03</span><h3>代表内容与证据</h3></div>
+            <p>链接不会被自动读取，请同时填写标题、摘要或截图素材。</p>
+          </div>
+          <form id="benchmarkContentForm" class="benchmark-form">
+            <label class="wide-field">所属账号 *<select name="benchmark_profile_id" required><option value="">请先添加对标账号</option></select></label>
+            <label class="wide-field">内容标题 *<input name="title" required placeholder="如：孩子第一次上武术课，家长最该看什么" /></label>
+            <label class="wide-field">内容链接（可选）<input name="content_url" placeholder="https://..." /></label>
+            <label class="wide-field">内容摘要<textarea name="content_summary" placeholder="讲了什么、解决什么问题、用了什么证据"></textarea></label>
+            <label>内容形式<select name="content_format"><option>图文</option><option>短视频</option><option>口播</option><option>案例</option><option>其他</option></select></label>
+            <label>可信等级<select name="confidence"><option value="C">C · 有链接/截图/公开指标</option><option value="D">D · 有内容描述</option><option value="E">E · 仅观察，待验证</option></select></label>
+            <label>点赞<input name="likes" type="number" min="0" placeholder="未知请留空" /></label>
+            <label>收藏<input name="favorites" type="number" min="0" placeholder="未知请留空" /></label>
+            <label>评论<input name="comments" type="number" min="0" placeholder="未知请留空" /></label>
+            <label>分享<input name="shares" type="number" min="0" placeholder="未知请留空" /></label>
+            <label class="wide-field">截图素材 ID（可选）<input name="screenshot_asset_id" placeholder="同客户、同项目下的 asset_id" /></label>
+            <label class="wide-field">观察说明<textarea name="operator_observation" placeholder="评论集中问什么？为什么值得参考？"></textarea></label>
+            <button type="submit">保存代表内容</button>
+          </form>
+          <div id="benchmarkContentList" class="benchmark-list empty">暂无代表内容。</div>
+        </section>
+      </div>
+
+      <section class="benchmark-panel benchmark-analysis-panel">
+        <div class="benchmark-panel-head">
+          <div><span>04</span><h3>生成与审核市场洞察</h3></div>
+          <p>模型失败、证据 ID 不存在或行业串线都会明确失败，不使用本地模板冒充成功。</p>
+        </div>
+        <div class="benchmark-analysis-actions">
+          <button id="benchmarkAnalyzeBtn" type="button">分析当前项目对标内容</button>
+          <span id="benchmarkPollingStatus">暂无运行中的任务。</span>
+        </div>
+        <div id="benchmarkJobList" class="benchmark-list empty">暂无洞察任务。</div>
+        <div id="benchmarkInsightList" class="benchmark-insight-list empty">暂无待审核洞察。</div>
+      </section>
+
+      <section class="benchmark-panel benchmark-test-plan-panel">
+        <div class="benchmark-panel-head">
+          <div><span>05</span><h3>内测方案对比</h3></div>
+          <p>只有审核通过且行业门禁通过的洞察才能进入这里，不影响客户公开生成流程。</p>
+        </div>
+        <div id="benchmarkTestPlan" class="benchmark-test-plan empty">审核洞察后，可在这里生成一份内测 7 天方案。</div>
+      </section>
+    </section>
 
     <section id="generationWorkbench" class="generation-workbench customer-card" hidden>
       <form id="generationTaskForm" class="generation-panel generation-form generation-primary-form">
@@ -1139,7 +1233,7 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/public-account-menu.js?v=1.6.138"></script>
-  <script src="/app.js?v=1.6.138"></script>
+  <script src="/public-account-menu.js?v=1.6.139"></script>
+  <script src="/app.js?v=1.6.139"></script>
 </body>
 </html>

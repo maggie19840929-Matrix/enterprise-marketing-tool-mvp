@@ -1,10 +1,10 @@
 {
   "name": "enterprise-marketing-tool-mvp",
-  "version": "1.6.137",
+  "version": "1.6.139",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check static/app.js && node --check netlify/functions/api.mjs && node --check netlify/functions/generate-background.mjs && node --check netlify/functions/feishu-pull-scheduled.mjs && node --check scripts/local-dev-server.mjs",
+    "check": "node --check static/app.js && node --check netlify/functions/api.mjs && node --check netlify/functions/benchmark-insights.mjs && node --check netlify/functions/generate-background.mjs && node --check netlify/functions/feishu-pull-scheduled.mjs && node --check scripts/local-dev-server.mjs",
     "test": "npm run check && node tests/api_smoke.mjs",
     "dev": "node scripts/local-dev-server.mjs"
   },

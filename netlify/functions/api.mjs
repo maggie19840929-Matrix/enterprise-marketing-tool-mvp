@@ -1,5 +1,13 @@
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { normalizePaymentProvider, paymentAdapterFor, paymentProviderCodes } from './payment-adapters.mjs';
+import {
+  benchmarkInsightPlanCalibration,
+  buildBenchmarkInsightPrompt,
+  normalizeBenchmarkContentInput,
+  normalizeBenchmarkInsightOutput,
+  normalizeBenchmarkProfileInput,
+  parseBenchmarkModelJson,
+} from './benchmark-insights.mjs';
 
 let state;
 let memoryCloudState = null;
@@ -9,10 +17,12 @@ const memoryGenerationTaskStates = new Map();
 const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
+const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.138';
-const VERSION_LABEL = 'v1.6.138 · 导航反馈增强版';
+const APP_VERSION = '1.6.139';
+const VERSION_LABEL = 'v1.6.139 · 对标内容洞察内测版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
+const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
@@ -3893,6 +3903,10 @@ const COLLECTION_FIELDS = Object.freeze({
   'shooting-schedules': 'schedules',
   'weekly-reports': 'reports',
   'delivery-feishu-bindings': 'bindings',
+  'benchmark-profiles': 'profiles',
+  'benchmark-contents': 'contents',
+  'benchmark-insights': 'insights',
+  'benchmark-jobs': 'jobs',
 });
 const DELIVERY_COLLECTION_KINDS = new Set([
   'delivery-projects',
@@ -3908,6 +3922,7 @@ const memoryCollectionMap = (kind) => {
   if (kind === 'assets') return memoryAssetStates;
   if (kind === 'plan-jobs') return memoryPlanJobStates;
   if (DELIVERY_COLLECTION_KINDS.has(kind)) return memoryDeliveryCollectionStates;
+  if (String(kind).startsWith('benchmark-')) return memoryBenchmarkCollectionStates;
   return memoryGenerationTaskStates;
 };
 const sha256Hex = (value) => createHash('sha256').update(value).digest('hex');
@@ -3950,6 +3965,372 @@ const upsertCollectionItem = async (kind, clientId, item, idField, currentState 
   const items = ensureArray(current[field]).filter((entry) => String(entry[idField] || '') !== id);
   items.unshift(item);
   return writeCloudCollection(kind, clientId, items);
+};
+
+const benchmarkClientId = (value = '') => {
+  const clientId = normalizeClientId(value);
+  if (!clientId) throw new Error('对标洞察需要有效 client_id');
+  return clientId;
+};
+const benchmarkHttpError = (message = '请求失败', status = 400) => Object.assign(new Error(message), { status });
+
+const benchmarkProjectFor = async (clientId = '', projectId = '') => {
+  const safeClientId = benchmarkClientId(clientId);
+  const safeProjectId = String(projectId || '').trim();
+  if (!safeProjectId) throw new Error('对标洞察需要有效 project_id');
+  const cloud = await readCloudState(safeClientId, { internal: true });
+  const store = normalizeCloudProjectStore(cloud.project_store || {});
+  const project = ensureArray(store.projects).find((item) => String(item?.id || '') === safeProjectId);
+  if (!project) throw benchmarkHttpError('项目不存在或不属于当前客户', 404);
+  return project;
+};
+
+const benchmarkProjectSnapshot = (project = {}) => {
+  const projectState = project.state || {};
+  const assessment = projectState.assessment || {};
+  return {
+    project_id: String(project.id || projectState.project?.id || ''),
+    project_name: String(project.name || projectState.project?.name || assessment.company_name || assessment.industry || ''),
+    industry: String(assessment.industry || ''),
+    target_customer: String(assessment.target_customer || ''),
+    offer: String(assessment.offer || ''),
+    main_goal: String(assessment.main_goal || ''),
+    customer_pain: String(assessment.customer_pain || assessment.biggest_problem || ''),
+    current_channels: String(assessment.current_channels || ''),
+  };
+};
+
+const benchmarkCollectionItems = async (kind, clientId, projectId = '') => {
+  const current = await readCloudCollection(kind, clientId);
+  const field = collectionField(kind);
+  return ensureArray(current[field]).filter((item) => !projectId || String(item.project_id || '') === String(projectId));
+};
+
+const benchmarkRecord = async (kind, clientId, idField, id) => {
+  const current = await readCloudCollection(kind, clientId);
+  const field = collectionField(kind);
+  return ensureArray(current[field]).find((item) => String(item[idField] || '') === String(id || '')) || null;
+};
+
+const createBenchmarkProfile = async (payload = {}) => {
+  const clientId = benchmarkClientId(payload.client_id);
+  const project = await benchmarkProjectFor(clientId, payload.project_id);
+  const normalized = normalizeBenchmarkProfileInput(payload);
+  const timestamp = nowIso();
+  const profile = {
+    benchmark_profile_id: makeId('benchmark_profile'),
+    client_id: clientId,
+    project_id: String(project.id),
+    ...normalized,
+    observed_at: normalized.observed_at || timestamp,
+    created_at: timestamp,
+    updated_at: timestamp,
+    created_by: 'internal',
+  };
+  await upsertCollectionItem('benchmark-profiles', clientId, profile, 'benchmark_profile_id');
+  return profile;
+};
+
+const updateBenchmarkProfile = async (clientIdValue = '', profileId = '', payload = {}) => {
+  const clientId = benchmarkClientId(clientIdValue || payload.client_id);
+  const existing = await benchmarkRecord('benchmark-profiles', clientId, 'benchmark_profile_id', profileId);
+  if (!existing) throw benchmarkHttpError('对标账号不存在或不属于当前客户', 404);
+  if (payload.project_id && String(payload.project_id) !== String(existing.project_id)) throw new Error('不能跨项目修改对标账号');
+  await benchmarkProjectFor(clientId, existing.project_id);
+  const updated = {
+    ...existing,
+    ...normalizeBenchmarkProfileInput(payload, existing),
+    client_id: clientId,
+    project_id: existing.project_id,
+    benchmark_profile_id: existing.benchmark_profile_id,
+    updated_at: nowIso(),
+  };
+  await upsertCollectionItem('benchmark-profiles', clientId, updated, 'benchmark_profile_id');
+  return updated;
+};
+
+const assertBenchmarkScreenshotAsset = async ({ clientId = '', projectId = '', assetId = '' } = {}) => {
+  if (!assetId) return null;
+  const assets = await listAssets({ clientId, projectId });
+  const asset = assets.find((item) => String(item.asset_id || '') === String(assetId));
+  if (!asset || String(asset.project_id || '') !== String(projectId)) throw benchmarkHttpError('截图素材不存在或不属于当前项目', 404);
+  return asset;
+};
+
+const createBenchmarkContent = async (payload = {}) => {
+  const clientId = benchmarkClientId(payload.client_id);
+  const project = await benchmarkProjectFor(clientId, payload.project_id);
+  const profile = await benchmarkRecord('benchmark-profiles', clientId, 'benchmark_profile_id', payload.benchmark_profile_id);
+  if (!profile || String(profile.project_id) !== String(project.id)) throw benchmarkHttpError('对标账号不存在或不属于当前项目', 404);
+  const normalized = normalizeBenchmarkContentInput(payload);
+  await assertBenchmarkScreenshotAsset({ clientId, projectId: project.id, assetId: normalized.screenshot_asset_id });
+  const timestamp = nowIso();
+  const content = {
+    benchmark_content_id: makeId('benchmark_content'),
+    benchmark_profile_id: profile.benchmark_profile_id,
+    client_id: clientId,
+    project_id: String(project.id),
+    platform: normalized.platform || profile.platform,
+    ...normalized,
+    observed_at: normalized.observed_at || timestamp,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  await upsertCollectionItem('benchmark-contents', clientId, content, 'benchmark_content_id');
+  return content;
+};
+
+const updateBenchmarkContent = async (clientIdValue = '', contentId = '', payload = {}) => {
+  const clientId = benchmarkClientId(clientIdValue || payload.client_id);
+  const existing = await benchmarkRecord('benchmark-contents', clientId, 'benchmark_content_id', contentId);
+  if (!existing) throw benchmarkHttpError('代表内容不存在或不属于当前客户', 404);
+  if (payload.project_id && String(payload.project_id) !== String(existing.project_id)) throw new Error('不能跨项目修改代表内容');
+  const project = await benchmarkProjectFor(clientId, existing.project_id);
+  const requestedProfileId = String(payload.benchmark_profile_id || existing.benchmark_profile_id);
+  const profile = await benchmarkRecord('benchmark-profiles', clientId, 'benchmark_profile_id', requestedProfileId);
+  if (!profile || String(profile.project_id) !== String(project.id)) throw benchmarkHttpError('对标账号不存在或不属于当前项目', 404);
+  const normalized = normalizeBenchmarkContentInput(payload, existing);
+  await assertBenchmarkScreenshotAsset({ clientId, projectId: project.id, assetId: normalized.screenshot_asset_id });
+  const updated = {
+    ...existing,
+    ...normalized,
+    benchmark_content_id: existing.benchmark_content_id,
+    benchmark_profile_id: profile.benchmark_profile_id,
+    client_id: clientId,
+    project_id: existing.project_id,
+    platform: normalized.platform || profile.platform,
+    updated_at: nowIso(),
+  };
+  await upsertCollectionItem('benchmark-contents', clientId, updated, 'benchmark_content_id');
+  return updated;
+};
+
+const saveBenchmarkJob = async (job = {}) => {
+  await upsertCollectionItem('benchmark-jobs', job.client_id, job, 'job_id');
+  return job;
+};
+
+const createBenchmarkJob = async (payload = {}) => {
+  const clientId = benchmarkClientId(payload.client_id);
+  const project = await benchmarkProjectFor(clientId, payload.project_id);
+  const requestId = String(payload.request_id || '').trim();
+  if (!requestId) throw new Error('创建洞察任务需要 request_id');
+  const existingJobs = await benchmarkCollectionItems('benchmark-jobs', clientId, project.id);
+  const duplicate = existingJobs.find((item) => String(item.request_id || '') === requestId);
+  if (duplicate) return { job: duplicate, duplicate: true };
+  const availableProfiles = await benchmarkCollectionItems('benchmark-profiles', clientId, project.id);
+  const profileIds = ensureArray(payload.benchmark_profile_ids).map(String).filter(Boolean);
+  const profiles = availableProfiles.filter((item) => item.status !== 'archived' && (!profileIds.length || profileIds.includes(String(item.benchmark_profile_id))));
+  if (!profiles.length) throw new Error('请先添加至少一个当前项目的对标账号');
+  const availableContents = await benchmarkCollectionItems('benchmark-contents', clientId, project.id);
+  const contentIds = ensureArray(payload.benchmark_content_ids).map(String).filter(Boolean);
+  const contents = availableContents.filter((item) => item.status === 'ready'
+    && profiles.some((profile) => profile.benchmark_profile_id === item.benchmark_profile_id)
+    && (!contentIds.length || contentIds.includes(String(item.benchmark_content_id))));
+  if (!contents.length) throw new Error('请先添加至少一条有标题或摘要的代表内容');
+  const timestamp = nowIso();
+  const job = {
+    job_id: makeId('benchmark_job'),
+    client_id: clientId,
+    project_id: String(project.id),
+    benchmark_profile_ids: profiles.map((item) => item.benchmark_profile_id),
+    benchmark_content_ids: contents.map((item) => item.benchmark_content_id),
+    status: 'pending',
+    request_id: requestId,
+    requested_at: timestamp,
+    started_at: '',
+    completed_at: '',
+    insight_id: '',
+    error_code: '',
+    error_message: '',
+    requested_model: arkModel() || null,
+    actual_model: '',
+    provider: '',
+    fallback: false,
+    fallback_reason: null,
+    latency_ms: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  await saveBenchmarkJob(job);
+  return { job, duplicate: false };
+};
+
+const processBenchmarkJob = async (clientIdValue = '', jobId = '') => {
+  const clientId = benchmarkClientId(clientIdValue);
+  const job = await benchmarkRecord('benchmark-jobs', clientId, 'job_id', jobId);
+  if (!job) throw benchmarkHttpError('洞察任务不存在', 404);
+  if (!['pending', 'failed'].includes(job.status)) return job;
+  let running = { ...job, status: 'generating', started_at: nowIso(), updated_at: nowIso(), error_code: '', error_message: '' };
+  await saveBenchmarkJob(running);
+  try {
+    const project = await benchmarkProjectFor(clientId, running.project_id);
+    const profiles = (await benchmarkCollectionItems('benchmark-profiles', clientId, running.project_id))
+      .filter((item) => running.benchmark_profile_ids.includes(item.benchmark_profile_id));
+    const contents = (await benchmarkCollectionItems('benchmark-contents', clientId, running.project_id))
+      .filter((item) => running.benchmark_content_ids.includes(item.benchmark_content_id));
+    if (!profiles.length || !contents.length) throw new Error('benchmark_sources_missing');
+    const projectSnapshot = benchmarkProjectSnapshot(project);
+    const prompt = buildBenchmarkInsightPrompt({ projectSnapshot, profiles, contents });
+    const call = await callArkChatCompletion({
+      messages: [
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user },
+      ],
+      temperature: 0.25,
+      maxTokens: 3200,
+      purpose: 'benchmark_insight',
+      route: '/api/benchmark-jobs',
+      responseFormat: { type: 'json_object' },
+    });
+    if (!call.ok) {
+      running = {
+        ...running,
+        status: 'failed',
+        completed_at: nowIso(),
+        updated_at: nowIso(),
+        error_code: call.fallback_reason || 'benchmark_model_failed',
+        error_message: '模型分析失败，请检查成本闸、模型配置或稍后重试。',
+        requested_model: call.requested_model,
+        actual_model: call.actual_model,
+        provider: call.provider,
+        fallback: true,
+        fallback_reason: call.fallback_reason || 'benchmark_model_failed',
+        latency_ms: Number(call.latency_ms || 0),
+      };
+      await saveBenchmarkJob(running);
+      return running;
+    }
+    running = {
+      ...running,
+      requested_model: call.requested_model,
+      actual_model: call.actual_model,
+      provider: call.provider,
+      latency_ms: Number(call.latency_ms || 0),
+      updated_at: nowIso(),
+    };
+    await saveBenchmarkJob(running);
+    const modelOutput = parseBenchmarkModelJson(call.content);
+    const normalized = normalizeBenchmarkInsightOutput({ modelOutput, projectSnapshot, contents });
+    const timestamp = nowIso();
+    const insight = {
+      benchmark_insight_id: makeId('benchmark_insight'),
+      job_id: running.job_id,
+      client_id: clientId,
+      project_id: running.project_id,
+      source_profile_ids: [...running.benchmark_profile_ids],
+      source_content_ids: [...running.benchmark_content_ids],
+      project_snapshot: projectSnapshot,
+      ...normalized,
+      status: 'review_required',
+      review: { reviewer: '', reviewed_at: '', notes: '', rejection_reason: '' },
+      requested_model: call.requested_model,
+      actual_model: call.actual_model,
+      provider: call.provider,
+      fallback: false,
+      fallback_reason: null,
+      latency_ms: Number(call.latency_ms || 0),
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    await upsertCollectionItem('benchmark-insights', clientId, insight, 'benchmark_insight_id');
+    running = {
+      ...running,
+      status: 'review_required',
+      insight_id: insight.benchmark_insight_id,
+      completed_at: timestamp,
+      updated_at: timestamp,
+      requested_model: call.requested_model,
+      actual_model: call.actual_model,
+      provider: call.provider,
+      fallback: false,
+      fallback_reason: null,
+      latency_ms: Number(call.latency_ms || 0),
+    };
+    await saveBenchmarkJob(running);
+    return running;
+  } catch (error) {
+    const reason = String(error?.message || 'benchmark_processing_failed');
+    running = {
+      ...running,
+      status: 'failed',
+      completed_at: nowIso(),
+      updated_at: nowIso(),
+      error_code: reason,
+      error_message: reason === 'benchmark_invalid_json' ? '模型返回结构无法解析，请重新分析。' : '洞察结构校验失败，请检查来源或重新分析。',
+      actual_model: running.actual_model || 'unavailable',
+      provider: running.provider || 'none',
+      fallback: true,
+      fallback_reason: reason,
+    };
+    await saveBenchmarkJob(running);
+    return running;
+  }
+};
+
+const queueBenchmarkJob = (context, clientId, jobId) => {
+  const promise = processBenchmarkJob(clientId, jobId).catch((error) => {
+    console.error(JSON.stringify({ event: 'benchmark_job_failed', job_id: jobId, reason: error?.message || 'unknown' }));
+  });
+  if (typeof context?.waitUntil === 'function') context.waitUntil(promise);
+  return promise;
+};
+
+const reviewBenchmarkInsight = async (clientIdValue = '', insightId = '', payload = {}) => {
+  const clientId = benchmarkClientId(clientIdValue || payload.client_id);
+  const insight = await benchmarkRecord('benchmark-insights', clientId, 'benchmark_insight_id', insightId);
+  if (!insight) throw benchmarkHttpError('洞察不存在或不属于当前客户', 404);
+  await benchmarkProjectFor(clientId, insight.project_id);
+  const nextStatus = String(payload.status || payload.qa_status || '').trim();
+  if (!['approved', 'rejected'].includes(nextStatus)) throw new Error('审核状态必须为 approved 或 rejected');
+  const rejectionReason = String(payload.rejection_reason || '').trim();
+  if (nextStatus === 'rejected' && !rejectionReason) throw new Error('拒绝洞察时必须填写原因');
+  if (nextStatus === 'approved' && (insight.fallback || !insight.industry_guard?.passed || insight.fit_status === 'low')) {
+    throw new Error('模型失败或行业匹配度不足的洞察不能审核通过');
+  }
+  const reviewedAt = nowIso();
+  const updated = {
+    ...insight,
+    status: nextStatus,
+    review: {
+      reviewer: String(payload.reviewer || 'internal').trim(),
+      reviewed_at: reviewedAt,
+      notes: String(payload.notes || '').trim(),
+      rejection_reason: rejectionReason,
+    },
+    updated_at: reviewedAt,
+  };
+  await upsertCollectionItem('benchmark-insights', clientId, updated, 'benchmark_insight_id');
+  return updated;
+};
+
+const createBenchmarkTestPlan = async (clientIdValue = '', insightId = '', payload = {}) => {
+  const clientId = benchmarkClientId(clientIdValue || payload.client_id);
+  const insight = await benchmarkRecord('benchmark-insights', clientId, 'benchmark_insight_id', insightId);
+  if (!insight) throw benchmarkHttpError('洞察不存在或不属于当前客户', 404);
+  if (insight.status !== 'approved') throw new Error('只有审核通过的洞察才能生成内测方案');
+  const project = await benchmarkProjectFor(clientId, insight.project_id);
+  const assessment = project.state?.assessment || {};
+  const result = await generateAssessmentResult({
+    payload: {
+      ...assessment,
+      client_id: clientId,
+      customer_key: clientId,
+      client_mode: 'internal_regenerate',
+      source: 'internal_regenerate',
+      benchmark: benchmarkInsightPlanCalibration(insight),
+      personalized_recommendation_enabled: true,
+    },
+    clientId,
+    internalAuthorized: true,
+    generationVariant: `benchmark-${insight.benchmark_insight_id}`,
+  });
+  return {
+    benchmark_insight_id: insight.benchmark_insight_id,
+    project_id: insight.project_id,
+    generated_at: nowIso(),
+    ...result,
+  };
 };
 
 const COMMERCIAL_METERING_PREFIX = 'metering/v1';
@@ -8679,8 +9060,9 @@ export default async (request, context = {}) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
+        benchmark_module_version: BENCHMARK_INSIGHTS_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -8824,6 +9206,36 @@ export default async (request, context = {}) => {
           canonicalClientId: url.searchParams.get('canonical_client_id') || '',
         }), 200, { internal: true });
       }
+      if (path === '/benchmark-profiles') {
+        if (!internalAuthorized) return unauthorized();
+        return json({
+          profiles: await benchmarkCollectionItems('benchmark-profiles', requestClientId, url.searchParams.get('project_id') || ''),
+        }, 200, { internal: true });
+      }
+      if (path === '/benchmark-contents') {
+        if (!internalAuthorized) return unauthorized();
+        const profileId = String(url.searchParams.get('benchmark_profile_id') || '');
+        const contents = await benchmarkCollectionItems('benchmark-contents', requestClientId, url.searchParams.get('project_id') || '');
+        return json({ contents: contents.filter((item) => !profileId || item.benchmark_profile_id === profileId) }, 200, { internal: true });
+      }
+      if (path === '/benchmark-jobs') {
+        if (!internalAuthorized) return unauthorized();
+        return json({
+          jobs: await benchmarkCollectionItems('benchmark-jobs', requestClientId, url.searchParams.get('project_id') || ''),
+        }, 200, { internal: true });
+      }
+      const benchmarkJobMatch = path.match(/^\/benchmark-jobs\/([^/]+)$/);
+      if (benchmarkJobMatch) {
+        if (!internalAuthorized) return unauthorized();
+        const job = await benchmarkRecord('benchmark-jobs', requestClientId, 'job_id', decodeURIComponent(benchmarkJobMatch[1]));
+        return job ? json({ job }, 200, { internal: true }) : json({ error: '洞察任务不存在' }, 404, { internal: true });
+      }
+      if (path === '/benchmark-insights') {
+        if (!internalAuthorized) return unauthorized();
+        return json({
+          insights: await benchmarkCollectionItems('benchmark-insights', requestClientId, url.searchParams.get('project_id') || ''),
+        }, 200, { internal: true });
+      }
       if (path === '/analytics/funnel') {
         if (!internalAuthorized) return unauthorized();
         return json(await funnelSummary({
@@ -8932,6 +9344,9 @@ export default async (request, context = {}) => {
     const payload = ['POST', 'PATCH'].includes(request.method) ? await request.json().catch(() => ({})) : {};
     const payloadClientId = clientIdFrom(payload, url, request);
     const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
+    const benchmarkProfileMatch = path.match(/^\/benchmark-profiles\/([^/]+)$/);
+    const benchmarkContentMatch = path.match(/^\/benchmark-contents\/([^/]+)$/);
+    const benchmarkInsightActionMatch = path.match(/^\/benchmark-insights\/([^/]+)\/(review|test-plan)$/);
     if (deliveryResourceMatch && ['POST', 'PATCH'].includes(request.method)) {
       if (!internalAuthorized) return unauthorized();
       const [, kind, rawId] = deliveryResourceMatch;
@@ -8957,6 +9372,44 @@ export default async (request, context = {}) => {
       });
       if (!settingsAccess.ok) return settingsAccess.response;
       return json(await writeUserSettings(settingsClientId, payload), 200, { internal: internalAuthorized });
+    }
+    if (request.method === 'POST' && path === '/benchmark-profiles') {
+      if (!internalAuthorized) return unauthorized();
+      return json({ profile: await createBenchmarkProfile(payload) }, 201, { internal: true });
+    }
+    if (request.method === 'PATCH' && benchmarkProfileMatch) {
+      if (!internalAuthorized) return unauthorized();
+      return json({
+        profile: await updateBenchmarkProfile(payloadClientId, decodeURIComponent(benchmarkProfileMatch[1]), payload),
+      }, 200, { internal: true });
+    }
+    if (request.method === 'POST' && path === '/benchmark-contents') {
+      if (!internalAuthorized) return unauthorized();
+      return json({ content: await createBenchmarkContent(payload) }, 201, { internal: true });
+    }
+    if (request.method === 'PATCH' && benchmarkContentMatch) {
+      if (!internalAuthorized) return unauthorized();
+      return json({
+        content: await updateBenchmarkContent(payloadClientId, decodeURIComponent(benchmarkContentMatch[1]), payload),
+      }, 200, { internal: true });
+    }
+    if (request.method === 'POST' && path === '/benchmark-jobs') {
+      if (!internalAuthorized) return unauthorized();
+      const created = await createBenchmarkJob(payload);
+      if (!created.duplicate && created.job.status === 'pending') queueBenchmarkJob(context, created.job.client_id, created.job.job_id);
+      return json(created, 202, { internal: true });
+    }
+    if (request.method === 'PATCH' && benchmarkInsightActionMatch?.[2] === 'review') {
+      if (!internalAuthorized) return unauthorized();
+      return json({
+        insight: await reviewBenchmarkInsight(payloadClientId, decodeURIComponent(benchmarkInsightActionMatch[1]), payload),
+      }, 200, { internal: true });
+    }
+    if (request.method === 'POST' && benchmarkInsightActionMatch?.[2] === 'test-plan') {
+      if (!internalAuthorized) return unauthorized();
+      return json({
+        test_plan: await createBenchmarkTestPlan(payloadClientId, decodeURIComponent(benchmarkInsightActionMatch[1]), payload),
+      }, 200, { internal: true });
     }
     if (request.method === 'POST' && path === '/auth/email/start') {
       const result = await startEmailAccountChallenge(payload.email, request);
@@ -9231,6 +9684,7 @@ export default async (request, context = {}) => {
     }
     return json({ error: 'Not found' }, 404);
   } catch (error) {
-    return json({ error: error.message || '请求失败' }, 400, { internal: internalAuthorized });
+    const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600 ? error.status : 400;
+    return json({ error: error.message || '请求失败' }, status, { internal: internalAuthorized });
   }
 };

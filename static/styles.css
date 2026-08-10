@@ -303,3 +303,118 @@ body.internal-mode .feishu-collaboration-status strong{overflow:hidden;color:#f4
   body.internal-mode .feishu-collaboration-status>div:nth-child(2){border-right:0}
   body.internal-mode .feishu-collaboration-status>div:nth-child(-n+2){border-bottom:1px solid rgba(255,255,255,.09)}
 }
+
+/* v1.6.139 internal-only benchmark evidence workbench */
+body.internal-mode:not(.benchmark-insights-mode) #benchmarkInsightsWorkbench{display:none!important}
+body.internal-mode.benchmark-insights-mode #benchmarkInsightsWorkbench:not([hidden]){display:grid!important}
+body.internal-mode.benchmark-insights-mode #generationWorkbench,
+body.internal-mode.benchmark-insights-mode .internal-progress-strip,
+body.internal-mode.benchmark-insights-mode .internal-debug-panel,
+body.internal-mode.benchmark-insights-mode #allCustomersPanel,
+body.internal-mode.benchmark-insights-mode #internalBillingPanel,
+body.internal-mode.benchmark-insights-mode #customerDetailDashboard,
+body.internal-mode.benchmark-insights-mode #internalOpsTabbar,
+body.internal-mode.benchmark-insights-mode #feishuCollaborationPanel,
+body.internal-mode.benchmark-insights-mode #diagnosisWorkflow,
+body.internal-mode.benchmark-insights-mode #internalResultSection,
+body.internal-mode.benchmark-insights-mode #planSection,
+body.internal-mode.benchmark-insights-mode #feedbackHint,
+body.internal-mode.benchmark-insights-mode #feedbackWorkflow{display:none!important}
+body.internal-mode .benchmark-workbench{gap:18px;color:var(--war-text,#f7f8f8)}
+body.internal-mode .benchmark-workbench[hidden]{display:none!important}
+body.internal-mode .benchmark-workbench-head,
+body.internal-mode .benchmark-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+body.internal-mode .benchmark-workbench-head p{margin:0 0 7px;color:#8ff2cb;font-size:12px;font-weight:900;letter-spacing:.06em}
+body.internal-mode .benchmark-workbench-head h2{margin:0 0 6px;font-size:25px}
+body.internal-mode .benchmark-workbench-head span,
+body.internal-mode .benchmark-panel-head p{margin:0;color:var(--war-muted,#8a8f98);font-size:13px;line-height:1.55}
+body.internal-mode .benchmark-panel{display:grid;gap:15px;border:1px solid var(--war-line,rgba(255,255,255,.1));border-radius:16px;background:rgba(255,255,255,.035);padding:17px}
+body.internal-mode .benchmark-panel-head>div{display:flex;align-items:center;gap:9px}
+body.internal-mode .benchmark-panel-head span{display:grid;width:28px;height:28px;place-items:center;border-radius:8px;background:rgba(94,106,210,.2);color:#c8ceff;font-size:11px;font-weight:900}
+body.internal-mode .benchmark-panel-head h3{margin:0;font-size:17px}
+body.internal-mode .benchmark-panel-head p{max-width:460px;text-align:right}
+body.internal-mode .benchmark-scope-grid,
+body.internal-mode .benchmark-form{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+body.internal-mode .benchmark-scope-grid label,
+body.internal-mode .benchmark-form label{display:grid;gap:6px;color:var(--war-sub,#c8ced8);font-size:12px;font-weight:850}
+body.internal-mode .benchmark-form .wide-field{grid-column:1/-1}
+body.internal-mode .benchmark-scope-grid select,
+body.internal-mode .benchmark-form input,
+body.internal-mode .benchmark-form select,
+body.internal-mode .benchmark-form textarea{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.13);border-radius:9px;background:#101216;color:#f7f8f8;padding:10px 11px;font:inherit;outline:none}
+body.internal-mode .benchmark-form textarea{min-height:78px;resize:vertical}
+body.internal-mode .benchmark-scope-grid select:focus,
+body.internal-mode .benchmark-form input:focus,
+body.internal-mode .benchmark-form select:focus,
+body.internal-mode .benchmark-form textarea:focus{border-color:#7b86e8;box-shadow:0 0 0 3px rgba(94,106,210,.18)}
+body.internal-mode .benchmark-form button{grid-column:1/-1;justify-self:start}
+body.internal-mode .benchmark-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+body.internal-mode .benchmark-project-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden}
+body.internal-mode .benchmark-project-summary>div{display:grid;gap:5px;min-width:0;padding:11px;border-right:1px solid rgba(255,255,255,.08)}
+body.internal-mode .benchmark-project-summary>div:last-child{border-right:0}
+body.internal-mode .benchmark-project-summary span{color:var(--war-muted,#8a8f98);font-size:11px}
+body.internal-mode .benchmark-project-summary strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+body.internal-mode .benchmark-project-summary.empty{display:block;padding:13px;color:var(--war-muted,#8a8f98)}
+body.internal-mode .benchmark-list,
+body.internal-mode .benchmark-insight-list{display:grid;gap:9px}
+body.internal-mode .benchmark-list.empty,
+body.internal-mode .benchmark-insight-list.empty,
+body.internal-mode .benchmark-test-plan.empty{border:1px dashed rgba(255,255,255,.13);border-radius:12px;padding:14px;color:var(--war-muted,#8a8f98)}
+body.internal-mode .benchmark-mini-card,
+body.internal-mode .benchmark-job-card{display:grid;gap:6px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.025);padding:11px 12px}
+body.internal-mode .benchmark-mini-card>div,
+body.internal-mode .benchmark-job-card>div{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+body.internal-mode .benchmark-mini-card span,
+body.internal-mode .benchmark-job-card span,
+body.internal-mode .benchmark-mini-card small{color:var(--war-muted,#8a8f98);font-size:11px}
+body.internal-mode .benchmark-mini-card p,
+body.internal-mode .benchmark-job-card p{margin:0;color:var(--war-sub,#c8ced8);font-size:12px;line-height:1.5}
+body.internal-mode .benchmark-job-card details,
+body.internal-mode .benchmark-insight-card details,
+body.internal-mode .benchmark-test-plan details{font-size:12px;color:var(--war-muted,#8a8f98)}
+body.internal-mode .benchmark-job-card pre,
+body.internal-mode .benchmark-insight-card pre,
+body.internal-mode .benchmark-test-plan pre{max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;border-radius:10px;background:#090a0c;color:#bec4cf;padding:11px}
+body.internal-mode .benchmark-analysis-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+body.internal-mode .benchmark-analysis-actions span{color:var(--war-muted,#8a8f98);font-size:12px}
+body.internal-mode .benchmark-insight-card{display:grid;gap:14px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#111318;padding:15px}
+body.internal-mode .benchmark-insight-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+body.internal-mode .benchmark-insight-card>header span{color:#8ff2cb;font-size:11px;font-weight:900}
+body.internal-mode .benchmark-insight-card>header h3{margin:5px 0 0;font-size:17px;line-height:1.45}
+body.internal-mode .benchmark-insight-card>header em{border-radius:999px;background:rgba(94,106,210,.18);color:#c8ceff;padding:5px 9px;font-size:11px;font-style:normal;font-weight:900;white-space:nowrap}
+body.internal-mode .benchmark-insight-card>header em.is-low{background:rgba(255,179,102,.12);color:#ffb366}
+body.internal-mode .benchmark-warning{margin:0;border-left:3px solid #ffb366;background:rgba(255,179,102,.08);color:#ffd1a4;padding:9px 11px;font-size:12px}
+body.internal-mode .benchmark-signal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+body.internal-mode .benchmark-signal-group{display:grid;gap:7px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px}
+body.internal-mode .benchmark-signal-group h4{margin:0;color:#c8ceff;font-size:12px}
+body.internal-mode .benchmark-signal-group article{display:grid;gap:4px}
+body.internal-mode .benchmark-signal-group strong{font-size:13px;line-height:1.45}
+body.internal-mode .benchmark-signal-group p{margin:0;color:var(--war-sub,#c8ced8);font-size:12px;line-height:1.5}
+body.internal-mode .benchmark-signal-group small{color:var(--war-muted,#8a8f98);font-size:10px;word-break:break-all}
+body.internal-mode .benchmark-review-actions{display:flex;gap:8px;flex-wrap:wrap}
+body.internal-mode .benchmark-test-plan{display:grid;gap:12px}
+body.internal-mode .benchmark-test-plan-head{display:flex;justify-content:space-between;gap:12px}
+body.internal-mode .benchmark-test-plan-head span{color:var(--war-muted,#8a8f98);font-size:12px}
+body.internal-mode .benchmark-test-plan-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+body.internal-mode .benchmark-test-plan-grid article{display:grid;gap:6px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.025);padding:11px}
+body.internal-mode .benchmark-test-plan-grid span{color:#8ff2cb;font-size:11px;font-weight:900}
+body.internal-mode .benchmark-test-plan-grid strong{font-size:13px;line-height:1.45}
+body.internal-mode .benchmark-test-plan-grid p{margin:0;color:var(--war-muted,#8a8f98);font-size:12px;line-height:1.45}
+@media(max-width:900px){
+  body.internal-mode .benchmark-editor-grid,
+  body.internal-mode .benchmark-signal-grid{grid-template-columns:1fr}
+  body.internal-mode .benchmark-project-summary{grid-template-columns:1fr 1fr}
+  body.internal-mode .benchmark-project-summary>div{border-bottom:1px solid rgba(255,255,255,.08)}
+  body.internal-mode .benchmark-project-summary>div:nth-child(2n){border-right:0}
+}
+@media(max-width:760px){
+  body.internal-mode .benchmark-workbench-head,
+  body.internal-mode .benchmark-panel-head{display:grid}
+  body.internal-mode .benchmark-panel-head p{text-align:left}
+  body.internal-mode .benchmark-scope-grid,
+  body.internal-mode .benchmark-form,
+  body.internal-mode .benchmark-test-plan-grid{grid-template-columns:1fr}
+  body.internal-mode .benchmark-form .wide-field{grid-column:auto}
+  body.internal-mode .benchmark-project-summary{grid-template-columns:1fr}
+  body.internal-mode .benchmark-project-summary>div{border-right:0}
+}

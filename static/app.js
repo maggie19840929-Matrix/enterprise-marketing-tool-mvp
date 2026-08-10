@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.138';
-const VERSION_LABEL = 'v1.6.138 · 导航反馈增强版';
+const APP_VERSION = '1.6.139';
+const VERSION_LABEL = 'v1.6.139 · 对标内容洞察内测版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -193,6 +193,8 @@ const isInternalMode = () => {
   return path === '/internal' || path.startsWith('/internal/');
 };
 const isGenerationWorkbenchRoute = () => currentPath() === '/internal/generation-workbench';
+const isBenchmarkInsightsRoute = () => currentPath() === '/internal/benchmark-insights';
+const isInternalStandaloneRoute = () => isGenerationWorkbenchRoute() || isBenchmarkInsightsRoute();
 const VIEW_PROFILES = {
   internal_admin: {
     role: 'internal_admin',
@@ -1683,6 +1685,7 @@ function setAppShell(){
   document.body.classList.toggle('internal-mode', internal);
   document.body.classList.toggle('internal-auth-locked', internalLocked);
   document.body.classList.toggle('generation-workbench-mode', isGenerationWorkbenchRoute());
+  document.body.classList.toggle('benchmark-insights-mode', isBenchmarkInsightsRoute());
   document.body.dataset.activeMode = internal ? 'internal' : 'customer';
   document.body.dataset.viewRole = profile.role;
   document.body.dataset.viewTabs = (profile.tabs || []).join(',');
@@ -5372,7 +5375,7 @@ function renderDashboard(d){
 }
 
 function renderWorkflowVisibility(){
-  if (isGenerationWorkbenchRoute()) {
+  if (isInternalStandaloneRoute()) {
     renderGenerationWorkbenchRoute();
     return;
   }
@@ -6343,6 +6346,419 @@ function initInternalAiIntake(){
   });
 }
 
+let benchmarkWorkbenchState = {
+  clientId: '',
+  projectId: '',
+  projects: [],
+  profiles: [],
+  contents: [],
+  jobs: [],
+  insights: [],
+  loading: false,
+  error: '',
+  testPlan: null,
+};
+let benchmarkWorkbenchInitialized = false;
+let benchmarkWorkbenchPollTimer = 0;
+let benchmarkWorkbenchLoadBusy = false;
+
+const benchmarkCustomerOptions = () => (allCustomersState.customers || []).flatMap((customer) => {
+  const display = customerListDisplayName(customer);
+  const records = Array.isArray(customer.records) && customer.records.length
+    ? customer.records
+    : [{client_id: customerPrimaryClientId(customer), updated_at: customer.updated_at || ''}];
+  return records.map((record, index) => ({
+    client_id: String(record.client_id || ''),
+    label: records.length > 1 ? `${display} · 记录 ${index + 1}` : display,
+    updated_at: record.updated_at || '',
+  })).filter((item) => item.client_id);
+});
+
+const benchmarkProjectAssessment = (project = {}) => project.state?.assessment || {};
+const benchmarkProjectLabel = (project = {}) => cleanDisplayName(
+  project.name || project.state?.project?.name || benchmarkProjectAssessment(project).company_name || benchmarkProjectAssessment(project).industry || project.id
+);
+const benchmarkProject = () => (benchmarkWorkbenchState.projects || [])
+  .find((item) => String(item.id || '') === String(benchmarkWorkbenchState.projectId || '')) || null;
+
+function setBenchmarkStatus(message = '', type = 'success'){
+  const status = $('#benchmarkWorkbenchStatus');
+  if (!status) return;
+  status.hidden = false;
+  status.textContent = message || '请选择客户和项目。';
+  status.classList.toggle('error', type === 'error');
+  status.classList.toggle('success', type !== 'error');
+}
+
+function clearBenchmarkWorkbenchPoll(){
+  if (benchmarkWorkbenchPollTimer) {
+    window.clearTimeout(benchmarkWorkbenchPollTimer);
+    benchmarkWorkbenchPollTimer = 0;
+  }
+}
+
+function scheduleBenchmarkWorkbenchPoll(){
+  clearBenchmarkWorkbenchPoll();
+  if (!isBenchmarkInsightsRoute()) return;
+  const running = (benchmarkWorkbenchState.jobs || []).some((job) => ['pending', 'generating'].includes(job.status));
+  const status = $('#benchmarkPollingStatus');
+  if (status) status.textContent = running ? '洞察正在后台分析，页面会自动刷新。' : '暂无运行中的任务。';
+  if (!running) return;
+  benchmarkWorkbenchPollTimer = window.setTimeout(() => {
+    loadBenchmarkProjectData({ quiet: true }).catch((error) => setBenchmarkStatus(error.message || '洞察刷新失败', 'error'));
+  }, 4000);
+}
+
+function renderBenchmarkScope(){
+  const customerSelect = $('#benchmarkClientSelect');
+  const projectSelect = $('#benchmarkProjectSelect');
+  const customers = benchmarkCustomerOptions();
+  if (customerSelect) {
+    customerSelect.innerHTML = customers.length
+      ? `<option value="">选择客户</option>${customers.map((item) => `<option value="${esc(item.client_id)}" ${item.client_id === benchmarkWorkbenchState.clientId ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}`
+      : '<option value="">暂无可用客户</option>';
+  }
+  if (projectSelect) {
+    const projects = benchmarkWorkbenchState.projects || [];
+    projectSelect.innerHTML = projects.length
+      ? `<option value="">选择项目</option>${projects.map((item) => `<option value="${esc(item.id)}" ${String(item.id) === String(benchmarkWorkbenchState.projectId) ? 'selected' : ''}>${esc(benchmarkProjectLabel(item))}</option>`).join('')}`
+      : '<option value="">该客户暂无项目</option>';
+  }
+  const summary = $('#benchmarkProjectSummary');
+  if (!summary) return;
+  const project = benchmarkProject();
+  summary.classList.toggle('empty', !project);
+  if (!project) {
+    summary.textContent = '选择项目后显示行业、客群、服务和平台摘要。';
+    return;
+  }
+  const assessment = benchmarkProjectAssessment(project);
+  const rows = [
+    ['行业', assessment.industry],
+    ['目标客户', assessment.target_customer],
+    ['产品/服务', assessment.offer],
+    ['目标', assessment.main_goal],
+    ['平台', assessment.current_channels],
+  ];
+  summary.innerHTML = rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(cleanDisplayName(value) || '未填写')}</strong></div>`).join('');
+}
+
+function renderBenchmarkProfiles(){
+  const list = $('#benchmarkProfileList');
+  const picker = $('#benchmarkContentForm [name="benchmark_profile_id"]');
+  const profiles = benchmarkWorkbenchState.profiles || [];
+  if (picker) picker.innerHTML = profiles.length
+    ? `<option value="">选择对标账号</option>${profiles.filter((item) => item.status !== 'archived').map((item) => `<option value="${esc(item.benchmark_profile_id)}">${esc(item.platform)} · ${esc(item.account_name || item.account_url)}</option>`).join('')}`
+    : '<option value="">请先添加对标账号</option>';
+  if (!list) return;
+  list.classList.toggle('empty', !profiles.length);
+  if (!profiles.length) { list.textContent = '暂无对标账号。'; return; }
+  list.innerHTML = profiles.map((item) => `<article class="benchmark-mini-card">
+    <div><span>${esc(item.platform || '其他')}</span><strong>${esc(item.account_name || item.account_url || '未命名账号')}</strong></div>
+    <p>${esc((item.reference_reason || []).join('、') || item.operator_notes || '尚未填写参考原因')}</p>
+    <small>${esc(item.observed_at || item.updated_at || '')} · ${esc(item.source_mode === 'customer_supplied' ? '客户提供' : '运营整理')}</small>
+  </article>`).join('');
+}
+
+function benchmarkMetricSummary(metrics = {}){
+  return [['赞', metrics.likes], ['藏', metrics.favorites], ['评', metrics.comments], ['享', metrics.shares]]
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([label, value]) => `${label} ${Number(value).toLocaleString('zh-CN')}`)
+    .join(' · ');
+}
+
+function renderBenchmarkContents(){
+  const list = $('#benchmarkContentList');
+  const contents = benchmarkWorkbenchState.contents || [];
+  if (!list) return;
+  list.classList.toggle('empty', !contents.length);
+  if (!contents.length) { list.textContent = '暂无代表内容。'; return; }
+  list.innerHTML = contents.map((item, index) => `<article class="benchmark-mini-card">
+    <div><span>#${index + 1} · ${esc(item.platform || '平台')}</span><strong>${esc(item.title || '未命名内容')}</strong></div>
+    <p>${esc(item.content_summary || item.operator_observation || '已记录标题，待补充内容摘要')}</p>
+    <small>${esc(item.confidence || 'E')} 级证据${benchmarkMetricSummary(item.visible_metrics) ? ` · ${esc(benchmarkMetricSummary(item.visible_metrics))}` : ' · 公开指标未知'}</small>
+  </article>`).join('');
+}
+
+const benchmarkStatusLabel = (status = '') => ({
+  pending: '等待分析', generating: '正在分析', review_required: '等待审核', approved: '审核通过', rejected: '审核拒绝', failed: '分析失败',
+}[status] || status || '未知');
+
+function renderBenchmarkJobs(){
+  const list = $('#benchmarkJobList');
+  const jobs = benchmarkWorkbenchState.jobs || [];
+  if (!list) return;
+  list.classList.toggle('empty', !jobs.length);
+  if (!jobs.length) { list.textContent = '暂无洞察任务。'; return; }
+  list.innerHTML = jobs.slice(0, 8).map((job) => `<article class="benchmark-job-card is-${esc(job.status)}">
+    <div><strong>${esc(benchmarkStatusLabel(job.status))}</strong><span>${esc(job.updated_at || job.requested_at || '')}</span></div>
+    <p>${job.status === 'failed' ? esc(job.error_message || job.fallback_reason || '分析失败') : `来源 ${Number(job.benchmark_content_ids?.length || 0)} 条 · ${esc(job.job_id)}`}</p>
+    <details><summary>模型与调试信息</summary><pre>${esc(JSON.stringify({requested_model: job.requested_model, actual_model: job.actual_model, provider: job.provider, fallback: job.fallback, fallback_reason: job.fallback_reason, latency_ms: job.latency_ms}, null, 2))}</pre></details>
+  </article>`).join('');
+}
+
+function benchmarkSignalList(title, items = []){
+  if (!Array.isArray(items) || !items.length) return '';
+  return `<section class="benchmark-signal-group"><h4>${esc(title)}</h4>${items.map((item) => `<article>
+    <strong>${esc(item.statement || '')}</strong>
+    <p>${esc(item.adaptation_reason || '')}</p>
+    <small>证据：${esc((item.source_content_ids || []).join('、'))} · ${esc(item.confidence || 'E')}</small>
+  </article>`).join('')}</section>`;
+}
+
+function renderBenchmarkInsights(){
+  const list = $('#benchmarkInsightList');
+  const insights = benchmarkWorkbenchState.insights || [];
+  if (!list) return;
+  list.classList.toggle('empty', !insights.length);
+  if (!insights.length) { list.textContent = '暂无待审核洞察。'; return; }
+  list.innerHTML = insights.map((insight) => `<article class="benchmark-insight-card is-${esc(insight.status)}" data-benchmark-insight-id="${esc(insight.benchmark_insight_id)}">
+    <header>
+      <div><span>${esc(benchmarkStatusLabel(insight.status))}</span><h3>${esc(insight.fit_summary || '对标内容洞察')}</h3></div>
+      <em class="is-${esc(insight.fit_status)}">匹配度 ${esc(insight.fit_status || 'medium')}</em>
+    </header>
+    ${!insight.industry_guard?.passed ? `<p class="benchmark-warning">参考对象与当前项目不匹配：${esc((insight.industry_guard?.forbidden_terms_found || []).join('、') || '行业类型不一致')}</p>` : ''}
+    <div class="benchmark-signal-grid">
+      ${benchmarkSignalList('市场关注点', insight.market_signals)}
+      ${benchmarkSignalList('客户痛点', insight.proven_pains)}
+      ${benchmarkSignalList('标题结构', insight.title_patterns)}
+      ${benchmarkSignalList('信任证据', insight.trust_evidence_patterns)}
+      ${benchmarkSignalList('可迁移方向', insight.transferable_directions)}
+      ${benchmarkSignalList('不建议模仿', insight.avoid_copying)}
+      ${benchmarkSignalList('平台与合规风险', insight.platform_risks)}
+    </div>
+    <div class="benchmark-review-actions">
+      ${insight.status === 'review_required' ? `<button type="button" data-benchmark-action="approve">审核通过</button><button class="secondary" type="button" data-benchmark-action="reject">拒绝</button>` : ''}
+      ${insight.status === 'approved' ? '<button type="button" data-benchmark-action="test-plan">生成内测方案</button>' : ''}
+    </div>
+    <details><summary>模型、证据与校验信息</summary><pre>${esc(JSON.stringify({source_content_ids: insight.source_content_ids, industry_guard: insight.industry_guard, validation_warnings: insight.validation_warnings, requested_model: insight.requested_model, actual_model: insight.actual_model, provider: insight.provider, fallback: insight.fallback, latency_ms: insight.latency_ms, review: insight.review}, null, 2))}</pre></details>
+  </article>`).join('');
+}
+
+function renderBenchmarkTestPlan(){
+  const box = $('#benchmarkTestPlan');
+  if (!box) return;
+  const result = benchmarkWorkbenchState.testPlan;
+  const plans = result?.plans || [];
+  box.classList.toggle('empty', !plans.length);
+  if (!plans.length) { box.textContent = '审核洞察后，可在这里生成一份内测 7 天方案。'; return; }
+  box.innerHTML = `<div class="benchmark-test-plan-head"><strong>${esc(result.diagnosis?.priority_problem || '内测内容方案')}</strong><span>${esc(result.generated_at || '')}</span></div>
+    <div class="benchmark-test-plan-grid">${plans.map((plan, index) => `<article><span>第 ${index + 1} 天 · ${esc(plan.platform || '')}</span><strong>${esc(plan.topic || '')}</strong><p>${esc(plan.angle || '')}</p></article>`).join('')}</div>
+    <details><summary>内测方案模型证据</summary><pre>${esc(JSON.stringify(result.generation_meta || result.model_info || {}, null, 2))}</pre></details>`;
+}
+
+function renderBenchmarkWorkbench(){
+  if (!isBenchmarkInsightsRoute()) return;
+  renderBenchmarkScope();
+  renderBenchmarkProfiles();
+  renderBenchmarkContents();
+  renderBenchmarkJobs();
+  renderBenchmarkInsights();
+  renderBenchmarkTestPlan();
+  if (benchmarkWorkbenchState.error) setBenchmarkStatus(benchmarkWorkbenchState.error, 'error');
+  else if (benchmarkWorkbenchState.loading) setBenchmarkStatus('正在读取对标账号、内容证据和洞察任务...');
+  else if (!benchmarkWorkbenchState.projectId) setBenchmarkStatus('请选择客户和项目，再录入对标内容。');
+  else setBenchmarkStatus(`当前项目已读取：${benchmarkProjectLabel(benchmarkProject() || {}) || benchmarkWorkbenchState.projectId}`);
+  scheduleBenchmarkWorkbenchPoll();
+}
+
+async function loadBenchmarkClientProjects(clientId = ''){
+  const safeClientId = String(clientId || '').trim();
+  benchmarkWorkbenchState.clientId = safeClientId;
+  benchmarkWorkbenchState.projectId = '';
+  benchmarkWorkbenchState.projects = [];
+  benchmarkWorkbenchState.profiles = [];
+  benchmarkWorkbenchState.contents = [];
+  benchmarkWorkbenchState.jobs = [];
+  benchmarkWorkbenchState.insights = [];
+  benchmarkWorkbenchState.testPlan = null;
+  renderBenchmarkWorkbench();
+  if (!safeClientId) return;
+  const cloud = await api(`/api/state?client_id=${encodeURIComponent(safeClientId)}&mode=internal`);
+  const projects = Array.isArray(cloud.project_store?.projects) ? cloud.project_store.projects : [];
+  benchmarkWorkbenchState.projects = projects;
+  benchmarkWorkbenchState.projectId = projects[0]?.id || '';
+  renderBenchmarkWorkbench();
+  if (benchmarkWorkbenchState.projectId) await loadBenchmarkProjectData();
+}
+
+async function loadBenchmarkProjectData({ quiet = false } = {}){
+  if (!isBenchmarkInsightsRoute() || benchmarkWorkbenchLoadBusy) return;
+  const clientId = benchmarkWorkbenchState.clientId;
+  const projectId = benchmarkWorkbenchState.projectId;
+  if (!clientId || !projectId) { renderBenchmarkWorkbench(); return; }
+  benchmarkWorkbenchLoadBusy = true;
+  if (!quiet) benchmarkWorkbenchState.loading = true;
+  benchmarkWorkbenchState.error = '';
+  renderBenchmarkWorkbench();
+  try {
+    const query = `client_id=${encodeURIComponent(clientId)}&project_id=${encodeURIComponent(projectId)}`;
+    const [profiles, contents, jobs, insights] = await Promise.all([
+      api(`/api/benchmark-profiles?${query}`),
+      api(`/api/benchmark-contents?${query}`),
+      api(`/api/benchmark-jobs?${query}`),
+      api(`/api/benchmark-insights?${query}`),
+    ]);
+    benchmarkWorkbenchState.profiles = profiles.profiles || [];
+    benchmarkWorkbenchState.contents = contents.contents || [];
+    benchmarkWorkbenchState.jobs = jobs.jobs || [];
+    benchmarkWorkbenchState.insights = insights.insights || [];
+  } catch (error) {
+    benchmarkWorkbenchState.error = error.message || '对标洞察数据读取失败';
+  } finally {
+    benchmarkWorkbenchState.loading = false;
+    benchmarkWorkbenchLoadBusy = false;
+    renderBenchmarkWorkbench();
+  }
+}
+
+const benchmarkMetricValue = (value) => String(value ?? '').trim() === '' ? null : Number(value);
+
+async function submitBenchmarkProfile(form){
+  if (!benchmarkWorkbenchState.clientId || !benchmarkWorkbenchState.projectId) throw new Error('请先选择客户和项目');
+  const data = formData(form);
+  const result = await api('/api/benchmark-profiles', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...data,
+      client_id: benchmarkWorkbenchState.clientId,
+      project_id: benchmarkWorkbenchState.projectId,
+      source_mode: 'operator_curated',
+    }),
+  });
+  form.reset();
+  toast(`已保存对标账号：${result.profile?.account_name || ''}`);
+  await loadBenchmarkProjectData();
+}
+
+async function submitBenchmarkContent(form){
+  if (!benchmarkWorkbenchState.clientId || !benchmarkWorkbenchState.projectId) throw new Error('请先选择客户和项目');
+  const data = formData(form);
+  const result = await api('/api/benchmark-contents', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...data,
+      client_id: benchmarkWorkbenchState.clientId,
+      project_id: benchmarkWorkbenchState.projectId,
+      source_mode: 'operator_curated',
+      visible_metrics: {
+        likes: benchmarkMetricValue(data.likes),
+        favorites: benchmarkMetricValue(data.favorites),
+        comments: benchmarkMetricValue(data.comments),
+        shares: benchmarkMetricValue(data.shares),
+        views: null,
+      },
+    }),
+  });
+  form.reset();
+  toast(`已保存代表内容：${result.content?.title || ''}`);
+  await loadBenchmarkProjectData();
+}
+
+async function createBenchmarkAnalysisJob(){
+  if (!benchmarkWorkbenchState.clientId || !benchmarkWorkbenchState.projectId) throw new Error('请先选择客户和项目');
+  const requestId = `benchmark-${benchmarkWorkbenchState.clientId}-${benchmarkWorkbenchState.projectId}-${Date.now()}`;
+  const result = await api('/api/benchmark-jobs', {
+    method: 'POST',
+    body: JSON.stringify({
+      client_id: benchmarkWorkbenchState.clientId,
+      project_id: benchmarkWorkbenchState.projectId,
+      benchmark_profile_ids: benchmarkWorkbenchState.profiles.filter((item) => item.status !== 'archived').map((item) => item.benchmark_profile_id),
+      benchmark_content_ids: benchmarkWorkbenchState.contents.filter((item) => item.status === 'ready').map((item) => item.benchmark_content_id),
+      request_id: requestId,
+    }),
+  });
+  toast(result.duplicate ? '已恢复同一洞察任务。' : '洞察任务已提交，正在后台分析。');
+  await loadBenchmarkProjectData();
+}
+
+async function reviewBenchmarkInsight(insightId, status){
+  const rejectionReason = status === 'rejected' ? String(window.prompt('请填写拒绝原因') || '').trim() : '';
+  if (status === 'rejected' && !rejectionReason) return;
+  await api(`/api/benchmark-insights/${encodeURIComponent(insightId)}/review`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      client_id: benchmarkWorkbenchState.clientId,
+      status,
+      reviewer: 'internal',
+      rejection_reason: rejectionReason,
+      notes: status === 'approved' ? '证据引用、行业匹配和可迁移方向已人工确认。' : '',
+    }),
+  });
+  toast(status === 'approved' ? '洞察已审核通过。' : '洞察已拒绝。');
+  await loadBenchmarkProjectData();
+}
+
+async function createBenchmarkTestPlan(insightId){
+  const result = await api(`/api/benchmark-insights/${encodeURIComponent(insightId)}/test-plan`, {
+    method: 'POST',
+    timeoutMs: 35000,
+    body: JSON.stringify({ client_id: benchmarkWorkbenchState.clientId }),
+  });
+  benchmarkWorkbenchState.testPlan = result.test_plan || null;
+  renderBenchmarkTestPlan();
+  $('#benchmarkTestPlan')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  toast('内测方案已生成，不会写入客户公开项目。');
+}
+
+async function loadBenchmarkWorkbench(){
+  if (!isBenchmarkInsightsRoute()) return;
+  benchmarkWorkbenchState.loading = true;
+  renderBenchmarkWorkbench();
+  await refreshAllCustomers({ force: true });
+  const options = benchmarkCustomerOptions();
+  const preferredClient = benchmarkWorkbenchState.clientId || explicitCustomerClientId() || options[0]?.client_id || '';
+  benchmarkWorkbenchState.loading = false;
+  if (!preferredClient) {
+    benchmarkWorkbenchState.error = allCustomersState.error || '暂无可选择的客户项目。';
+    renderBenchmarkWorkbench();
+    return;
+  }
+  await loadBenchmarkClientProjects(preferredClient);
+}
+
+function initBenchmarkWorkbench(){
+  renderGenerationWorkbenchRoute();
+  if (!isBenchmarkInsightsRoute()) return;
+  if (benchmarkWorkbenchInitialized) {
+    loadBenchmarkWorkbench().catch((error) => setBenchmarkStatus(error.message || '工作台读取失败', 'error'));
+    return;
+  }
+  benchmarkWorkbenchInitialized = true;
+  $('#benchmarkClientSelect')?.addEventListener('change', (event) => {
+    loadBenchmarkClientProjects(event.target.value).catch((error) => setBenchmarkStatus(error.message || '客户项目读取失败', 'error'));
+  });
+  $('#benchmarkProjectSelect')?.addEventListener('change', (event) => {
+    benchmarkWorkbenchState.projectId = event.target.value;
+    benchmarkWorkbenchState.testPlan = null;
+    loadBenchmarkProjectData().catch((error) => setBenchmarkStatus(error.message || '项目洞察读取失败', 'error'));
+  });
+  $('#benchmarkProfileForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    withBusy(event.submitter, '保存中...', () => submitBenchmarkProfile(event.target));
+  });
+  $('#benchmarkContentForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    withBusy(event.submitter, '保存中...', () => submitBenchmarkContent(event.target));
+  });
+  $('#benchmarkAnalyzeBtn')?.addEventListener('click', (event) => {
+    withBusy(event.currentTarget, '正在提交...', createBenchmarkAnalysisJob);
+  });
+  $('#benchmarkRefreshBtn')?.addEventListener('click', (event) => {
+    withBusy(event.currentTarget, '刷新中...', () => loadBenchmarkProjectData());
+  });
+  $('#benchmarkInsightList')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-benchmark-action]');
+    const card = button?.closest('[data-benchmark-insight-id]');
+    if (!button || !card) return;
+    const insightId = card.dataset.benchmarkInsightId;
+    if (button.dataset.benchmarkAction === 'approve') reviewBenchmarkInsight(insightId, 'approved').catch((error) => toast(error.message));
+    if (button.dataset.benchmarkAction === 'reject') reviewBenchmarkInsight(insightId, 'rejected').catch((error) => toast(error.message));
+    if (button.dataset.benchmarkAction === 'test-plan') withBusy(button, '生成中...', () => createBenchmarkTestPlan(insightId));
+  });
+  loadBenchmarkWorkbench().catch((error) => setBenchmarkStatus(error.message || '工作台读取失败', 'error'));
+}
+
 const GENERATION_MODEL_BY_TYPE = {
   image: 'GPT-Image-2',
   cover: 'GPT-Image-2',
@@ -6871,11 +7287,17 @@ async function loadGenerationWorkbench({scheduleRefresh = true} = {}){
 
 function renderGenerationWorkbenchRoute(){
   const active = isGenerationWorkbenchRoute();
+  const benchmarkActive = isBenchmarkInsightsRoute();
+  const standaloneActive = active || benchmarkActive;
   if (!active) clearGenerationWorkbenchRefresh();
+  if (!benchmarkActive) clearBenchmarkWorkbenchPoll();
   const wb = $('#generationWorkbench');
   if (wb) wb.hidden = !active;
-  renderInternalWorkspaceShell(active);
+  const benchmarkWorkbench = $('#benchmarkInsightsWorkbench');
+  if (benchmarkWorkbench) benchmarkWorkbench.hidden = !benchmarkActive;
+  renderInternalWorkspaceShell(benchmarkActive ? 'benchmark' : (active ? 'production' : 'operations'));
   const wbLink = document.querySelector('.customer-hero-actions a[href="/internal/generation-workbench"]');
+  const benchmarkLink = document.querySelector('.customer-hero-actions a[href="/internal/benchmark-insights"]');
   const intakeLink = document.querySelector('.customer-hero-actions a[href="/internal/#diagnosisWorkflow"]');
   const planLink = document.querySelector('.customer-hero-actions a[href="/internal/#planSection"]');
   if (wbLink) {
@@ -6883,11 +7305,16 @@ function renderGenerationWorkbenchRoute(){
     wbLink.classList.toggle('customer-hero-secondary', !active);
     wbLink.setAttribute('aria-current', active ? 'page' : 'false');
   }
-  if (intakeLink) {
-    intakeLink.classList.toggle('customer-hero-primary', !active);
-    intakeLink.classList.toggle('customer-hero-secondary', active);
+  if (benchmarkLink) {
+    benchmarkLink.classList.toggle('customer-hero-primary', benchmarkActive);
+    benchmarkLink.classList.toggle('customer-hero-secondary', !benchmarkActive);
+    benchmarkLink.setAttribute('aria-current', benchmarkActive ? 'page' : 'false');
   }
-  if (planLink) planLink.hidden = active;
+  if (intakeLink) {
+    intakeLink.classList.toggle('customer-hero-primary', !standaloneActive);
+    intakeLink.classList.toggle('customer-hero-secondary', standaloneActive);
+  }
+  if (planLink) planLink.hidden = standaloneActive;
   if (!isInternalProfile()) return;
   const routeDependentElements = [
     '#allCustomersPanel',
@@ -6906,19 +7333,29 @@ function renderGenerationWorkbenchRoute(){
   routeDependentElements.forEach((selector) => {
     const el = $(selector);
     if (!el) return;
-    el.hidden = active;
+    el.hidden = standaloneActive;
   });
-  if (!active) {
+  if (!standaloneActive) {
     renderWorkflowVisibility();
   }
 }
 
-function renderInternalWorkspaceShell(productionActive = isGenerationWorkbenchRoute()){
+function renderInternalWorkspaceShell(workspace = isGenerationWorkbenchRoute() ? 'production' : (isBenchmarkInsightsRoute() ? 'benchmark' : 'operations')){
   if (!isInternalProfile()) return;
+  const productionActive = workspace === 'production';
+  const benchmarkActive = workspace === 'benchmark';
+  const standaloneActive = productionActive || benchmarkActive;
   document.body.classList.toggle('internal-production-mode', productionActive);
-  document.body.classList.toggle('internal-operations-mode', !productionActive);
-  document.body.dataset.internalWorkspace = productionActive ? 'production' : 'operations';
-  const copy = productionActive
+  document.body.classList.toggle('internal-benchmark-mode', benchmarkActive);
+  document.body.classList.toggle('internal-operations-mode', !standaloneActive);
+  document.body.dataset.internalWorkspace = workspace;
+  const copy = benchmarkActive
+    ? {
+      kicker: '内部版 · 对标内容洞察',
+      title: '市场证据工作台',
+      desc: '把对标账号与代表内容变成有来源、可审核、可追踪的市场信号，再用于内部方案验证。',
+    }
+    : productionActive
     ? {
       kicker: '内部版 · 素材生产工作台',
       title: '内容生产工作台',
@@ -6937,7 +7374,7 @@ function renderInternalWorkspaceShell(productionActive = isGenerationWorkbenchRo
   if (desc) desc.textContent = copy.desc;
   ['.internal-progress-strip', '.internal-debug-panel'].forEach((selector) => {
     const el = $(selector);
-    if (el) el.hidden = productionActive;
+    if (el) el.hidden = standaloneActive;
   });
 }
 
@@ -7146,7 +7583,7 @@ function syncRouteState(){
     initInternalApp();
     return;
   }
-  if (clientChanged && !isGenerationWorkbenchRoute()) {
+  if (clientChanged && !isInternalStandaloneRoute()) {
     loadAll().catch((error)=>toast(error.message));
     refreshAllCustomers({ force: true }).catch(() => {});
     loadInternalBillingOrders().catch(() => {});
@@ -7154,6 +7591,8 @@ function syncRouteState(){
   }
   if (isGenerationWorkbenchRoute()) {
     initGenerationWorkbench();
+  } else if (isBenchmarkInsightsRoute()) {
+    initBenchmarkWorkbench();
   } else {
     renderAllFromClient();
     refreshAllCustomers().catch(() => {});
@@ -7197,6 +7636,7 @@ function initInternalApp(){
   }
   internalAppInitialized = true;
   initGenerationWorkbench();
+  initBenchmarkWorkbench();
   initInternalChoices();
   initInternalAiIntake();
   $('#assessmentForm')?.addEventListener('submit', async (e)=>{

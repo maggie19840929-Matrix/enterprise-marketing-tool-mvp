@@ -1,6 +1,6 @@
 # 企业营销增长工具 MVP
 
-当前线上/内测版：`static/` 原生前端 SPA + `netlify/functions/api.mjs` 单个 Netlify Function，用于展示营销体检、自动诊断、7天计划、反馈回填、周复盘闭环，以及 `/internal/generation-workbench` 项目化素材生成与验收工作台。
+当前线上/内测版：`static/` 原生前端 SPA + `netlify/functions/api.mjs` 单个 Netlify Function，用于展示营销体检、自动诊断、7天计划、反馈回填、周复盘闭环，以及内部对标内容洞察和项目化素材生成与验收工作台。
 
 早期 Python/SQLite 版本已废弃，仅保留历史说明，不作为当前线上架构参考。
 
@@ -24,7 +24,7 @@ npm run dev
 6. 下一轮 7 天计划生成与一键启用
 7. 内容周期历史区，支持查看第 N 轮与已归档轮次
 8. 客户公开页数据云端同步，用于内部端查看和行业样本沉淀
-9. 内部端全部客户聚合、项目复盘、素材生成与 QA 交付工作台
+9. 内部端全部客户聚合、项目复盘、对标内容洞察、素材生成与 QA 交付工作台
 
 ## 数据库
 
@@ -36,6 +36,10 @@ npm run dev
 - `global-project-store.<clientId>`：按客户/内部视图分隔的项目状态。
 - `assets/<client_id>`：内部素材工作台素材集合。
 - `tasks/<client_id>`：内部生成任务集合。
+- `benchmark-profiles/<client_id>`：项目内对标账号集合。
+- `benchmark-contents/<client_id>`：代表内容、公开指标和证据集合。
+- `benchmark-insights/<client_id>`：模型洞察与人工审核结果集合。
+- `benchmark-jobs/<client_id>`：异步洞察任务集合。
 - `delivery-projects/<client_id>`：交付项目及其交付模板。
 - `delivery-cycles/<client_id>`：按周推进的交付周期。
 - `collaboration-tasks/<client_id>`：内部、客户与外包协作任务。
@@ -68,6 +72,15 @@ npm run dev
 - `POST /api/generation-tasks/:id/poll`
 - `POST /api/generation-tasks/:id/qa`
 - `POST /api/generation-tasks/:id/deliver`
+- `GET|POST /api/benchmark-profiles`
+- `PATCH /api/benchmark-profiles/:id`
+- `GET|POST /api/benchmark-contents`
+- `PATCH /api/benchmark-contents/:id`
+- `GET|POST /api/benchmark-jobs`
+- `GET /api/benchmark-jobs/:id`
+- `GET /api/benchmark-insights`
+- `PATCH /api/benchmark-insights/:id/review`
+- `POST /api/benchmark-insights/:id/test-plan`
 - `POST /api/feishu/sync`
 - `GET /api/delivery-profiles`
 - `GET|POST /api/delivery-projects`
@@ -289,6 +302,27 @@ OPENAI_API_KEY=OpenAI Images API Key
 ARK_API_KEY=火山方舟 API Key，用于 Seedance 2.0 视频
 ANTHROPIC_API_KEY=Anthropic API Key，用于 Claude Opus 文案/脚本
 ```
+
+### 对标内容洞察 P0
+
+内部入口：
+
+```text
+/internal/benchmark-insights
+```
+
+该工作区复用「全部客户」和项目归属校验，按以下流程工作：
+
+```text
+选择客户与项目 → 录入对标账号 → 录入 1–3 条代表内容与证据
+→ 异步生成市场洞察 → 内部审核 → 生成不落正式项目的测试计划
+```
+
+所有接口必须携带 `INTERNAL_ACCESS_TOKEN`；请求的 `client_id + project_id` 必须能在对应客户项目桶中核验。四类数据分别写入 `benchmark-profiles`、`benchmark-contents`、`benchmark-insights` 和 `benchmark-jobs` 独立集合，不修改 `global-project-store.*`。
+
+洞察只调用现有火山方舟文本链路。缺少 `SAFE_TO_RUN=true`、`ARK_API_KEY` 或模型配置时，任务明确进入 `failed` 并记录 `fallback_reason`，不会生成本地规则洞察。分析完成后状态为 `review_required`，只有人工审核通过才能生成测试计划；测试计划仅供内部比较，不会写入客户正式内容周期。
+
+P0 支持武术、篮球、美甲和口腔的基础行业隔离。跨行业参考会降级为低匹配观察项，不会自动给出可迁移方向；代表内容只作为主题、痛点和表达结构证据，不允许照抄来源标题或素材。本期不自动抓取任何平台，也不在公开客户首页提供入口。
 
 ### 飞书双向同步阶段 A
 
