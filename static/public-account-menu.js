@@ -1,4 +1,39 @@
 (() => {
+  const publicNavIcon = (name) => {
+    const paths = {
+      tool: '<circle cx="12" cy="12" r="9"></circle><path d="m15.5 8.5-2.1 4.9-4.9 2.1 2.1-4.9 4.9-2.1Z"></path>',
+      method: '<path d="M2 5.5A3.5 3.5 0 0 1 5.5 2H11v18H5.5A3.5 3.5 0 0 0 2 23.5Z"></path><path d="M22 5.5A3.5 3.5 0 0 0 18.5 2H13v18h5.5a3.5 3.5 0 0 1 3.5 3.5Z"></path>',
+      about: '<path d="M4 22V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v18"></path><path d="M9 22v-4h6v4"></path><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"></path>',
+      account: '<circle cx="12" cy="8" r="4"></circle><path d="M4 22a8 8 0 0 1 16 0"></path>',
+    };
+    return `<svg class="public-nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.tool}</svg>`;
+  };
+
+  const initPublicNavigationState = () => {
+    const navigationLinks = Array.from(document.querySelectorAll('.customer-site-nav .customer-site-links a[href]'));
+    if (!navigationLinks.length) return;
+
+    const normalizePath = (value = '/') => {
+      const normalized = String(value || '/').replace(/\/+$/, '');
+      return normalized || '/';
+    };
+    const currentPath = normalizePath(window.location.pathname);
+
+    navigationLinks.forEach((link) => {
+      const target = new URL(link.href, window.location.href);
+      const targetPath = normalizePath(target.pathname);
+      const iconName = targetPath === '/method' ? 'method' : (targetPath === '/about' ? 'about' : 'tool');
+      if (!link.querySelector('.public-nav-icon')) link.insertAdjacentHTML('afterbegin', publicNavIcon(iconName));
+      if (target.origin === window.location.origin && targetPath === currentPath) {
+        link.setAttribute('aria-current', 'page');
+      } else if (link.getAttribute('aria-current') === 'page') {
+        link.removeAttribute('aria-current');
+      }
+    });
+  };
+
+  initPublicNavigationState();
+
   const referralStorageKey = 'fpReferralCode.v1';
   const referralCodeFromUrl = new URLSearchParams(window.location.search).get('ref') || '';
   if (/^[a-z0-9_-]{12,64}$/i.test(referralCodeFromUrl)) {
@@ -11,6 +46,7 @@
 
   const trigger = root.querySelector('#customerAccountBtn');
   if (!trigger) return;
+  if (!trigger.querySelector('.public-nav-icon')) trigger.insertAdjacentHTML('afterbegin', publicNavIcon('account'));
 
   root.insertAdjacentHTML('beforeend', `
     <div class="customer-account-popover" role="menu" aria-label="账号菜单" hidden>

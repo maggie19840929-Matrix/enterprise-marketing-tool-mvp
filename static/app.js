@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.137';
-const VERSION_LABEL = 'v1.6.137 · 商业订单与权益开通版';
+const APP_VERSION = '1.6.138';
+const VERSION_LABEL = 'v1.6.138 · 导航反馈增强版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -3871,9 +3871,9 @@ function renderCustomerAccountDialog(){
   }
 }
 
-async function loadCustomerAccountSession({loadProjects = true} = {}){
-  customerAccountState.loading = true;
-  renderCustomerAccountDialog();
+async function loadCustomerAccountSession({loadProjects = true, showLoading = true} = {}){
+  customerAccountState.loading = showLoading;
+  if (showLoading) renderCustomerAccountDialog();
   try {
     const session = await api('/api/auth/session', {timeoutMs:10000});
     customerAccountState.enabled = session.enabled === true;
@@ -3909,7 +3909,9 @@ function openCustomerAccountDialog(){
   setCustomerAccountMessage('');
   dialog.hidden = false;
   document.body.classList.add('customer-privacy-open');
-  loadCustomerAccountSession().then(() => {
+  const hasKnownAccountState = customerAccountState.loading === false && customerAccountState.enabled === true;
+  if (hasKnownAccountState) renderCustomerAccountDialog();
+  loadCustomerAccountSession({showLoading: !hasKnownAccountState}).then(() => {
     const focusTarget = customerAccountState.signed_in ? $('#customerAccountBindCurrent') : $('#customerAccountEmail');
     window.setTimeout(() => focusTarget?.focus(), 50);
   });

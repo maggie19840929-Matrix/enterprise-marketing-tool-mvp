@@ -57,7 +57,7 @@ const server = http.createServer(async (req, res) => {
       send(res, 302, '', { location: '/internal/' });
       return;
     }
-    const customerInfoPages = new Set(['about', 'privacy', 'terms', 'contact']);
+    const customerInfoPages = new Set(['about', 'method', 'plans', 'invite', 'privacy', 'terms', 'contact']);
     const infoPageName = pathname.replace(/^\/+|\/+$/g, '');
     if (pathname === '/' || pathname === '/internal/' || pathname.startsWith('/internal/')) pathname = '/index.html';
     else if (customerInfoPages.has(infoPageName)) pathname = `/${infoPageName}/index.html`;

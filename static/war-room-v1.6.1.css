@@ -1223,6 +1223,7 @@ body.customer-mode .customer-trial-app{
   padding:0 max(20px,5vw) 56px!important;
 }
 body.customer-mode .customer-site-nav{
+  position:relative!important;
   max-width:1120px!important;
   min-height:72px!important;
   margin:0 auto!important;
@@ -1247,19 +1248,43 @@ body.customer-mode .customer-brand-text small{
   font-weight:500!important;
 }
 body.customer-mode .customer-site-links{
-  gap:19px!important;
+  gap:5px!important;
 }
 body.customer-mode .customer-site-links a{
   min-height:auto!important;
-  padding:6px 0!important;
-  border-radius:0!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  gap:6px!important;
+  padding:7px 9px!important;
+  border-radius:6px!important;
   color:#676b73!important;
   font-size:13px!important;
   font-weight:500!important;
+  transition:background-color .16s ease,color .16s ease,transform .12s ease!important;
 }
 body.customer-mode .customer-site-links a:hover{
-  background:transparent!important;
-  color:#111214!important;
+  background:rgba(17,24,39,.04)!important;
+  color:#0f766e!important;
+}
+body.customer-mode .customer-site-links a[aria-current="page"]{
+  color:#0f766e!important;
+  background:rgba(15,118,110,.055)!important;
+  font-weight:620!important;
+}
+body.customer-mode .customer-site-links a:active{
+  background:rgba(15,118,110,.09)!important;
+  transform:scale(.975)!important;
+}
+body.customer-mode .customer-site-links .public-nav-icon{
+  width:14px!important;
+  height:14px!important;
+  flex:0 0 14px!important;
+  opacity:.58!important;
+  transition:opacity .16s ease,transform .16s ease!important;
+}
+body.customer-mode .customer-site-links :is(a:hover,a[aria-current="page"],.customer-account-nav:hover,.customer-account-nav[aria-expanded="true"]) .public-nav-icon{
+  opacity:1!important;
+  transform:scale(1.06)!important;
 }
 body.customer-mode .customer-first-screen{
   max-width:1120px!important;
@@ -4235,7 +4260,14 @@ body.customer-mode .customer-site-links .customer-account-nav{
 body.customer-mode .customer-site-links .customer-account-nav:hover,
 body.customer-mode .customer-site-links .customer-account-nav:focus-visible{
   border-color:#0f766e!important;
+  background:rgba(15,118,110,.045)!important;
   color:#0f766e!important;
+}
+body.customer-mode .customer-site-links .customer-account-nav[aria-expanded="true"]{
+  border-color:rgba(15,118,110,.38)!important;
+  background:rgba(15,118,110,.07)!important;
+  color:#0f766e!important;
+  box-shadow:0 4px 14px rgba(15,118,110,.08)!important;
 }
 
 /* v1.6.135 shared public account menu */
