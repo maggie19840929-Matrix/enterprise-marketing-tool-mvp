@@ -4,15 +4,24 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.141" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.141" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.141" />
+  <link rel="canonical" href="https://sales-improve.fpmatrix.cn/" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.142" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.142" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.142" />
+  <script defer src="/public-account-menu.js?v=1.6.142"></script>
+  <script defer src="/app.js?v=1.6.142"></script>
 </head>
 <body class="customer-mode">
   <script>
     (() => {
       const path = String(window.location.pathname || '').replace(/\/+$/, '');
       const internal = path === '/internal' || path.startsWith('/internal/');
+      if (!internal && window.location.hostname === 'sales-improve.netlify.app') {
+        const canonical = new URL(window.location.href);
+        canonical.hostname = 'sales-improve.fpmatrix.cn';
+        window.location.replace(canonical.toString());
+        return;
+      }
       document.body.classList.toggle('customer-mode', !internal);
       document.body.classList.toggle('internal-mode', internal);
       const params = new URLSearchParams(window.location.search || '');
@@ -24,7 +33,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.141" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.142" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -53,11 +62,45 @@
       </div>
     </section>
 
+    <div id="customerWorkspaceNav" class="customer-workspace-nav" aria-label="当前内容工作区">
+      <div class="customer-workspace-context">
+        <img src="/huoke-compass-mark.svg?v=1.6.142" alt="" />
+        <span>当前项目</span>
+        <strong id="customerWorkspaceProject">我的内容项目</strong>
+      </div>
+      <div class="customer-progress-strip" id="customerProgressStrip" aria-label="操作进度">
+        <button class="cps-item cps-active" type="button" data-step="1" data-customer-step-target="intake">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">填入基本信息</span>
+        </button>
+        <div class="cps-line" aria-hidden="true"></div>
+        <button class="cps-item" type="button" data-step="2" data-customer-step-target="confirm">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">确认方向</span>
+        </button>
+        <div class="cps-line" aria-hidden="true"></div>
+        <button class="cps-item" type="button" data-step="3" data-customer-step-target="plan">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">内容计划</span>
+        </button>
+        <div class="cps-line" aria-hidden="true"></div>
+        <button class="cps-item" type="button" data-step="4" data-customer-step-target="record">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">记录效果</span>
+        </button>
+        <div class="cps-line" aria-hidden="true"></div>
+        <button class="cps-item" type="button" data-step="5" data-customer-step-target="next">
+          <span class="cps-dot" aria-hidden="true"></span>
+          <span class="cps-label">下一轮优化</span>
+        </button>
+      </div>
+    </div>
+
     <section class="customer-first-screen" id="customerFirstScreen">
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.141" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.142" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -109,32 +152,6 @@
         <span>YOUR BUSINESS BRIEF</span>
         <strong>先告诉我们三件事</strong>
         <p>不用写营销方案，只需把真实业务、目标和客户讲清楚。</p>
-      </div>
-      <div class="customer-progress-strip" id="customerProgressStrip" aria-label="操作进度">
-        <button class="cps-item cps-active" type="button" data-step="1" data-customer-step-target="intake">
-          <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">填入基本信息</span>
-        </button>
-        <div class="cps-line" aria-hidden="true"></div>
-        <button class="cps-item" type="button" data-step="2" data-customer-step-target="confirm">
-          <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">确认方向</span>
-        </button>
-        <div class="cps-line" aria-hidden="true"></div>
-        <button class="cps-item" type="button" data-step="3" data-customer-step-target="plan">
-          <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">内容计划</span>
-        </button>
-        <div class="cps-line" aria-hidden="true"></div>
-        <button class="cps-item" type="button" data-step="4" data-customer-step-target="record">
-          <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">记录效果</span>
-        </button>
-        <div class="cps-line" aria-hidden="true"></div>
-        <button class="cps-item" type="button" data-step="5" data-customer-step-target="next">
-          <span class="cps-dot" aria-hidden="true"></span>
-          <span class="cps-label">下一轮优化</span>
-        </button>
       </div>
       <section id="customerFormCard" class="customer-card customer-form-card">
         <div class="customer-section-head">
@@ -361,15 +378,15 @@
       <section id="customerResultSection" class="customer-card customer-result-card" hidden>
         <div class="customer-section-head">
           <p>第 3 步 · 本轮计划</p>
-          <h2>你的专属发布建议</h2>
-          <span>根据你刚填的业务情况生成。选一条先发，不需要全部用完——发完一条后在下方记录效果。</span>
+          <h2>本轮内容计划</h2>
+          <span>先看本轮方向，再选一条开始发布；详细策略需要时再展开。</span>
         </div>
         <div id="customerResult" class="customer-result"></div>
 
         <div id="customerPlanBlock" class="customer-plan-block" hidden>
           <div class="customer-plan-head">
             <p>本轮发布计划</p>
-            <h3>本轮可以这样安排</h3>
+            <h3>先选一条开始发布</h3>
             <span>每张卡先看一句话标题和平台。想了解原因，再点开“为什么这样发”。</span>
           </div>
           <div id="customerPlanList" class="customer-plan-list"></div>
@@ -381,10 +398,15 @@
         </details>
 
         <div class="customer-result-actions">
-          <button id="copyCustomerSuggestion" class="customer-secondary" type="button">复制全部建议</button>
-          <button id="saveCustomerLinkBtn" class="customer-secondary" type="button">保存链接，换设备继续</button>
-          <button id="customerRegenerateBtn" class="customer-secondary" type="button">修改信息并重新生成</button>
-          <a href="#customerEffectSection" class="customer-inline-link" data-customer-step-link="record">发完第一条 → 去记录效果</a>
+          <a href="#customerEffectSection" class="customer-inline-link customer-result-primary" data-customer-step-link="record">发完一条，去记录效果</a>
+          <details class="customer-result-more-actions">
+            <summary>更多操作</summary>
+            <div>
+              <button id="copyCustomerSuggestion" class="customer-secondary" type="button">复制全部建议</button>
+              <button id="saveCustomerLinkBtn" class="customer-secondary" type="button">保存链接，换设备继续</button>
+              <button id="customerRegenerateBtn" class="customer-secondary" type="button">修改信息并重新生成</button>
+            </div>
+          </details>
         </div>
         <details class="customer-why">
           <summary>为什么这样建议</summary>
@@ -466,7 +488,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.141" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.142" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -576,7 +598,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.141" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.142" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -1233,7 +1255,5 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/public-account-menu.js?v=1.6.141"></script>
-  <script src="/app.js?v=1.6.141"></script>
 </body>
 </html>

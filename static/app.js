@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.141';
-const VERSION_LABEL = 'v1.6.141 · Pro 标准套餐直购版';
+const APP_VERSION = '1.6.142';
+const VERSION_LABEL = 'v1.6.142 · 客户工作区体验优化版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -15,6 +15,7 @@ const REFERRAL_CODE_STORAGE_KEY = 'fpReferralCode.v1';
 const CUSTOMER_ACCESS_TOKEN_STORAGE_PREFIX = 'enterpriseMarketingCustomerAccessToken.v1';
 const USER_SETTINGS_STORAGE_PREFIX = 'enterpriseMarketingUserSettings.v1';
 const CUSTOMER_ANALYTICS_SESSION_KEY = 'enterpriseMarketingAnalyticsSession.v1';
+const CUSTOMER_RESUME_SESSION_PREFIX = 'enterpriseMarketingResumeDecision.v1';
 const INTERNAL_ACCESS_TOKEN_STORAGE_KEY = 'internalAccessToken';
 const INTERNAL_CLIENT_ID = 'internal';
 const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -288,6 +289,8 @@ let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
 let customerAccountState = {
   loading: false,
+  checked: false,
+  error: '',
   enabled: false,
   signed_in: false,
   account: null,
@@ -1067,11 +1070,29 @@ function customerStateProjectName(saved = {}){
   return cleanDisplayName(assessment.company_name || assessment.industry || saved.project_name || '上次项目');
 }
 
+function customerResumeSessionKey(saved = {}){
+  const projectId = String(saved.project_id || saved.project?.id || customerStateProjectName(saved) || 'saved-project')
+    .trim()
+    .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/gi, '-')
+    .slice(0, 80);
+  return `${CUSTOMER_RESUME_SESSION_PREFIX}.${customerClientId()}.${projectId}`;
+}
+
+function customerResumeDecisionMade(saved = {}){
+  try { return window.sessionStorage?.getItem(customerResumeSessionKey(saved)) === 'continue'; }
+  catch { return false; }
+}
+
+function rememberCustomerResumeDecision(saved = {}){
+  try { window.sessionStorage?.setItem(customerResumeSessionKey(saved), 'continue'); }
+  catch {}
+}
+
 function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
   const banner = $('#customerResumeBanner');
   if (!banner) return;
   const hasSaved = Boolean(saved?.assessment || saved?.draft_assessment || saved?.diagnosis || (Array.isArray(saved?.plans) && saved.plans.length));
-  const shouldShow = hasSaved && !dedicatedCustomerKey();
+  const shouldShow = hasSaved && !dedicatedCustomerKey() && !customerResumeDecisionMade(saved);
   banner.hidden = !shouldShow;
   if (!shouldShow) return;
   const name = customerStateProjectName(saved);
@@ -1084,6 +1105,14 @@ function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
       ? '这个项目已经生成过内容建议。客户第一次打开不会看到你的本地记录；如果要演示新客户，请新建空白项目。'
       : '这个项目保存过草稿信息。客户第一次打开不会看到你的本地记录；如果要演示新客户，请新建空白项目。';
   }
+}
+
+function renderCustomerWorkspaceContext(saved = loadCustomerTrialState(), step = document.body.dataset.customerStep || 'intake'){
+  const nav = $('#customerWorkspaceNav');
+  const name = $('#customerWorkspaceProject');
+  const visible = step !== 'intake';
+  if (nav) nav.hidden = !visible;
+  if (name) name.textContent = customerStateProjectName(saved) || '我的内容项目';
 }
 
 function resetCustomerTrialForm(){
@@ -1823,6 +1852,7 @@ function setCustomerStep(step = 'intake', options = {}){
   document.body.classList.remove(...CUSTOMER_FLOW_STEPS.map((item)=>`customer-step-${item}`));
   document.body.classList.add(`customer-step-${nextStep}`);
   document.body.dataset.customerStep = nextStep;
+  renderCustomerWorkspaceContext(saved, nextStep);
   updateCustomerStepCopy(nextStep);
   updateCustomerProgress(nextStep);
   if (options.focus) {
@@ -2553,30 +2583,37 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
       <div><span>AI 内容策略助手</span><strong>不是套用固定模板，本次建议已结合</strong></div>
       <ul>${aiContextHtml}</ul>
     </section>
-    <article class="customer-advice-block">
-      <span>1</span>
-      <div><h3>你现在最需要解决的问题</h3><p>${esc(problem)}。先不要急着多发，先把内容和「${esc(goal)}」连起来。</p></div>
-    </article>
-    <article class="customer-advice-block">
-      <span>2</span>
-      <div><h3>建议优先发的内容方向</h3><p>${esc(contentDirection)}</p></div>
-    </article>
-    <article class="customer-advice-block">
-      <span>3</span>
-      <div><h3>平台内容矩阵怎么分工</h3>${modeHtml}${matrixHtml}</div>
-    </article>
-    <article class="customer-advice-block">
-      <span>4</span>
-      <div><h3>可以马上用的 3 个选题</h3><ol class="customer-topic-list">${topics}</ol></div>
-    </article>
-    <article class="customer-advice-block">
-      <span>5</span>
-      <div><h3>第一条内容怎么发</h3><ul>${firstSteps.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></div>
-    </article>
-    <article class="customer-advice-block">
-      <span>6</span>
-      <div><h3>发布后如何记录效果，方便下次优化</h3><p>发布后只记录曝光、互动、咨询人数和一句观察。下次就能判断：是标题要改，还是内容角度要换。</p></div>
-    </article>`;
+    <section class="customer-strategy-summary" aria-label="本轮策略摘要">
+      <article class="customer-advice-block customer-advice-priority">
+        <span>1</span>
+        <div><h3>你现在最需要解决的问题</h3><p>${esc(problem)}。先不要急着多发，先把内容和「${esc(goal)}」连起来。</p></div>
+      </article>
+      <article class="customer-advice-block customer-advice-priority">
+        <span>2</span>
+        <div><h3>本轮建议优先验证的方向</h3><p>${esc(contentDirection)}</p></div>
+      </article>
+    </section>
+    <details class="customer-strategy-details">
+      <summary><span>查看完整策略</span><small>平台分工、3 个选题和第一条怎么发</small></summary>
+      <div class="customer-strategy-details-body">
+        <article class="customer-advice-block">
+          <span>3</span>
+          <div><h3>平台内容矩阵怎么分工</h3>${modeHtml}${matrixHtml}</div>
+        </article>
+        <article class="customer-advice-block">
+          <span>4</span>
+          <div><h3>可以马上用的 3 个选题</h3><ol class="customer-topic-list">${topics}</ol></div>
+        </article>
+        <article class="customer-advice-block">
+          <span>5</span>
+          <div><h3>第一条内容怎么发</h3><ul>${firstSteps.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></div>
+        </article>
+        <article class="customer-advice-block">
+          <span>6</span>
+          <div><h3>发布后怎么记录效果</h3><p>发布后只记录曝光、互动、咨询人数和一句观察。下次就能判断：是标题要改，还是内容角度要换。</p></div>
+        </article>
+      </div>
+    </details>`;
 }
 
 function customerPublishAuditFor(plan = {}, payload = {}){
@@ -2871,7 +2908,7 @@ function selectCustomerEffectPlan(planId){
   saveCustomerTrialState(selectedState);
   updateCustomerSelectedPlanDisplay(selectedState);
   setCustomerStep('record', {state: selectedState, focus: true});
-  window.setTimeout(()=>$('#customerEffectForm [name=views]')?.focus(), 140);
+  window.setTimeout(()=>$('#customerEffectForm [name=views]')?.focus({preventScroll:true}), 180);
   const displayNumber = customerPlanDisplayNumber(current, plan);
   setCustomerMessage('#customerEffectMessage', `已选择${displayNumber ? `第${displayNumber}天` : '这条内容'}。填曝光、互动、咨询这几个数就可以。`);
 }
@@ -3834,13 +3871,19 @@ function renderCustomerAccountDialog(){
   const eyebrow = $('#customerAccountEyebrow');
   const intro = $('#customerAccountIntro');
   if (loading) loading.hidden = !customerAccountState.loading;
-  if (unavailable) unavailable.hidden = customerAccountState.loading || customerAccountState.enabled;
+  if (unavailable) {
+    unavailable.hidden = customerAccountState.loading || customerAccountState.enabled;
+    unavailable.textContent = customerAccountState.error || '账号找回暂未开放，不影响当前浏览器继续使用。';
+  }
   if (signedOut) signedOut.hidden = customerAccountState.loading || !customerAccountState.enabled || customerAccountState.signed_in;
   if (signedIn) signedIn.hidden = customerAccountState.loading || !customerAccountState.signed_in;
-  if (accountBtn) {
+  if (accountBtn && !window.publicAccountMenu) {
     const accountLabel = accountBtn.querySelector('[data-public-account-label]');
-    if (accountLabel) accountLabel.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
-    else accountBtn.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
+    const accountText = customerAccountState.signed_in
+      ? '我的账号'
+      : (!customerAccountState.checked ? '账号' : '登录');
+    if (accountLabel) accountLabel.textContent = accountText;
+    else accountBtn.textContent = accountText;
   }
   if (title) title.textContent = customerAccountState.signed_in ? '我的账号' : '登录';
   if (eyebrow) eyebrow.textContent = customerAccountState.signed_in ? 'MY ACCOUNT' : 'ACCOUNT';
@@ -3878,7 +3921,20 @@ async function loadCustomerAccountSession({loadProjects = true, showLoading = tr
   customerAccountState.loading = showLoading;
   if (showLoading) renderCustomerAccountDialog();
   try {
-    const session = await api('/api/auth/session', {timeoutMs:10000});
+    let session = null;
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        session = await api('/api/auth/session', {timeoutMs:10000});
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await new Promise((resolve)=>window.setTimeout(resolve, 450));
+      }
+    }
+    if (!session) throw lastError || new Error('账号状态读取失败');
+    customerAccountState.checked = true;
+    customerAccountState.error = '';
     customerAccountState.enabled = session.enabled === true;
     customerAccountState.signed_in = session.signed_in === true;
     customerAccountState.account = session.account || null;
@@ -3894,11 +3950,13 @@ async function loadCustomerAccountSession({loadProjects = true, showLoading = tr
       customerAccountState.entitlement = entitlement.entitlement || null;
     }
   } catch {
-    customerAccountState.enabled = false;
-    customerAccountState.signed_in = false;
-    customerAccountState.account = null;
-    customerAccountState.entitlement = null;
-    customerAccountState.clients = [];
+    customerAccountState.checked = true;
+    customerAccountState.error = '网络有些慢，账号状态暂时没有读取成功。请稍后重试。';
+    if (!customerAccountState.signed_in) {
+      customerAccountState.account = null;
+      customerAccountState.entitlement = null;
+      customerAccountState.clients = [];
+    }
   } finally {
     customerAccountState.loading = false;
     renderCustomerAccountDialog();
@@ -4037,7 +4095,7 @@ async function logoutCustomerAccount(){
   if (button) button.disabled = true;
   try {
     await api('/api/auth/logout', {method: 'POST', timeoutMs: 10000});
-    customerAccountState = {...customerAccountState, signed_in: false, account: null, entitlement: null, clients: [], challenge_id: '', email: ''};
+    customerAccountState = {...customerAccountState, checked: true, error: '', signed_in: false, account: null, entitlement: null, clients: [], challenge_id: '', email: ''};
     renderCustomerAccountDialog();
     window.dispatchEvent(new CustomEvent('customer-account:changed'));
     setCustomerAccountMessage('已退出登录。当前浏览器里的项目仍然保留。');
@@ -4050,7 +4108,6 @@ async function logoutCustomerAccount(){
 
 function initCustomerAccount(){
   renderCustomerAccountDialog();
-  loadCustomerAccountSession();
   $('#customerAccountBtn')?.addEventListener('click', () => {
     if (!window.publicAccountMenu) openCustomerAccountDialog();
   });
@@ -4067,7 +4124,7 @@ function initCustomerAccount(){
     openCustomerPrivacySettings($('#customerAccountBtn'));
   });
   window.addEventListener('public-account:logged-out', () => {
-    customerAccountState = {...customerAccountState, signed_in: false, account: null, entitlement: null, clients: [], challenge_id: '', email: ''};
+    customerAccountState = {...customerAccountState, checked: true, error: '', signed_in: false, account: null, entitlement: null, clients: [], challenge_id: '', email: ''};
     renderCustomerAccountDialog();
   });
   $('#customerAccountClose')?.addEventListener('click', closeCustomerAccountDialog);
@@ -4286,7 +4343,11 @@ function initCustomerTrial(){
     renderCustomerEffects(cloudState);
   });
   $('#customerResumeContinue')?.addEventListener('click', () => {
-    setCustomerStep(customerDefaultStep(loadCustomerTrialState()), {focus: true});
+    const saved = loadCustomerTrialState();
+    rememberCustomerResumeDecision(saved);
+    renderCustomerResumeBanner(saved);
+    setCustomerStep(customerDefaultStep(saved), {state: saved, focus: true});
+    toast('已继续上次项目');
   });
   $('#customerStartBlank')?.addEventListener('click', startBlankCustomerProject);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);

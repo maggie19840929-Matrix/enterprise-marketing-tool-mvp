@@ -77,7 +77,7 @@
   const plan = root.querySelector('[data-account-plan]');
   const usage = root.querySelector('[data-account-usage]');
   const menuToast = root.querySelector('.customer-account-menu-toast');
-  const state = { loading: true, signedIn: false, account: null, entitlement: null };
+  const state = { loading: true, checked: false, error: '', signedIn: false, account: null, entitlement: null };
   let toastTimer = 0;
 
   const planLabel = (code = 'free') => ({ free: 'Free', plus: 'Plus', pro: 'Pro' }[String(code || '').toLowerCase()] || 'Free');
@@ -103,10 +103,12 @@
   const render = () => {
     root.classList.toggle('is-signed-in', state.signedIn);
     root.classList.toggle('is-loading', state.loading);
-    trigger.disabled = state.loading;
+    trigger.disabled = false;
     trigger.setAttribute('aria-haspopup', state.signedIn ? 'menu' : 'dialog');
-    if (label) label.textContent = state.loading ? '账号' : (state.signedIn ? '我的账号' : '登录');
-    if (status) status.textContent = state.signedIn ? '已登录，可跨设备找回项目' : '尚未登录';
+    if (label) label.textContent = state.signedIn ? '我的账号' : (state.checked && !state.error ? '登录' : '账号');
+    if (status) status.textContent = state.error
+      ? '网络有些慢，账号状态稍后重试'
+      : (state.signedIn ? '已登录，可跨设备找回项目' : '尚未登录');
     if (plan) plan.textContent = planLabel(state.entitlement?.plan_code || state.account?.plan_code);
     if (usage) usage.textContent = usageLabel(state.entitlement);
     if (!state.signedIn) close();
@@ -116,23 +118,47 @@
     window.dispatchEvent(event);
     if (!event.defaultPrevented) window.location.assign(fallbackUrl);
   };
+  const fetchWithTimeout = async (url, options = {}, timeoutMs = 7000) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {...options, signal: controller.signal});
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
   const load = async () => {
     state.loading = true;
     render();
     try {
-      const sessionResponse = await fetch('/api/auth/session', { headers: { accept: 'application/json' } });
+      let sessionResponse = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          sessionResponse = await fetchWithTimeout('/api/auth/session', { credentials: 'same-origin', headers: { accept: 'application/json' } });
+          if (sessionResponse.ok) break;
+        } catch {
+          sessionResponse = null;
+        }
+        if (attempt === 0) await new Promise((resolve)=>window.setTimeout(resolve, 450));
+      }
+      if (!sessionResponse?.ok) throw new Error('account_session_unavailable');
       const session = sessionResponse.ok ? await sessionResponse.json() : {};
+      state.checked = true;
+      state.error = '';
       state.signedIn = session.signed_in === true;
       state.account = session.account || null;
       state.entitlement = null;
-      if (state.signedIn) {
-        const entitlementResponse = await fetch('/api/account/entitlements', { headers: { accept: 'application/json' } });
-        if (entitlementResponse.ok) state.entitlement = (await entitlementResponse.json()).entitlement || null;
-      }
+      state.loading = false;
+      render();
+      if (state.signedIn) fetchWithTimeout('/api/account/entitlements', { credentials: 'same-origin', headers: { accept: 'application/json' } })
+        .then(async (response) => {
+          if (response.ok) state.entitlement = (await response.json()).entitlement || null;
+          render();
+        })
+        .catch(() => {});
     } catch {
-      state.signedIn = false;
-      state.account = null;
-      state.entitlement = null;
+      state.checked = true;
+      state.error = 'account_session_unavailable';
     } finally {
       state.loading = false;
       render();
@@ -142,9 +168,11 @@
   const logout = async (button) => {
     button.disabled = true;
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST', headers: { accept: 'application/json' } });
+      const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { accept: 'application/json' } });
       if (!response.ok) throw new Error('logout_failed');
       state.signedIn = false;
+      state.checked = true;
+      state.error = '';
       state.account = null;
       state.entitlement = null;
       render();
@@ -158,7 +186,7 @@
   };
 
   trigger.addEventListener('click', () => {
-    if (state.loading) return;
+    if (state.loading || state.error) return requestHostAction('public-account:login-requested', '/?account=login');
     if (!state.signedIn) return requestHostAction('public-account:login-requested', '/?account=login');
     const opening = popover.hidden;
     popover.hidden = !opening;
