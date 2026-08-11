@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.139';
-const VERSION_LABEL = 'v1.6.139 · 对标内容洞察内测版';
+const APP_VERSION = '1.6.140';
+const VERSION_LABEL = 'v1.6.140 · 支付宝安全支付接入版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -192,6 +192,13 @@ const json = (payload, status = 200, { internal = false, headers = {} } = {}) =>
       ...headers,
     },
   });
+const plainText = (payload = '', status = 200) => new Response(String(payload || ''), {
+  status,
+  headers: {
+    'content-type': 'text/plain; charset=utf-8',
+    'cache-control': 'no-store',
+  },
+});
 const unauthorized = () => json({ error: '未授权' }, 401);
 
 const arkApiKey = () => envValue('ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY');
@@ -4998,7 +5005,6 @@ const billingOrderStatusValue = (value = '') => [
 ].includes(String(value || '').trim()) ? String(value || '').trim() : 'pending_payment';
 const billingOrderTtlHours = () => envInteger('BILLING_ORDER_TTL_HOURS', 72, { min: 1, max: 24 * 30 });
 const billingContactEmail = () => normalizeEmail(envValue('BILLING_CONTACT_EMAIL') || 'contact@fpmatrix.cn');
-const billingPaymentMode = () => 'manual_review';
 const paymentP1InternalEnabled = () => envFlag('PAYMENT_P1_INTERNAL_ENABLED', false);
 const paymentSandboxEnabled = () => envFlag('PAYMENT_P1_SANDBOX_ENABLED', false);
 const paymentSandboxToken = () => envValue('PAYMENT_P1_SANDBOX_TOKEN');
@@ -5008,9 +5014,18 @@ const paymentAdapter = (provider = '') => paymentAdapterFor({
   sandboxEnabled: paymentSandboxEnabled(),
   sandboxToken: paymentSandboxToken(),
 });
+const paymentInfrastructureEnabled = () => paymentP1InternalEnabled() || paymentAdapter('alipay').configured;
+const alipayPublicCheckoutEnabled = () => paymentInfrastructureEnabled()
+  && !paymentSandboxEnabled()
+  && paymentAdapter('alipay').mode === 'live';
+const billingPaymentMode = () => alipayPublicCheckoutEnabled() ? 'alipay' : 'manual_review';
 const paymentProviderReadiness = () => Object.fromEntries(paymentProviderCodes().map((provider) => {
   const adapter = paymentAdapter(provider);
-  return [provider, { configured: Boolean(adapter.configured), mode: adapter.mode }];
+  return [provider, {
+    configured: Boolean(adapter.configured),
+    mode: adapter.mode,
+    public_checkout: provider === 'alipay' && alipayPublicCheckoutEnabled(),
+  }];
 }));
 const paymentIntentStatusValue = (value = '') => [
   'created',
@@ -5041,6 +5056,7 @@ const publicBillingOrder = (order = {}) => ({
   currency: String(order.currency || 'CNY'),
   status: billingOrderStatusValue(order.status),
   payment_mode: String(order.payment_mode || 'manual_review'),
+  payment_options: ensureArray(order.payment_options).filter((item) => ['alipay', 'offline_bank_transfer'].includes(item)),
   payment: {
     contact_email: String(order.payment?.contact_email || billingContactEmail()),
     reference: String(order.payment?.reference || order.order_no || ''),
@@ -5051,6 +5067,22 @@ const publicBillingOrder = (order = {}) => ({
   paid_at: String(order.paid_at || ''),
   activated_at: String(order.activated_at || ''),
   subscription_ends_at: String(order.subscription_ends_at || ''),
+});
+const publicPaymentIntent = (intent = {}) => ({
+  payment_id: String(intent.payment_id || ''),
+  order_id: String(intent.order_id || ''),
+  provider: normalizePaymentProvider(intent.provider),
+  provider_name: String(intent.provider_name || ''),
+  status: paymentIntentStatusValue(intent.status),
+  client_action: intent.client_action?.type === 'redirect' && /^https:\/\//i.test(String(intent.client_action?.url || ''))
+    ? {
+        type: 'redirect',
+        url: String(intent.client_action.url),
+        expires_in_seconds: Number(intent.client_action.expires_in_seconds || 0),
+      }
+    : {},
+  created_at: String(intent.created_at || ''),
+  expires_at: String(intent.expires_at || ''),
 });
 const internalBillingOrder = (order = {}) => ({
   ...publicBillingOrder(order),
@@ -5120,20 +5152,37 @@ const writePaymentEvent = async ({ intent = {}, eventId = '', eventType = '', so
   await commercialBlobSet(key, event);
   return { event, duplicate: false };
 };
-const createPaymentIntent = async ({ orderId = '', payload = {} } = {}) => {
-  if (!paymentP1InternalEnabled()) throw new Error('支付基础设施尚未在内部环境启用');
+const createPaymentIntent = async ({ orderId = '', payload = {}, account = null, internal = false } = {}) => {
+  if (!paymentInfrastructureEnabled()) throw new Error('支付渠道尚未启用');
   const order = await readBillingOrder(orderId);
   if (!order) return null;
+  if (!internal && (!account?.account_id || String(order.account_id) !== String(account.account_id))) return null;
   if (!['pending_payment', 'payment_creating', 'awaiting_payment'].includes(order.status)) throw new Error('当前订单状态不能创建支付单');
   if (Date.parse(order.expires_at || '') <= Date.now()) throw new Error('订单已经过期，请重新下单');
   const provider = normalizePaymentProvider(payload.provider);
   if (!paymentProviderCodes().includes(provider)) throw new Error('请选择受支持的支付渠道');
+  if (!internal && provider !== 'alipay') throw new Error('当前仅支持支付宝在线支付');
+  if (!internal && !alipayPublicCheckoutEnabled()) throw new Error('支付宝支付暂未开放，请联系人工付款');
   const idempotencyKey = String(payload.idempotency_key || '').trim();
   if (!/^[a-z0-9_-]{16,100}$/i.test(idempotencyKey)) throw new Error('支付请求标识无效，请刷新后重试');
   const idempotency = await commercialBlobGet(commercialPaymentIntentIdempotencyKey(order.order_id, idempotencyKey));
   if (idempotency?.payment_id) {
     const existing = await readPaymentIntent(idempotency.payment_id);
     if (existing) return { intent: existing, duplicate: true };
+  }
+  const reusable = (await paymentIntentsForOrder(order.order_id)).find((intent) => (
+    normalizePaymentProvider(intent.provider) === provider
+    && ['created', 'awaiting_payment'].includes(paymentIntentStatusValue(intent.status))
+    && Date.parse(intent.expires_at || '') > Date.now()
+    && intent.client_action?.type === 'redirect'
+    && /^https:\/\//i.test(String(intent.client_action?.url || ''))
+  ));
+  if (reusable) {
+    await commercialBlobSet(commercialPaymentIntentIdempotencyKey(order.order_id, idempotencyKey), {
+      payment_id: reusable.payment_id,
+      created_at: nowIso(),
+    });
+    return { intent: reusable, duplicate: true };
   }
   const paymentId = `pay_${accountDigest('payment-intent-id', `${order.order_id}:${idempotencyKey}`).slice(0, 32)}`;
   const adapter = paymentAdapter(provider);
@@ -5164,7 +5213,12 @@ const createPaymentIntent = async ({ orderId = '', payload = {} } = {}) => {
   await commercialBlobSet(commercialPaymentIntentKey(order.order_id, paymentId), intent);
   await commercialBlobSet(commercialPaymentIntentIndexKey(paymentId), { payment_id: paymentId, order_id: order.order_id, account_id: order.account_id, created_at: createdAt });
   await commercialBlobSet(commercialPaymentIntentIdempotencyKey(order.order_id, idempotencyKey), { payment_id: paymentId, created_at: createdAt });
-  await writePaymentEvent({ intent, eventId: `created:${paymentId}`, eventType: 'payment_intent_created', source: 'internal' });
+  await writePaymentEvent({
+    intent,
+    eventId: `created:${paymentId}`,
+    eventType: 'payment_intent_created',
+    source: internal ? 'internal' : 'customer_checkout',
+  });
   const nextOrder = {
     ...order,
     status: 'awaiting_payment',
@@ -5172,7 +5226,14 @@ const createPaymentIntent = async ({ orderId = '', payload = {} } = {}) => {
     updated_at: nowIso(),
   };
   await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), nextOrder);
-  await writeBillingAudit({ order, action: 'payment_intent_created', actor: 'internal_operator', before: order, after: nextOrder, note: provider });
+  await writeBillingAudit({
+    order,
+    action: 'payment_intent_created',
+    actor: internal ? 'internal_operator' : 'customer',
+    before: order,
+    after: nextOrder,
+    note: provider,
+  });
   return { intent, duplicate: false };
 };
 const queryPaymentIntent = async (paymentId = '') => {
@@ -5182,7 +5243,7 @@ const queryPaymentIntent = async (paymentId = '') => {
   return { intent, provider: provider.query({ intent }) };
 };
 const settlePaymentNotification = async ({ provider = '', request = null, payload = {} } = {}) => {
-  if (!paymentP1InternalEnabled()) return { ok: false, status: 403, error: 'payment_infrastructure_disabled' };
+  if (!paymentInfrastructureEnabled()) return { ok: false, status: 403, error: 'payment_infrastructure_disabled' };
   const safeProvider = normalizePaymentProvider(provider);
   const adapter = paymentAdapter(safeProvider);
   const verified = adapter.verifyNotification({ headers: request?.headers || new Headers(), payload });
@@ -5191,26 +5252,30 @@ const settlePaymentNotification = async ({ provider = '', request = null, payloa
   if (!intent || normalizePaymentProvider(intent.provider) !== safeProvider) return { ok: false, status: 404, error: 'payment_intent_not_found' };
   if (Number(intent.amount_fen) !== Number(verified.amount_fen)) return { ok: false, status: 400, error: 'payment_amount_mismatch' };
   const existingEvent = await commercialBlobGet(commercialPaymentEventKey(intent.payment_id, verified.event_id));
-  if (existingEvent || intent.status === 'succeeded') return { ok: true, duplicate: true, intent: await readPaymentIntent(intent.payment_id) };
   const order = await readBillingOrder(intent.order_id);
   if (!order) return { ok: false, status: 404, error: 'payment_order_not_found' };
+  if (order.status === 'paid' && order.activated_at) return { ok: true, duplicate: true, intent, order };
   if (!['pending_payment', 'payment_creating', 'awaiting_payment', 'processing'].includes(order.status)) return { ok: false, status: 409, error: 'payment_order_not_payable' };
   const succeededAt = nowIso();
-  const paidIntent = {
-    ...intent,
-    status: 'succeeded',
-    succeeded_at: succeededAt,
-    provider_transaction_id: verified.provider_transaction_id,
-    updated_at: succeededAt,
-  };
-  await commercialBlobSet(commercialPaymentIntentKey(intent.order_id, intent.payment_id), paidIntent);
-  await writePaymentEvent({
-    intent: paidIntent,
-    eventId: verified.event_id,
-    eventType: 'payment_succeeded',
-    source: 'provider_notification',
-    details: { amount_fen: verified.amount_fen, provider_transaction_id: verified.provider_transaction_id, status: 'succeeded' },
-  });
+  const paidIntent = intent.status === 'succeeded'
+    ? intent
+    : {
+        ...intent,
+        status: 'succeeded',
+        succeeded_at: succeededAt,
+        provider_transaction_id: verified.provider_transaction_id,
+        updated_at: succeededAt,
+      };
+  if (intent.status !== 'succeeded') await commercialBlobSet(commercialPaymentIntentKey(intent.order_id, intent.payment_id), paidIntent);
+  if (!existingEvent) {
+    await writePaymentEvent({
+      intent: paidIntent,
+      eventId: verified.event_id,
+      eventType: 'payment_succeeded',
+      source: 'provider_notification',
+      details: { amount_fen: verified.amount_fen, provider_transaction_id: verified.provider_transaction_id, status: 'succeeded' },
+    });
+  }
   const processing = {
     ...order,
     status: 'processing',
@@ -5231,10 +5296,10 @@ const settlePaymentNotification = async ({ provider = '', request = null, payloa
   };
   await commercialBlobSet(commercialOrderKey(order.account_id, order.order_id), paid);
   await writeBillingAudit({ order, action: 'payment_provider_confirmed', actor: 'payment_provider', before: order, after: paid, note: safeProvider });
-  return { ok: true, duplicate: false, intent: paidIntent, order: paid };
+  return { ok: true, duplicate: Boolean(existingEvent || intent.status === 'succeeded'), intent: paidIntent, order: paid };
 };
 const createRefundRequest = async ({ paymentId = '', payload = {} } = {}) => {
-  if (!paymentP1InternalEnabled()) throw new Error('支付基础设施尚未在内部环境启用');
+  if (!paymentInfrastructureEnabled()) throw new Error('支付基础设施尚未启用');
   const intent = await readPaymentIntent(paymentId);
   if (!intent) return null;
   if (intent.status !== 'succeeded') throw new Error('只有已成功支付的订单可以申请退款');
@@ -5267,12 +5332,15 @@ const paymentReconciliationSnapshot = async () => {
     summary[status] = Number(summary[status] || 0) + 1;
     return summary;
   }, {});
+  const liveAlipay = alipayPublicCheckoutEnabled();
   return {
-    mode: 'internal_skeleton',
+    mode: liveAlipay ? 'provider_events' : 'internal_skeleton',
     total_payment_intents: intents.length,
     statuses,
     refund_requested: intents.filter((intent) => intent.refund_status === 'requested').length,
-    note: '尚未接入真实渠道账单；此接口只用于内部结构和状态核验。',
+    note: liveAlipay
+      ? '已按支付宝签名通知更新订单；渠道账单主动对账接口待后续接入。'
+      : '尚未接入真实渠道账单；此接口只用于内部结构和状态核验。',
   };
 };
 const readBillingOrdersForAccount = async (accountId = '') => {
@@ -5328,6 +5396,7 @@ const createBillingOrder = async ({ account = {}, payload = {} } = {}) => {
   const orderId = `order_${accountDigest('billing-order-id', `${accountId}:${idempotencyKey}`).slice(0, 32)}`;
   const amount = billingOrderAmount(plan, interval);
   const orderNo = `FP${shanghaiDateIso().replaceAll('-', '')}${billingOrderReference(orderId)}`;
+  const onlineAlipay = alipayPublicCheckoutEnabled();
   const order = {
     order_id: orderId,
     order_no: orderNo,
@@ -5337,11 +5406,14 @@ const createBillingOrder = async ({ account = {}, payload = {} } = {}) => {
     billing_interval: interval,
     ...amount,
     status: 'pending_payment',
-    payment_mode: billingPaymentMode(),
+    payment_mode: onlineAlipay ? 'alipay' : 'manual_review',
+    payment_options: onlineAlipay ? ['alipay', 'offline_bank_transfer'] : ['offline_bank_transfer'],
     payment: {
       contact_email: billingContactEmail(),
       reference: orderNo,
-      instructions: `请联系 ${billingContactEmail()} 完成付款，并在付款备注中填写订单号 ${orderNo}。到账确认后权益自动开通。`,
+      instructions: onlineAlipay
+        ? '可使用支付宝在线付款；支付成功并完成验签后，套餐权益会自动开通。'
+        : `请联系 ${billingContactEmail()} 完成付款，并在付款备注中填写订单号 ${orderNo}。到账确认后权益自动开通。`,
     },
     idempotency_hash: accountDigest('billing-idempotency', idempotencyKey),
     price_version: APP_VERSION,
@@ -9040,6 +9112,16 @@ const queuePlanJob = (context, clientId, jobId) => {
   return promise;
 };
 
+const readRequestPayload = async (request = null) => {
+  if (!request || !['POST', 'PATCH'].includes(request.method)) return {};
+  const contentType = String(request.headers?.get('content-type') || '').toLowerCase();
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    const body = await request.text().catch(() => '');
+    return Object.fromEntries(new URLSearchParams(body));
+  }
+  return request.json().catch(() => ({}));
+};
+
 export default async (request, context = {}) => {
   ensureState();
   const url = new URL(request.url);
@@ -9062,7 +9144,7 @@ export default async (request, context = {}) => {
         module_version: GENERATION_WORKBENCH_VERSION,
         benchmark_module_version: BENCHMARK_INSIGHTS_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'alipay_page_pay', 'alipay_rsa2_notification', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -9341,7 +9423,7 @@ export default async (request, context = {}) => {
       }
     }
 
-    const payload = ['POST', 'PATCH'].includes(request.method) ? await request.json().catch(() => ({})) : {};
+    const payload = await readRequestPayload(request);
     const payloadClientId = clientIdFrom(payload, url, request);
     const taskActionMatch = path.match(/^\/generation-tasks\/([^/]+)\/(submit|poll|qa|deliver)$/);
     const benchmarkProfileMatch = path.match(/^\/benchmark-profiles\/([^/]+)$/);
@@ -9442,10 +9524,28 @@ export default async (request, context = {}) => {
     const createPaymentIntentMatch = path.match(/^\/internal\/billing\/orders\/([^/]+)\/payment-intents$/);
     if (request.method === 'POST' && createPaymentIntentMatch) {
       if (!internalAuthorized) return unauthorized();
-      const created = await createPaymentIntent({ orderId: decodeURIComponent(createPaymentIntentMatch[1]), payload });
+      const created = await createPaymentIntent({
+        orderId: decodeURIComponent(createPaymentIntentMatch[1]),
+        payload,
+        internal: true,
+      });
       return created
         ? json({ payment: internalPaymentIntent(created.intent), duplicate: created.duplicate }, created.duplicate ? 200 : 201, { internal: true })
         : json({ error: '订单不存在' }, 404, { internal: true });
+    }
+    const customerPaymentIntentMatch = path.match(/^\/billing\/orders\/([^/]+)\/payment-intents$/);
+    if (request.method === 'POST' && customerPaymentIntentMatch) {
+      const auth = await readAccountSession(request);
+      if (!auth) return accountUnauthorized();
+      const created = await createPaymentIntent({
+        orderId: decodeURIComponent(customerPaymentIntentMatch[1]),
+        payload,
+        account: auth.account,
+        internal: false,
+      });
+      return created
+        ? json({ payment: publicPaymentIntent(created.intent), duplicate: created.duplicate }, created.duplicate ? 200 : 201)
+        : json({ error: '订单不存在' }, 404);
     }
     const cancelBillingOrderMatch = path.match(/^\/billing\/orders\/([^/]+)\/cancel$/);
     if (request.method === 'POST' && cancelBillingOrderMatch) {
@@ -9479,6 +9579,7 @@ export default async (request, context = {}) => {
     const paymentNotificationMatch = path.match(/^\/payments\/(wechat_pay|alipay)\/notify$/);
     if (request.method === 'POST' && paymentNotificationMatch) {
       const result = await settlePaymentNotification({ provider: paymentNotificationMatch[1], request, payload });
+      if (paymentNotificationMatch[1] === 'alipay') return result.ok ? plainText('success') : plainText('failure', result.status || 400);
       return result.ok
         ? json({ received: true, duplicate: Boolean(result.duplicate), payment_id: String(result.intent?.payment_id || '') }, 200)
         : json({ received: false, error: result.error || 'payment_notification_rejected' }, result.status || 400);

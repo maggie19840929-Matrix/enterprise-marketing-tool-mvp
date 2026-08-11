@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, createSign, createVerify, generateKeyPairSync } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'ACCOUNT_AUTH_ENABLED', 'ACCOUNT_AUTH_SECRET', 'ACCOUNT_EMAIL_RESEND_SECONDS', 'ACCOUNT_EMAIL_DAILY_IP_MAX', 'AUTH_TEST_MODE', 'EMAIL_PROVIDER', 'EMAIL_FROM', 'RESEND_API_KEY', 'PAYMENT_P1_INTERNAL_ENABLED', 'PAYMENT_P1_SANDBOX_ENABLED', 'PAYMENT_P1_SANDBOX_TOKEN', 'WECHATPAY_MCHID', 'WECHATPAY_APPID', 'WECHATPAY_API_V3_KEY', 'ALIPAY_APP_ID', 'ALIPAY_APP_PRIVATE_KEY', 'ALIPAY_PUBLIC_KEY', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'ACCOUNT_AUTH_ENABLED', 'ACCOUNT_AUTH_SECRET', 'ACCOUNT_EMAIL_RESEND_SECONDS', 'ACCOUNT_EMAIL_DAILY_IP_MAX', 'AUTH_TEST_MODE', 'EMAIL_PROVIDER', 'EMAIL_FROM', 'RESEND_API_KEY', 'PAYMENT_P1_INTERNAL_ENABLED', 'PAYMENT_P1_SANDBOX_ENABLED', 'PAYMENT_P1_SANDBOX_TOKEN', 'WECHATPAY_MCHID', 'WECHATPAY_APPID', 'WECHATPAY_API_V3_KEY', 'ALIPAY_APP_ID', 'ALIPAY_APP_PRIVATE_KEY', 'ALIPAY_PUBLIC_KEY', 'ALIPAY_SELLER_ID', 'ALIPAY_GATEWAY_URL', 'ALIPAY_NOTIFY_URL', 'ALIPAY_RETURN_URL', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
 ['COMMERCIALIZATION_ENABLED', 'FREE_TRIAL_STRATEGY_CYCLES', 'FREE_TRIAL_VALID_DAYS', 'FREE_MONTHLY_STRATEGY_CYCLES', 'PLUS_MONTHLY_STRATEGY_CYCLES', 'PRO_MONTHLY_STRATEGY_CYCLES', 'FREE_MONTHLY_COMPLETE_CONTENT', 'PLUS_MONTHLY_COMPLETE_CONTENT', 'PRO_MONTHLY_COMPLETE_CONTENT', 'PRO_PUBLIC_SALES_ENABLED', 'FREE_DAILY_GENERATIONS', 'PLUS_DAILY_GENERATIONS', 'PRO_DAILY_GENERATIONS', 'FREE_ACTIVE_PROJECTS', 'PLUS_ACTIVE_PROJECTS', 'PRO_ACTIVE_PROJECTS', 'PLUS_MONTHLY_PRICE_CNY', 'PRO_MONTHLY_PRICE_CNY', 'PLUS_YEARLY_PRICE_CNY', 'PRO_YEARLY_PRICE_CNY', 'BILLING_ORDER_TTL_HOURS', 'BILLING_CONTACT_EMAIL'].forEach((key) => {
@@ -32,6 +32,7 @@ const { default: handler, shanghaiDateIso, timestampToEpoch, extractBitableField
 const { default: backgroundGenerationHandler } = await import('../netlify/functions/generate-background.mjs');
 const { default: scheduledFeishuPull, config: scheduledFeishuConfig } = await import('../netlify/functions/feishu-pull-scheduled.mjs');
 const { benchmarkIndustryGuard, normalizeBenchmarkInsightOutput } = await import('../netlify/functions/benchmark-insights.mjs');
+const { alipayCanonicalString, paymentAdapterFor } = await import('../netlify/functions/payment-adapters.mjs');
 
 const stateClientIdForRequest = (path = '', body = {}) => {
   const url = new URL(String(path || ''), 'http://localhost');
@@ -89,6 +90,51 @@ const payload = {
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
+
+const alipayTestKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const alipayTestPrivateKey = alipayTestKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+const alipayTestPublicKey = alipayTestKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const alipayTestEnv = {
+  ALIPAY_APP_ID: '2021000000000000',
+  ALIPAY_APP_PRIVATE_KEY: alipayTestPrivateKey,
+  ALIPAY_PUBLIC_KEY: alipayTestPublicKey,
+};
+const alipayTestAdapter = paymentAdapterFor({
+  provider: 'alipay',
+  envValue: (key) => alipayTestEnv[key] || '',
+});
+const alipaySubmission = alipayTestAdapter.createIntent({
+  paymentId: 'pay_alipayadapter0000000000000001',
+  order: { order_no: 'FPTEST0001', plan_name: 'Plus', amount_fen: 29900 },
+});
+assert(alipayTestAdapter.mode === 'live' && alipaySubmission.ok && alipaySubmission.client_action?.type === 'redirect', 'configured Alipay adapter should create a live page-pay redirect');
+const alipayRedirect = new URL(alipaySubmission.client_action.url);
+const alipayRequestParams = Object.fromEntries(alipayRedirect.searchParams);
+const alipayRequestVerifier = createVerify('RSA-SHA256');
+alipayRequestVerifier.update(alipayCanonicalString(alipayRequestParams, { excludeSignType: false }), 'utf8');
+alipayRequestVerifier.end();
+assert(
+  alipayRequestParams.method === 'alipay.trade.page.pay'
+    && JSON.parse(alipayRequestParams.biz_content).total_amount === '299.00'
+    && alipayRequestVerifier.verify(alipayTestPublicKey, alipayRequestParams.sign, 'base64'),
+  'Alipay page-pay URL should preserve the server amount and carry a valid RSA2 request signature',
+);
+const alipayNotifyFixture = {
+  notify_id: 'alipay-notify-adapter-0001',
+  app_id: alipayTestEnv.ALIPAY_APP_ID,
+  out_trade_no: 'pay_alipayadapter0000000000000001',
+  trade_no: '202608112200000000000001',
+  trade_status: 'TRADE_SUCCESS',
+  total_amount: '299.00',
+  sign_type: 'RSA2',
+};
+const alipayNotifySigner = createSign('RSA-SHA256');
+alipayNotifySigner.update(alipayCanonicalString(alipayNotifyFixture), 'utf8');
+alipayNotifySigner.end();
+alipayNotifyFixture.sign = alipayNotifySigner.sign(alipayTestPrivateKey, 'base64');
+const alipayNotifyVerified = alipayTestAdapter.verifyNotification({ payload: alipayNotifyFixture });
+assert(alipayNotifyVerified.ok && alipayNotifyVerified.amount_fen === 29900, 'Alipay adapter should verify a signed notification and convert amount to fen exactly');
+assert(!alipayTestAdapter.verifyNotification({ payload: { ...alipayNotifyFixture, total_amount: '1.00' } }).ok, 'Alipay adapter must reject a notification changed after signing');
 
 const assertNoUnsafeCommentCta = (label, value) => {
   const text = JSON.stringify(value);
@@ -174,7 +220,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.139', `public diagnosis should return app_version 1.6.139, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.140', `public diagnosis should return app_version 1.6.140, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1312,6 +1358,86 @@ const reconciliation = await handler(internalRequest('GET', 'internal/billing/re
 const reconciliationData = await reconciliation.json();
 assert(reconciliation.status === 200 && reconciliationData.reconciliation?.mode === 'internal_skeleton' && reconciliationData.reconciliation?.total_payment_intents >= 1, 'internal reconciliation skeleton should report payment intent state without calling an external provider');
 
+process.env.PAYMENT_P1_SANDBOX_ENABLED = 'false';
+process.env.ALIPAY_APP_ID = alipayTestEnv.ALIPAY_APP_ID;
+process.env.ALIPAY_APP_PRIVATE_KEY = alipayTestPrivateKey;
+process.env.ALIPAY_PUBLIC_KEY = alipayTestPublicKey;
+const alipayOrderResponse = await handler(request('POST', 'billing/orders', {
+  plan_code: 'plus',
+  billing_interval: 'month',
+  idempotency_key: 'billing-alipay-live-order-0001',
+}, { headers: { cookie: billingAccountCookie } }));
+const alipayOrderData = await alipayOrderResponse.json();
+const alipayOrderId = String(alipayOrderData.order?.order_id || '');
+assert(
+  alipayOrderResponse.status === 201
+    && alipayOrderData.order?.payment_mode === 'alipay'
+    && alipayOrderData.order?.payment_options?.includes('alipay'),
+  'configured production Alipay should be offered only on the signed-in customer order',
+);
+const crossAccountAlipayIntent = await handler(request('POST', `billing/orders/${alipayOrderId}/payment-intents`, {
+  provider: 'alipay',
+  idempotency_key: 'alipay-cross-account-intent-0001',
+}, { headers: { cookie: secondAccountCookie } }));
+assert(crossAccountAlipayIntent.status === 404, 'another account must not create or discover the owner payment intent');
+const alipayIntentResponse = await handler(request('POST', `billing/orders/${alipayOrderId}/payment-intents`, {
+  provider: 'alipay',
+  idempotency_key: 'alipay-public-intent-0001',
+}, { headers: { cookie: billingAccountCookie } }));
+const alipayIntentData = await alipayIntentResponse.json();
+const alipayPaymentId = String(alipayIntentData.payment?.payment_id || '');
+const alipayCheckoutUrl = new URL(String(alipayIntentData.payment?.client_action?.url || ''));
+assert(
+  alipayIntentResponse.status === 201
+    && /^pay_[a-z0-9]+$/i.test(alipayPaymentId)
+    && alipayIntentData.payment?.status === 'awaiting_payment'
+    && alipayCheckoutUrl.hostname === 'openapi.alipay.com',
+  'account owner should receive a live Alipay page-pay redirect without internal settlement fields',
+);
+assert(!('amount_fen' in alipayIntentData.payment) && !('account_id' in alipayIntentData.payment), 'public payment intent must hide locked amount and account identifiers');
+const duplicateAlipayIntent = await handler(request('POST', `billing/orders/${alipayOrderId}/payment-intents`, {
+  provider: 'alipay',
+  idempotency_key: 'alipay-public-intent-retry-0002',
+}, { headers: { cookie: billingAccountCookie } }));
+const duplicateAlipayIntentData = await duplicateAlipayIntent.json();
+assert(duplicateAlipayIntent.status === 200 && duplicateAlipayIntentData.payment?.payment_id === alipayPaymentId, 'an unpaid live Alipay intent should be reused instead of creating another charge attempt');
+const signAlipayNotification = (fields = {}) => {
+  const signer = createSign('RSA-SHA256');
+  signer.update(alipayCanonicalString(fields), 'utf8');
+  signer.end();
+  return { ...fields, sign_type: 'RSA2', sign: signer.sign(alipayTestPrivateKey, 'base64') };
+};
+const alipayMismatchPayload = signAlipayNotification({
+  notify_id: 'alipay-live-mismatch-0001',
+  app_id: alipayTestEnv.ALIPAY_APP_ID,
+  out_trade_no: alipayPaymentId,
+  trade_no: '202608112200000000000011',
+  trade_status: 'TRADE_SUCCESS',
+  total_amount: '1.00',
+});
+const alipayFormRequest = (payload) => new Request('http://localhost/.netlify/functions/api/payments/alipay/notify', {
+  method: 'POST',
+  headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' },
+  body: new URLSearchParams(payload).toString(),
+});
+const alipayMismatchResponse = await handler(alipayFormRequest(alipayMismatchPayload));
+assert(alipayMismatchResponse.status === 400 && await alipayMismatchResponse.text() === 'failure', 'validly signed Alipay notification with a mismatched amount must be rejected');
+const alipaySuccessPayload = signAlipayNotification({
+  notify_id: 'alipay-live-success-0001',
+  app_id: alipayTestEnv.ALIPAY_APP_ID,
+  out_trade_no: alipayPaymentId,
+  trade_no: '202608112200000000000012',
+  trade_status: 'TRADE_SUCCESS',
+  total_amount: '299.00',
+});
+const alipaySuccessResponse = await handler(alipayFormRequest(alipaySuccessPayload));
+assert(alipaySuccessResponse.status === 200 && await alipaySuccessResponse.text() === 'success', 'signed Alipay form notification should activate the matching order and return the required plain success token');
+const alipayDuplicateResponse = await handler(alipayFormRequest(alipaySuccessPayload));
+assert(alipayDuplicateResponse.status === 200 && await alipayDuplicateResponse.text() === 'success', 'duplicate Alipay notification should stay idempotent and still acknowledge success');
+const alipayPaidOrderResponse = await handler(request('GET', `billing/orders/${alipayOrderId}`, undefined, { headers: { cookie: billingAccountCookie } }));
+const alipayPaidOrderData = await alipayPaidOrderResponse.json();
+assert(alipayPaidOrderData.order?.status === 'paid' && alipayPaidOrderData.order?.subscription_ends_at, 'verified Alipay payment should activate the account subscription exactly through the existing entitlement state machine');
+
 const accountLogout = await handler(request('POST', 'auth/logout', undefined, { headers: { cookie: accountCookie } }));
 assert(accountLogout.status === 200 && String(accountLogout.headers.get('set-cookie') || '').includes('Max-Age=0'), 'logout should revoke the server session and clear the browser cookie');
 const revokedAccountSession = await handler(request('GET', 'auth/session', undefined, { headers: { cookie: accountCookie } }));
@@ -1483,11 +1609,11 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.139'") && appJs.includes("v1.6.139 · 对标内容洞察内测版"), 'application should expose the reviewed v1.6.139 benchmark-insights release');
+assert(appJs.includes("const APP_VERSION = '1.6.140'") && appJs.includes("v1.6.140 · 支付宝安全支付接入版"), 'application should expose the reviewed v1.6.140 Alipay release');
 assert(indexHtml.includes('id="customerAccountUsage"') && indexHtml.includes('href="/plans"') && appJs.includes("api('/api/account/entitlements'"), 'signed-in account panel should show strategy-cycle usage and link to the plan page');
 assert(appJs.match(/entitlement = entitlement \|\| \{\};/g)?.length >= 2, 'signed-out account rendering should tolerate a missing entitlement snapshot');
 assert(plansHtml.includes('选择适合你经营节奏的套餐') && plansHtml.includes('额度怎么计算') && plansJs.includes("fetch('/api/commercial/plans'") && plansJs.includes("fetch('/api/account/entitlements'"), 'public plan page should explain customer-facing units and load server-owned entitlements');
-assert(plansHtml.includes('id="billingCheckout"') && plansHtml.includes('id="billingOrderHistory"') && plansHtml.includes('当前采用人工到账确认'), 'plan page should provide an honest account order and manual payment-confirmation flow');
+assert(plansHtml.includes('id="billingCheckout"') && plansHtml.includes('id="billingOrderHistory"') && plansHtml.includes('支付宝安全支付') && plansJs.includes('/payment-intents') && plansJs.includes('pendingAlipayOrderId'), 'plan page should provide account-owned Alipay checkout and return-state confirmation');
 assert(plansJs.includes("fetch('/api/billing/orders'") && plansJs.includes('idempotency_key') && plansJs.includes('contact@fpmatrix.cn') && plansJs.includes('/?account=login&next=/plans'), 'customer checkout should require a verified session, create an idempotent server order, and preserve the plan return path');
 assert(indexHtml.includes('id="internalBillingPanel"') && appJs.includes("api('/api/internal/billing/orders?limit=100'") && appJs.includes('/api/internal/billing/orders/${encodeURIComponent(orderId)}/confirm'), 'internal operations should expose the protected order confirmation panel without changing the customer shell');
 assert(redirects.includes('/plans /plans/index.html 200'), 'Netlify redirects should expose the independent plan page');
@@ -1684,11 +1810,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.139') && indexHtml.includes('/styles.css?v=1.6.139') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.139'), 'public customer page should use the v1.6.139 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.140') && indexHtml.includes('/styles.css?v=1.6.140') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.140'), 'public customer page should use the v1.6.140 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.139') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.139') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.139') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.140') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.140') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.140') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1708,7 +1834,7 @@ const publicHeaderNav = (html) => html.match(/<div class="customer-site-links">[
   assert(nav.includes('使用工具') && nav.includes('方法与案例') && nav.includes('关于我们') && nav.includes('data-public-account-menu'), 'every public page should use the same primary navigation and shared account-menu slot');
   assert(!nav.includes('联系我们') && !nav.includes('隐私政策') && !nav.includes('用户协议') && !nav.includes('返回首页'), 'secondary company and policy links must not reappear in the primary navigation');
 });
-assert([plansHtml, methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml, inviteHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.138') && html.includes('/public-account-menu.js?v=1.6.138') && !html.includes('class="customer-account-nav" href="/?account=login"')), 'unchanged independent public pages should retain the shared session-aware account menu instead of a static login link');
+assert(plansHtml.includes('war-room-v1.6.1.css?v=1.6.140') && plansHtml.includes('/public-account-menu.js?v=1.6.140') && [methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml, inviteHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.138') && html.includes('/public-account-menu.js?v=1.6.138') && !html.includes('class="customer-account-nav" href="/?account=login"')), 'payment plan page should use the current assets while unchanged public pages retain the shared session-aware account menu');
 assert([aboutHtml, contactHtml, privacyHtml, termsHtml].every((html) => !html.includes('>· 苏ICP备')), 'information-page filing links should rely on the shared separator and never render a duplicated dot');
 assert(aboutHtml.includes('<h2>联系我们</h2>') && aboutHtml.includes('href="/contact"'), 'contact details should sit beneath the About page while retaining the dedicated support page');
 assert(warRoomCss.includes('v1.6.131 public information pages: restrained editorial typography') && warRoomCss.includes('max-width:980px!important') && warRoomCss.includes('font-size:clamp(30px,3.2vw,40px)!important') && warRoomCss.includes('border-radius:0!important'), 'public information pages should use the restrained editorial typography system instead of nested oversized cards');
@@ -1720,7 +1846,7 @@ assert(warRoomCss.includes('v1.6.133 method entry and scenario page') && warRoom
 assert(warRoomCss.includes('.customer-growth-path li{') && warRoomCss.includes('margin-top:0!important'), 'method growth-path steps should override generic adjacent-list spacing so labels and arrows stay aligned');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
 assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
-assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.139') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
+assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.140') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
 assert(publicAccountMenuJs.includes("fetch('/api/auth/session'") && publicAccountMenuJs.includes("fetch('/api/account/entitlements'") && publicAccountMenuJs.includes("fetch('/api/auth/logout'") && publicAccountMenuJs.includes("window.location.assign('/invite')") && publicAccountMenuJs.includes('剩余用量'), 'shared public account menu should read the real session and quota, enter the invitation center, and perform backend logout');
 assert(publicAccountMenuJs.includes('initPublicNavigationState') && publicAccountMenuJs.includes('publicNavIcon') && publicAccountMenuJs.includes("link.setAttribute('aria-current', 'page')") && !publicAccountMenuJs.includes("link.classList.add('is-navigating')"), 'public navigation should add consistent leading icons and retain a destination-page state without a synthetic loading indicator');
 assert(warRoomCss.includes('a[aria-current="page"]') && warRoomCss.includes('.public-nav-icon') && warRoomCss.includes('a:hover') && !warRoomCss.includes('.public-navigation-status') && !warRoomCss.includes('public-nav-progress') && !warRoomCss.includes('public-nav-soft-glow'), 'public navigation should change icon and label color on hover/current state without a spinner, progress bar, status toast or glow animation');
@@ -1734,7 +1860,7 @@ assert(appJs.includes('showLoading = true') && appJs.includes('hasKnownAccountSt
 assert(appJs.includes("api('/api/user/settings'") && appJs.includes("method:'PATCH'") && appJs.includes('personalized_recommendation_enabled') && appJs.includes('USER_SETTINGS_STORAGE_PREFIX'), 'customer personalization setting should persist locally and through the backend settings API');
 assert(apiSourceIncludes("path === '/user/settings'") && apiSourceIncludes('applyPersonalizationPolicy') && apiSourceIncludes('nonPersonalizedAssessment') && apiSourceIncludes('personalization_mode'), 'backend recommendation routes should enforce personalized and non-personalized modes');
 assert(privacyHtml.includes('你可以在隐私设置中关闭个性化推荐/推送') && privacyHtml.includes('个人偏好、历史行为或用户画像') && privacyHtml.includes('邀请归因') && privacyHtml.includes('不向邀请人展示好友邮箱'), 'privacy policy should explain personalization controls and privacy-safe referral records');
-assert(privacyHtml.includes('订单与权益信息') && privacyHtml.includes('到账核验记录') && termsHtml.includes('套餐、订单与付款') && termsHtml.includes('当前采用人工到账确认，不自动续费'), 'public policies should explain the P1 order data and manual non-renewing payment mode');
+assert(privacyHtml.includes('订单与权益信息') && privacyHtml.includes('到账核验记录') && termsHtml.includes('套餐、订单与付款') && termsHtml.includes('支付宝在线付款经签名、订单号和金额核验后自动开通权益') && termsHtml.includes('当前均不自动续费'), 'public policies should explain verified Alipay payment and the non-renewing payment mode');
 assert(termsHtml.includes('AI 内容说明') && termsHtml.includes('禁止行为') && termsHtml.includes('内容效果和责任限制') && termsHtml.includes('不承诺固定流量、咨询量、成交量或商业结果') && termsHtml.includes('投诉与争议处理'), 'terms should cover AI content, prohibited behavior, effect disclaimer and complaint handling');
 assert(redirects.includes('/about /about/index.html 200') && redirects.includes('/method /method/index.html 200') && redirects.includes('/privacy /privacy/index.html 200') && redirects.includes('/terms /terms/index.html 200') && redirects.includes('/contact /contact/index.html 200'), 'customer info pages should rewrite to independent static pages');
 assert(indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('让每一次发布，都成为下一次增长的依据') && indexHtml.includes('customer-first-screen') && indexHtml.includes('customer-first-form-shell') && !indexHtml.includes('给篮球培训客户的全平台内容矩阵'), 'default customer page should use the approved Huoke Compass brand proposition, not a single-customer static page title');
@@ -2257,11 +2383,11 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.139' && health.version_label === 'v1.6.139 · 对标内容洞察内测版', 'public application health version should report v1.6.139');
+assert(health.version === '1.6.140' && health.version_label === 'v1.6.140 · 支付宝安全支付接入版', 'public application health version should report v1.6.140');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.features?.includes('commercial_entitlements_p2') && health.features?.includes('commercial_usage_reservations'), 'health should expose P2 entitlements and usage reservations');
 assert(health.features?.includes('referral_rewards_v1'), 'health should expose the account-scoped referral reward capability');
-assert(health.features?.includes('billing_orders_p1') && health.features?.includes('manual_payment_activation') && health.commercialization?.billing_mode === 'manual_review', 'health should expose the honest P1 billing order and manual activation mode');
+assert(health.features?.includes('billing_orders_p1') && health.features?.includes('manual_payment_activation') && health.features?.includes('alipay_page_pay') && health.features?.includes('alipay_rsa2_notification') && health.commercialization?.billing_mode === 'alipay' && health.commercialization?.payment_providers?.alipay?.public_checkout === true, 'health should expose live Alipay readiness while retaining manual activation fallback');
 assert(health.commercialization?.enabled === false && health.commercialization?.quota_mode === 'observe_only', 'commercial enforcement should remain observe-only unless explicitly enabled');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');

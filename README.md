@@ -201,18 +201,26 @@ PRO_PUBLIC_SALES_ENABLED=false
 
 `COMMERCIALIZATION_ENABLED=false` 是上线前的观察模式：系统记录策略周期和本期用量，但不会拦截现有匿名或登录客户；观察期记录不会在以后开启强制模式时追溯扣减。只有人工确认后改为 `true`，服务端才会在额度不足时返回 `quota_exceeded`。客户界面只展示套餐、策略周期、完整内容和刷新时间，不展示 Token、模型供应商或内部成本。
 
-### P3a 商业订单与人工开通
+### P3b 商业订单与支付宝在线支付
 
 v1.6.137 起，登录客户可在 `/plans` 选择公开销售的套餐和月付/年付周期。订单金额由服务端读取套餐配置后锁定，客户请求只提交套餐、周期和幂等标识；网络重试复用同一订单。客户只能查看或取消自己账号下尚未付款的订单。
 
-当前 `billing_mode=manual_review`：订单创建后显示唯一订单号与付款联系邮箱。运营核对真实到账后，在受 `INTERNAL_ACCESS_TOKEN` 保护的内部订单区填写到账凭证并确认，系统按订单号幂等开通或顺延订阅。重复确认不会重复增加权益，订单、索引、幂等记录和审计日志使用独立 Blob 命名空间，不改动 `global-project-store.*`。
+已配置支付宝凭据时，登录客户创建订单后可以通过电脑网站支付进入支付宝收银台。应用私钥只在 Netlify Function 中用于 RSA2 签名；支付宝异步通知必须通过支付宝公钥验签，并同时核对 APP ID、内部支付单号和服务端锁定金额，全部一致后才会幂等开通或顺延权益。人工付款仍作为兜底，运营确认入口继续受 `INTERNAL_ACCESS_TOKEN` 保护。
 
 ```bash
 BILLING_ORDER_TTL_HOURS=72
 BILLING_CONTACT_EMAIL=contact@fpmatrix.cn
+ALIPAY_APP_ID=支付宝应用APPID
+ALIPAY_APP_PRIVATE_KEY=应用私钥
+ALIPAY_PUBLIC_KEY=支付宝公钥
+ALIPAY_GATEWAY_URL=https://openapi.alipay.com/gateway.do
+ALIPAY_NOTIFY_URL=https://sales-improve.netlify.app/api/payments/alipay/notify
+ALIPAY_RETURN_URL=https://sales-improve.fpmatrix.cn/plans?payment=alipay
+# 可选：配置后会额外核对支付宝通知中的收款方身份
+ALIPAY_SELLER_ID=支付宝商户PID
 ```
 
-这一阶段不模拟微信或支付宝支付成功。自动支付需取得真实商户号、签名密钥、证书及回调域名后接入，届时复用现有订单与权益状态机。
+`ALIPAY_APP_PRIVATE_KEY` 只能配置在服务端环境变量，禁止写入前端、日志或 Git。支付宝在线支付当前不自动续费；退款仍由内部申请流程人工审核，不模拟渠道退款成功。微信支付在服务号/应用关联和渠道凭据完成前保持关闭。
 
 ### 客户连续内容周期
 

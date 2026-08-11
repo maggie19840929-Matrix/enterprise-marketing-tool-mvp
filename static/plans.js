@@ -79,6 +79,8 @@ const openCheckout = (planCode = '') => {
 };
 const statusLabel = (status = '') => ({
   pending_payment: '等待付款确认',
+  payment_creating: '正在创建支付',
+  awaiting_payment: '等待支付宝付款',
   processing: '正在开通',
   paid: '已开通',
   canceled: '已取消',
@@ -99,7 +101,7 @@ const renderOrders = (orders = []) => {
   orderList.innerHTML = orders.map((order) => `<article class="billing-order-item" data-order-id="${esc(order.order_id)}">
     <div class="billing-order-item-head"><div><strong>${esc(order.plan_name)} · ${order.billing_interval === 'year' ? '年付' : '月付'}</strong><span>${esc(order.order_no)}</span></div><em class="is-${esc(order.status)}">${esc(statusLabel(order.status))}</em></div>
     <div class="billing-order-item-meta"><span>¥${money(order.amount_cny)}</span><span>${esc(dateText(order.created_at))}</span>${order.subscription_ends_at ? `<span>权益至 ${esc(dateText(order.subscription_ends_at))}</span>` : ''}</div>
-    ${order.status === 'pending_payment' ? `<p>${esc(order.payment?.instructions || '')}</p><div class="billing-order-actions"><button type="button" data-copy-order="${esc(order.order_no)}">复制订单号</button><a href="mailto:${esc(order.payment?.contact_email || 'contact@fpmatrix.cn')}?subject=${encodeURIComponent(`获客罗盘订单 ${order.order_no}`)}">联系付款</a><button type="button" data-cancel-order="${esc(order.order_id)}">取消订单</button></div>` : ''}
+    ${['pending_payment', 'awaiting_payment'].includes(order.status) ? `<p>${esc(order.payment?.instructions || '')}</p><div class="billing-order-actions">${order.payment_options?.includes('alipay') ? `<button type="button" class="is-primary" data-alipay-order="${esc(order.order_id)}">支付宝付款</button>` : ''}<button type="button" data-copy-order="${esc(order.order_no)}">复制订单号</button><a href="mailto:${esc(order.payment?.contact_email || 'contact@fpmatrix.cn')}?subject=${encodeURIComponent(`获客罗盘订单 ${order.order_no}`)}">联系人工</a>${order.status === 'pending_payment' ? `<button type="button" data-cancel-order="${esc(order.order_id)}">取消订单</button>` : ''}</div>` : ''}
   </article>`).join('');
 };
 const loadOrders = async () => {
@@ -114,9 +116,37 @@ const loadOrders = async () => {
     orderList.textContent = '订单暂时无法读取，请稍后刷新。';
   }
 };
-const showCheckoutResult = (order = {}) => {
+const showCheckoutResult = (order = {}, message = '') => {
   checkoutResult.hidden = false;
-  checkoutResult.innerHTML = `<strong>订单已创建</strong><span>订单号 ${esc(order.order_no)}</span><p>${esc(order.payment?.instructions || '')}</p><div><button type="button" data-copy-order="${esc(order.order_no)}">复制订单号</button><a href="mailto:${esc(order.payment?.contact_email || 'contact@fpmatrix.cn')}?subject=${encodeURIComponent(`获客罗盘订单 ${order.order_no}`)}">联系付款</a></div>`;
+  checkoutResult.innerHTML = `<strong>${esc(message || '订单已创建')}</strong><span>订单号 ${esc(order.order_no)}</span><p>${esc(order.payment?.instructions || '')}</p><div>${order.payment_options?.includes('alipay') ? `<button type="button" class="is-primary" data-alipay-order="${esc(order.order_id)}">支付宝付款</button>` : ''}<button type="button" data-copy-order="${esc(order.order_no)}">复制订单号</button><a href="mailto:${esc(order.payment?.contact_email || 'contact@fpmatrix.cn')}?subject=${encodeURIComponent(`获客罗盘订单 ${order.order_no}`)}">联系人工</a></div>`;
+};
+const paymentRequestId = (orderId = '') => `alipay_${String(orderId || '').replace(/[^a-z0-9]/gi, '').slice(-24)}_${Date.now().toString(36)}`;
+const startAlipayPayment = async (orderId = '', trigger = null) => {
+  if (!orderId) throw new Error('付款订单不存在，请重新创建订单。');
+  if (trigger) {
+    trigger.disabled = true;
+    trigger.textContent = '正在打开支付宝...';
+  }
+  try {
+    const response = await fetch(`/api/billing/orders/${encodeURIComponent(orderId)}/payment-intents`, {
+      method: 'POST',
+      headers: {'content-type':'application/json', accept:'application/json'},
+      body: JSON.stringify({provider:'alipay', idempotency_key:paymentRequestId(orderId)}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) return window.location.assign('/?account=login&next=/plans');
+    if (!response.ok) throw new Error(data.error || '支付宝支付暂时无法打开');
+    const actionUrl = String(data.payment?.client_action?.url || '');
+    const parsed = new URL(actionUrl);
+    if (parsed.protocol !== 'https:' || !/(^|\.)alipay(?:dev)?\.com$/i.test(parsed.hostname)) throw new Error('支付地址校验失败，请联系人工处理。');
+    sessionStorage.setItem('pendingAlipayOrderId', orderId);
+    window.location.assign(parsed.toString());
+  } finally {
+    if (trigger) {
+      trigger.disabled = false;
+      trigger.textContent = '支付宝付款';
+    }
+  }
 };
 const createOrder = async (button) => {
   if (!billingState.selectedPlan) return;
@@ -135,14 +165,16 @@ const createOrder = async (button) => {
     const data = await response.json().catch(() => ({}));
     if (response.status === 401) return window.location.assign('/?account=login&next=/plans');
     if (!response.ok) throw new Error(data.error || '订单创建失败');
-    showCheckoutResult(data.order || {});
+    const order = data.order || {};
+    showCheckoutResult(order, order.payment_options?.includes('alipay') ? '订单已创建，正在前往支付宝' : '订单已创建');
     await loadOrders();
+    if (order.payment_options?.includes('alipay')) await startAlipayPayment(order.order_id, button);
   } catch (error) {
     checkoutResult.hidden = false;
     checkoutResult.textContent = error.message || '订单创建失败，请稍后重试。';
   } finally {
     button.disabled = false;
-    button.textContent = '创建付款订单';
+    button.textContent = '支付宝安全支付';
   }
 };
 const copyOrderNumber = async (orderNo = '') => {
@@ -194,6 +226,30 @@ const loadPlans = async () => {
   }
 };
 
+const resumeAlipayReturn = async () => {
+  if (new URLSearchParams(window.location.search).get('payment') !== 'alipay') return;
+  const orderId = sessionStorage.getItem('pendingAlipayOrderId') || '';
+  planMessage.hidden = false;
+  planMessage.textContent = '正在确认支付宝支付结果，请稍候...';
+  if (!orderId) {
+    planMessage.textContent = '已返回套餐页。支付结果会自动同步，可点击“刷新状态”查看。';
+    return;
+  }
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const response = await fetch(`/api/billing/orders/${encodeURIComponent(orderId)}`, {headers:{accept:'application/json'}});
+    const data = response.ok ? await response.json() : {};
+    if (data.order?.status === 'paid') {
+      sessionStorage.removeItem('pendingAlipayOrderId');
+      planMessage.textContent = '支付成功，套餐权益已经开通。';
+      await loadPlans();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+  }
+  planMessage.textContent = '支付结果仍在确认中，可稍后点击“刷新状态”。请勿重复付款。';
+  await loadOrders();
+};
+
 planGrid?.addEventListener('click', (event) => {
   const button = event.target.closest('[data-plan-checkout]');
   if (button) openCheckout(button.dataset.planCheckout);
@@ -208,6 +264,11 @@ checkout?.addEventListener('click', (event) => {
   }
   const copy = event.target.closest('[data-copy-order]');
   if (copy) copyOrderNumber(copy.dataset.copyOrder).catch(() => {});
+  const alipay = event.target.closest('[data-alipay-order]');
+  if (alipay) startAlipayPayment(alipay.dataset.alipayOrder, alipay).catch((error) => {
+    checkoutResult.hidden = false;
+    checkoutResult.textContent = error.message || '支付宝支付暂时无法打开，请稍后重试。';
+  });
 });
 document.querySelector('#billingCheckoutClose')?.addEventListener('click', () => { checkout.hidden = true; });
 document.querySelector('#billingCreateOrder')?.addEventListener('click', (event) => createOrder(event.currentTarget));
@@ -215,6 +276,11 @@ document.querySelector('#billingOrdersRefresh')?.addEventListener('click', loadO
 orderList?.addEventListener('click', (event) => {
   const copy = event.target.closest('[data-copy-order]');
   if (copy) copyOrderNumber(copy.dataset.copyOrder).catch(() => {});
+  const alipay = event.target.closest('[data-alipay-order]');
+  if (alipay) startAlipayPayment(alipay.dataset.alipayOrder, alipay).catch((error) => {
+    planMessage.textContent = error.message || '支付宝支付暂时无法打开，请稍后重试。';
+    planMessage.hidden = false;
+  });
   const cancel = event.target.closest('[data-cancel-order]');
   if (cancel) cancelOrder(cancel.dataset.cancelOrder).catch((error) => {
     planMessage.textContent = error.message || '订单取消失败。';
@@ -222,4 +288,4 @@ orderList?.addEventListener('click', (event) => {
   });
 });
 
-loadPlans();
+loadPlans().then(resumeAlipayReturn);

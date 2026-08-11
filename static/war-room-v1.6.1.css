@@ -2189,6 +2189,7 @@ body.customer-mode .customer-site-footer{
 .billing-checkout-result p{margin:0!important;line-height:1.65!important}
 .billing-checkout-result>div,.billing-order-actions{display:flex!important;flex-wrap:wrap!important;gap:8px!important}
 .billing-checkout-result :is(button,a),.billing-order-actions :is(button,a){padding:7px 10px!important;border:1px solid #d0d5dd!important;border-radius:6px!important;background:#fff!important;color:#344054!important;font-size:12px!important;text-decoration:none!important;cursor:pointer!important}
+.billing-checkout-result .is-primary,.billing-order-actions .is-primary{border-color:#067647!important;background:#067647!important;color:#fff!important}
 .billing-order-history{margin-top:16px!important}
 .billing-order-list{display:grid!important;gap:10px!important;margin-top:18px!important}
 .billing-order-list.empty{color:#667085!important;font-size:13px!important}
