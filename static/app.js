@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.140';
-const VERSION_LABEL = 'v1.6.140 · 支付宝安全支付接入版';
+const APP_VERSION = '1.6.141';
+const VERSION_LABEL = 'v1.6.141 · Pro 标准套餐直购版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';

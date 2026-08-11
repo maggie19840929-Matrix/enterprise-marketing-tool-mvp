@@ -196,10 +196,10 @@ PLUS_MONTHLY_PRICE_CNY=299
 PLUS_YEARLY_PRICE_CNY=2990
 PRO_MONTHLY_PRICE_CNY=899
 PRO_YEARLY_PRICE_CNY=8990
-PRO_PUBLIC_SALES_ENABLED=false
+PRO_PUBLIC_SALES_ENABLED=true
 ```
 
-`COMMERCIALIZATION_ENABLED=false` 是上线前的观察模式：系统记录策略周期和本期用量，但不会拦截现有匿名或登录客户；观察期记录不会在以后开启强制模式时追溯扣减。只有人工确认后改为 `true`，服务端才会在额度不足时返回 `quota_exceeded`。客户界面只展示套餐、策略周期、完整内容和刷新时间，不展示 Token、模型供应商或内部成本。
+`COMMERCIALIZATION_ENABLED=false` 是上线前的观察模式：系统记录策略周期和本期用量，但不会拦截现有匿名或登录客户；观察期记录不会在以后开启强制模式时追溯扣减。只有人工确认后改为 `true`，服务端才会在额度不足时返回 `quota_exceeded`。客户界面只展示套餐、策略周期、完整内容和刷新时间，不展示 Token、模型供应商或内部成本。Plus 和 Pro 都是公开标准套餐；飞书打通、专属数据接入和多团队协同归入企业定制评估。`PRO_PUBLIC_SALES_ENABLED=false` 仅用于紧急关闭 Pro 新订单。
 
 ### P3b 商业订单与支付宝在线支付
 

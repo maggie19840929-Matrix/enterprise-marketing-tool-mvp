@@ -220,7 +220,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.140', `public diagnosis should return app_version 1.6.140, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.141', `public diagnosis should return app_version 1.6.141, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1035,7 +1035,7 @@ const publicCommercialPlansData = await publicCommercialPlansResponse.json();
 assert(publicCommercialPlansResponse.status === 200 && publicCommercialPlansData.plans?.length === 3, 'public commercial plans should expose Free, Plus and Pro without requiring login');
 assert(publicCommercialPlansData.plans.find((plan) => plan.code === 'free')?.trial_strategy_cycles === 3, 'Free should expose the three-cycle introductory entitlement');
 assert(publicCommercialPlansData.plans.find((plan) => plan.code === 'plus')?.monthly_price_cny === 299, 'Plus should use the configurable V1 monthly price');
-assert(publicCommercialPlansData.pro_invite_only === true, 'Pro should remain invite-only until complete-content production is stable');
+assert(publicCommercialPlansData.pro_invite_only === false && publicCommercialPlansData.plans.find((plan) => plan.code === 'pro')?.public_sales === true, 'Pro should be a public standard plan while enterprise integrations remain evaluated separately');
 const accountStart = await handler(request('POST', 'auth/email/start', { email: 'owner@example.com' }));
 const accountStartData = await accountStart.json();
 assert(accountStart.status === 202 && /^\d{6}$/.test(accountStartData.test_code || ''), 'test-only email adapter should issue a six-digit verification code');
@@ -1215,12 +1215,13 @@ const invalidBillingInterval = await handler(request('POST', 'billing/orders', {
   idempotency_key: 'billing-invalid-period-0001',
 }, { headers: { cookie: billingAccountCookie } }));
 assert(invalidBillingInterval.status === 400, 'billing order must reject an unsupported period instead of silently changing the customer choice');
-const inviteOnlyProOrder = await handler(request('POST', 'billing/orders', {
+const publicProOrder = await handler(request('POST', 'billing/orders', {
   plan_code: 'pro',
   billing_interval: 'month',
   idempotency_key: 'billing-pro-request-0001',
 }, { headers: { cookie: billingAccountCookie } }));
-assert(inviteOnlyProOrder.status === 400, 'public checkout must not bypass the Pro invite-only gate');
+const publicProOrderData = await publicProOrder.json();
+assert(publicProOrder.status === 201 && publicProOrderData.order?.amount_cny === 899, 'signed-in customer should be able to create the standard Pro monthly order at the server-owned price');
 const billingCreatePayload = {
   plan_code: 'plus',
   billing_interval: 'month',
@@ -1609,11 +1610,12 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.140'") && appJs.includes("v1.6.140 · 支付宝安全支付接入版"), 'application should expose the reviewed v1.6.140 Alipay release');
+assert(appJs.includes("const APP_VERSION = '1.6.141'") && appJs.includes("v1.6.141 · Pro 标准套餐直购版"), 'application should expose the reviewed v1.6.141 public Pro release');
 assert(indexHtml.includes('id="customerAccountUsage"') && indexHtml.includes('href="/plans"') && appJs.includes("api('/api/account/entitlements'"), 'signed-in account panel should show strategy-cycle usage and link to the plan page');
 assert(appJs.match(/entitlement = entitlement \|\| \{\};/g)?.length >= 2, 'signed-out account rendering should tolerate a missing entitlement snapshot');
 assert(plansHtml.includes('选择适合你经营节奏的套餐') && plansHtml.includes('额度怎么计算') && plansJs.includes("fetch('/api/commercial/plans'") && plansJs.includes("fetch('/api/account/entitlements'"), 'public plan page should explain customer-facing units and load server-owned entitlements');
 assert(plansHtml.includes('id="billingCheckout"') && plansHtml.includes('id="billingOrderHistory"') && plansHtml.includes('支付宝安全支付') && plansJs.includes('/payment-intents') && plansJs.includes('pendingAlipayOrderId'), 'plan page should provide account-owned Alipay checkout and return-state confirmation');
+assert(plansHtml.includes('联系评估企业定制方案') && plansHtml.includes('飞书系统打通') && plansJs.includes('data-plan-checkout="${esc(plan.code)}"'), 'Pro should use the standard checkout while contact evaluation is reserved for enterprise integrations');
 assert(plansJs.includes("fetch('/api/billing/orders'") && plansJs.includes('idempotency_key') && plansJs.includes('contact@fpmatrix.cn') && plansJs.includes('/?account=login&next=/plans'), 'customer checkout should require a verified session, create an idempotent server order, and preserve the plan return path');
 assert(indexHtml.includes('id="internalBillingPanel"') && appJs.includes("api('/api/internal/billing/orders?limit=100'") && appJs.includes('/api/internal/billing/orders/${encodeURIComponent(orderId)}/confirm'), 'internal operations should expose the protected order confirmation panel without changing the customer shell');
 assert(redirects.includes('/plans /plans/index.html 200'), 'Netlify redirects should expose the independent plan page');
@@ -1810,11 +1812,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.140') && indexHtml.includes('/styles.css?v=1.6.140') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.140'), 'public customer page should use the v1.6.140 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.141') && indexHtml.includes('/styles.css?v=1.6.141') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.141'), 'public customer page should use the v1.6.141 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.140') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.140') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.140') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.141') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.141') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.141') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1834,7 +1836,7 @@ const publicHeaderNav = (html) => html.match(/<div class="customer-site-links">[
   assert(nav.includes('使用工具') && nav.includes('方法与案例') && nav.includes('关于我们') && nav.includes('data-public-account-menu'), 'every public page should use the same primary navigation and shared account-menu slot');
   assert(!nav.includes('联系我们') && !nav.includes('隐私政策') && !nav.includes('用户协议') && !nav.includes('返回首页'), 'secondary company and policy links must not reappear in the primary navigation');
 });
-assert(plansHtml.includes('war-room-v1.6.1.css?v=1.6.140') && plansHtml.includes('/public-account-menu.js?v=1.6.140') && [methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml, inviteHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.138') && html.includes('/public-account-menu.js?v=1.6.138') && !html.includes('class="customer-account-nav" href="/?account=login"')), 'payment plan page should use the current assets while unchanged public pages retain the shared session-aware account menu');
+assert(plansHtml.includes('war-room-v1.6.1.css?v=1.6.141') && plansHtml.includes('/public-account-menu.js?v=1.6.141') && [methodHtml, aboutHtml, contactHtml, privacyHtml, termsHtml, inviteHtml].every((html) => html.includes('war-room-v1.6.1.css?v=1.6.138') && html.includes('/public-account-menu.js?v=1.6.138') && !html.includes('class="customer-account-nav" href="/?account=login"')), 'payment plan page should use the current assets while unchanged public pages retain the shared session-aware account menu');
 assert([aboutHtml, contactHtml, privacyHtml, termsHtml].every((html) => !html.includes('>· 苏ICP备')), 'information-page filing links should rely on the shared separator and never render a duplicated dot');
 assert(aboutHtml.includes('<h2>联系我们</h2>') && aboutHtml.includes('href="/contact"'), 'contact details should sit beneath the About page while retaining the dedicated support page');
 assert(warRoomCss.includes('v1.6.131 public information pages: restrained editorial typography') && warRoomCss.includes('max-width:980px!important') && warRoomCss.includes('font-size:clamp(30px,3.2vw,40px)!important') && warRoomCss.includes('border-radius:0!important'), 'public information pages should use the restrained editorial typography system instead of nested oversized cards');
@@ -1846,7 +1848,7 @@ assert(warRoomCss.includes('v1.6.133 method entry and scenario page') && warRoom
 assert(warRoomCss.includes('.customer-growth-path li{') && warRoomCss.includes('margin-top:0!important'), 'method growth-path steps should override generic adjacent-list spacing so labels and arrows stay aligned');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
 assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
-assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.140') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
+assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.141') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
 assert(publicAccountMenuJs.includes("fetch('/api/auth/session'") && publicAccountMenuJs.includes("fetch('/api/account/entitlements'") && publicAccountMenuJs.includes("fetch('/api/auth/logout'") && publicAccountMenuJs.includes("window.location.assign('/invite')") && publicAccountMenuJs.includes('剩余用量'), 'shared public account menu should read the real session and quota, enter the invitation center, and perform backend logout');
 assert(publicAccountMenuJs.includes('initPublicNavigationState') && publicAccountMenuJs.includes('publicNavIcon') && publicAccountMenuJs.includes("link.setAttribute('aria-current', 'page')") && !publicAccountMenuJs.includes("link.classList.add('is-navigating')"), 'public navigation should add consistent leading icons and retain a destination-page state without a synthetic loading indicator');
 assert(warRoomCss.includes('a[aria-current="page"]') && warRoomCss.includes('.public-nav-icon') && warRoomCss.includes('a:hover') && !warRoomCss.includes('.public-navigation-status') && !warRoomCss.includes('public-nav-progress') && !warRoomCss.includes('public-nav-soft-glow'), 'public navigation should change icon and label color on hover/current state without a spinner, progress bar, status toast or glow animation');
@@ -2383,7 +2385,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.140' && health.version_label === 'v1.6.140 · 支付宝安全支付接入版', 'public application health version should report v1.6.140');
+assert(health.version === '1.6.141' && health.version_label === 'v1.6.141 · Pro 标准套餐直购版', 'public application health version should report v1.6.141');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.features?.includes('commercial_entitlements_p2') && health.features?.includes('commercial_usage_reservations'), 'health should expose P2 entitlements and usage reservations');
 assert(health.features?.includes('referral_rewards_v1'), 'health should expose the account-scoped referral reward capability');

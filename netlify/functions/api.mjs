@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.140';
-const VERSION_LABEL = 'v1.6.140 · 支付宝安全支付接入版';
+const APP_VERSION = '1.6.141';
+const VERSION_LABEL = 'v1.6.141 · Pro 标准套餐直购版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -4444,7 +4444,7 @@ const commercialPlanDefinitions = () => ({
     daily_generations: envInteger('PRO_DAILY_GENERATIONS', 30, { min: 1, max: 1000 }),
     active_projects: envInteger('PRO_ACTIVE_PROJECTS', 10, { min: 1, max: 1000 }),
     history_months: 24,
-    public_sales: envFlag('PRO_PUBLIC_SALES_ENABLED', false),
+    public_sales: envFlag('PRO_PUBLIC_SALES_ENABLED', true),
   },
 });
 const publicCommercialPlans = () => Object.values(commercialPlanDefinitions()).map((plan) => ({
@@ -9175,7 +9175,7 @@ export default async (request, context = {}) => {
       if (path === '/commercial/plans') {
         return json({
           plans: publicCommercialPlans(),
-          pro_invite_only: !envFlag('PRO_PUBLIC_SALES_ENABLED', false),
+          pro_invite_only: !envFlag('PRO_PUBLIC_SALES_ENABLED', true),
         });
       }
       if (path === '/auth/session') {
