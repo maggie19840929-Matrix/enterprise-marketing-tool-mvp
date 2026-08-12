@@ -6478,6 +6478,26 @@ function setBenchmarkStatus(message = '', type = 'success'){
   status.classList.toggle('success', type !== 'error');
 }
 
+const runBenchmarkAction = (button, busyText, task, failureLabel = '操作失败') => withBusy(button, busyText, async () => {
+  try {
+    await task();
+  } catch (error) {
+    const detail = error?.message || '请检查填写内容后重试';
+    setBenchmarkStatus(`${failureLabel}：${detail}`, 'error');
+    throw error;
+  }
+});
+
+function showBenchmarkInvalidField(event, fallback = '请补齐必填信息'){
+  const field = event.target;
+  const messages = {
+    account_name: '请填写对标账号名称',
+    benchmark_profile_id: '请先选择这条内容所属的对标账号',
+    title: '请填写代表内容标题',
+  };
+  setBenchmarkStatus(messages[field?.name] || fallback, 'error');
+}
+
 function clearBenchmarkWorkbenchPoll(){
   if (benchmarkWorkbenchPollTimer) {
     window.clearTimeout(benchmarkWorkbenchPollTimer);
@@ -6853,14 +6873,17 @@ function initBenchmarkWorkbench(){
   });
   $('#benchmarkProfileForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
-    withBusy(event.submitter, '保存中...', () => submitBenchmarkProfile(event.target));
+    runBenchmarkAction(event.submitter, '保存中...', () => submitBenchmarkProfile(event.target), '对标账号未保存');
   });
+  $('#benchmarkProfileForm')?.addEventListener('invalid', (event) => showBenchmarkInvalidField(event), true);
   $('#benchmarkContentForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
-    withBusy(event.submitter, '保存中...', () => submitBenchmarkContent(event.target));
+    runBenchmarkAction(event.submitter, '保存中...', () => submitBenchmarkContent(event.target), '代表内容未保存');
   });
+  $('#benchmarkContentForm')?.addEventListener('invalid', (event) => showBenchmarkInvalidField(event), true);
   $('#benchmarkAnalyzeBtn')?.addEventListener('click', (event) => {
-    withBusy(event.currentTarget, '正在提交...', createBenchmarkAnalysisJob);
+    runBenchmarkAction(event.currentTarget, '正在提交...', createBenchmarkAnalysisJob, '洞察任务未提交')
+      .finally(scheduleBenchmarkWorkbenchPoll);
   });
   $('#benchmarkRefreshBtn')?.addEventListener('click', (event) => {
     withBusy(event.currentTarget, '刷新中...', () => loadBenchmarkProjectData());
