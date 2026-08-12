@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.143';
-const VERSION_LABEL = 'v1.6.143 · 项目名称防溢出版';
+const APP_VERSION = '1.6.144';
+const VERSION_LABEL = 'v1.6.144 · 项目继续恢复修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -287,6 +287,7 @@ const blankClientState = () => ({
 
 let clientState = blankClientState();
 let projectStore = {activeProjectId: null, lastActiveProjectId: null, projects: []};
+let customerResumeCandidateState = null;
 let customerAccountState = {
   loading: false,
   checked: false,
@@ -1098,6 +1099,7 @@ function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
   if (!banner) return;
   const hasSaved = Boolean(saved?.assessment || saved?.draft_assessment || saved?.diagnosis || (Array.isArray(saved?.plans) && saved.plans.length));
   const shouldShow = hasSaved && !dedicatedCustomerKey() && !customerResumeDecisionMade(saved);
+  customerResumeCandidateState = shouldShow ? saved : null;
   banner.hidden = !shouldShow;
   if (!shouldShow) return;
   const name = customerStateProjectName(saved);
@@ -1110,6 +1112,30 @@ function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
       ? '这个项目已经生成过内容建议。客户第一次打开不会看到你的本地记录；如果要演示新客户，请新建空白项目。'
       : '这个项目保存过草稿信息。客户第一次打开不会看到你的本地记录；如果要演示新客户，请新建空白项目。';
   }
+}
+
+function continueCustomerSavedProject(){
+  const saved = customerResumeCandidateState || loadCustomerTrialState({allowDedicatedFallback: true});
+  const hasSaved = Boolean(saved?.assessment || saved?.draft_assessment || saved?.diagnosis || (Array.isArray(saved?.plans) && saved.plans.length));
+  if (!hasSaved) {
+    toast('暂时没有找到可继续的项目，请刷新后再试。');
+    return false;
+  }
+  rememberCustomerResumeDecision(saved);
+  renderCustomerResumeBanner(saved);
+  if (customerHasGeneratedState(saved)) {
+    clientState = normalizeState({...clientState, ...saved});
+    renderCustomerGeneratedState(saved, {step: customerDefaultStep(saved), focus: true});
+    renderCustomerRecordSummary(saved);
+    renderCustomerNextAdvice(saved);
+    renderCustomerEffects(saved);
+  } else {
+    fillCustomerFormFromAssessment(saved.draft_assessment || saved.assessment || {});
+    setCustomerFormCollapsed(false);
+    setCustomerStep('intake', {state: saved, focus: true});
+  }
+  toast('已继续上次项目');
+  return true;
 }
 
 function renderCustomerWorkspaceContext(saved = loadCustomerTrialState(), step = document.body.dataset.customerStep || 'intake'){
@@ -4348,11 +4374,7 @@ function initCustomerTrial(){
     renderCustomerEffects(cloudState);
   });
   $('#customerResumeContinue')?.addEventListener('click', () => {
-    const saved = loadCustomerTrialState();
-    rememberCustomerResumeDecision(saved);
-    renderCustomerResumeBanner(saved);
-    setCustomerStep(customerDefaultStep(saved), {state: saved, focus: true});
-    toast('已继续上次项目');
+    continueCustomerSavedProject();
   });
   $('#customerStartBlank')?.addEventListener('click', startBlankCustomerProject);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
