@@ -418,3 +418,35 @@ body.internal-mode .benchmark-test-plan-grid p{margin:0;color:var(--war-muted,#8
   body.internal-mode .benchmark-project-summary{grid-template-columns:1fr}
   body.internal-mode .benchmark-project-summary>div{border-right:0}
 }
+
+/* v1.6.145 internal benchmark fields: keep typed/autofilled text readable. */
+body.internal-mode.benchmark-insights-mode .benchmark-scope-grid select,
+body.internal-mode.benchmark-insights-mode .benchmark-form input,
+body.internal-mode.benchmark-insights-mode .benchmark-form select,
+body.internal-mode.benchmark-insights-mode .benchmark-form textarea,
+body.internal-mode .benchmark-block input,
+body.internal-mode .benchmark-block select,
+body.internal-mode .benchmark-block textarea{
+  color-scheme:dark;
+  background-color:#101216!important;
+  color:#f7f8f8!important;
+  -webkit-text-fill-color:#f7f8f8!important;
+  caret-color:#f7f8f8!important;
+  opacity:1!important;
+}
+body.internal-mode.benchmark-insights-mode .benchmark-form input::placeholder,
+body.internal-mode.benchmark-insights-mode .benchmark-form textarea::placeholder,
+body.internal-mode .benchmark-block input::placeholder,
+body.internal-mode .benchmark-block textarea::placeholder{
+  color:#8a8f98!important;
+  -webkit-text-fill-color:#8a8f98!important;
+  opacity:1!important;
+}
+body.internal-mode.benchmark-insights-mode .benchmark-form input:-webkit-autofill,
+body.internal-mode.benchmark-insights-mode .benchmark-form textarea:-webkit-autofill,
+body.internal-mode .benchmark-block input:-webkit-autofill,
+body.internal-mode .benchmark-block textarea:-webkit-autofill{
+  -webkit-box-shadow:0 0 0 1000px #101216 inset!important;
+  box-shadow:0 0 0 1000px #101216 inset!important;
+  -webkit-text-fill-color:#f7f8f8!important;
+}
