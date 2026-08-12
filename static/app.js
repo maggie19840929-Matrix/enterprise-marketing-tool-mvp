@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.142';
-const VERSION_LABEL = 'v1.6.142 · 客户工作区体验优化版';
+const APP_VERSION = '1.6.143';
+const VERSION_LABEL = 'v1.6.143 · 项目名称防溢出版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1067,7 +1067,12 @@ function clearCustomerGeneratedView(){
 
 function customerStateProjectName(saved = {}){
   const assessment = saved.assessment || saved.draft_assessment || {};
-  return cleanDisplayName(assessment.company_name || assessment.industry || saved.project_name || '上次项目');
+  const rawName = cleanDisplayName(assessment.company_name || assessment.industry || saved.project_name || '上次项目')
+    .replace(/作战台$/g, '')
+    .trim();
+  const firstPhrase = rawName.split(/[，,。；;：:\n\r]/).map((item)=>item.trim()).find(Boolean) || rawName;
+  const characters = Array.from(firstPhrase);
+  return characters.length > 20 ? `${characters.slice(0, 20).join('')}…` : firstPhrase;
 }
 
 function customerResumeSessionKey(saved = {}){
