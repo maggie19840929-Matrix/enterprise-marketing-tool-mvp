@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { getStore as getBlobsStore } from '@netlify/blobs';
 import { normalizePaymentProvider, paymentAdapterFor, paymentProviderCodes } from './payment-adapters.mjs';
 import {
   benchmarkInsightPlanCalibration,
@@ -19,8 +20,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.146';
-const VERSION_LABEL = 'v1.6.146 · 客户云存储恢复版';
+const APP_VERSION = '1.6.147';
+const VERSION_LABEL = 'v1.6.147 · 客户云存储连接修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -3531,16 +3532,11 @@ let cachedCloudStore = undefined;
 const cloudStore = async () => {
   if (cachedCloudStore !== undefined) return cachedCloudStore;
   try {
-    const mod = await import('@netlify/blobs');
-    const getStore = mod.getStore || mod.default?.getStore;
-    if (!getStore) return (cachedCloudStore = null);
     // 优先使用 Netlify 自动注入且按部署轮换的站点级 Blobs 上下文。
-    // 部分运行时没有 uncachedEdgeURL，强制 strong 会让有效上下文被误判为不可用。
+    // 顶层静态 import 让 Netlify 构建器识别依赖并向 Function 注入运行时上下文。
+    // 默认最终一致读取适配所有运行时；写后强一致需求由显式 API 凭据兜底承担。
     try {
-      const runtimeContext = typeof mod.getEnvironmentContext === 'function' ? mod.getEnvironmentContext() : {};
-      const runtimeStore = runtimeContext?.uncachedEdgeURL
-        ? getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' })
-        : getStore(CLOUD_STATE_STORE);
+      const runtimeStore = getBlobsStore(CLOUD_STATE_STORE);
       await runtimeStore.get('__store_probe__', { type: 'text' });
       return (cachedCloudStore = runtimeStore);
     } catch {
@@ -3550,7 +3546,7 @@ const cloudStore = async () => {
     const siteID = envValue('NETLIFY_BLOBS_SITE_ID', 'NETLIFY_SITE_ID', 'SITE_ID');
     const token = envValue('NETLIFY_BLOBS_TOKEN', 'NETLIFY_API_TOKEN', 'NETLIFY_AUTH_TOKEN');
     if (siteID && token) {
-      const explicitStore = getStore({ name: CLOUD_STATE_STORE, siteID, token, consistency: 'strong' });
+      const explicitStore = getBlobsStore({ name: CLOUD_STATE_STORE, siteID, token, consistency: 'strong' });
       await explicitStore.get('__store_probe__', { type: 'text' });
       return (cachedCloudStore = explicitStore);
     }
