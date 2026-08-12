@@ -20,8 +20,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.147';
-const VERSION_LABEL = 'v1.6.147 · 客户云存储连接修复版';
+const APP_VERSION = '1.6.148';
+const VERSION_LABEL = 'v1.6.148 · 客户清单加载加速版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -3742,39 +3742,47 @@ const listCustomersFromCloudState = async () => {
   const keyMetas = await listCloudStateKeys();
   const customerRecords = [];
   const errors = [];
-  for (const keyMeta of keyMetas) {
-    const key = keyMeta.key;
+  const eligibleKeyMetas = keyMetas.filter(({ key }) => {
     const clientId = cloudStateClientIdFromKey(key);
-    if (!clientId || isTestCustomerKey(clientId)) continue;
-    try {
-      const { data, storage } = await readCloudProjectStoreByKey(key);
-      if (!data) {
-        errors.push({ client_id: clientId, key, reason: 'not_found_or_unreadable' });
-        continue;
+    return clientId && !isTestCustomerKey(clientId);
+  });
+  const batchSize = 10;
+  for (let index = 0; index < eligibleKeyMetas.length; index += batchSize) {
+    const batch = eligibleKeyMetas.slice(index, index + batchSize);
+    const rows = await Promise.all(batch.map(async (keyMeta) => {
+      const key = keyMeta.key;
+      const clientId = cloudStateClientIdFromKey(key);
+      try {
+        const { data, storage } = await readCloudProjectStoreByKey(key);
+        if (!data) return { error: { client_id: clientId, key, reason: 'not_found_or_unreadable' } };
+        const rawStore = data.project_store || data;
+        const normalized = normalizeCloudProjectStore(stripGenericInternalCrossProjectSeeds(rawStore, clientId));
+        const projects = normalized.projects || [];
+        if (!projects.length) return {};
+        const names = [...new Set(projects.map(projectDisplayName).filter(Boolean))];
+        const updatedAt = latestTimestampValue(projects.map(projectUpdatedAt))
+          || normalized.cloud_saved_at
+          || data.saved_at
+          || keyMeta.updated_at
+          || '';
+        return { record: {
+          client_id: clientId,
+          names,
+          project_count: projects.length,
+          updated_at: updatedAt,
+          is_test: isDemoCustomer(clientId, names),
+          storage,
+          storage_key: key,
+          etag: keyMeta.etag || '',
+        } };
+      } catch (error) {
+        return { error: { client_id: clientId, key, reason: error?.message || 'read_failed' } };
       }
-      const rawStore = data.project_store || data;
-      const normalized = normalizeCloudProjectStore(stripGenericInternalCrossProjectSeeds(rawStore, clientId));
-      const projects = normalized.projects || [];
-      if (!projects.length) continue;
-      const names = [...new Set(projects.map(projectDisplayName).filter(Boolean))];
-      const updatedAt = latestTimestampValue(projects.map(projectUpdatedAt))
-        || normalized.cloud_saved_at
-        || data.saved_at
-        || keyMeta.updated_at
-        || '';
-      customerRecords.push({
-        client_id: clientId,
-        names,
-        project_count: projects.length,
-        updated_at: updatedAt,
-        is_test: isDemoCustomer(clientId, names),
-        storage,
-        storage_key: key,
-        etag: keyMeta.etag || '',
-      });
-    } catch (error) {
-      errors.push({ client_id: clientId, key, reason: error?.message || 'read_failed' });
-    }
+    }));
+    rows.forEach((row) => {
+      if (row.record) customerRecords.push(row.record);
+      if (row.error) errors.push(row.error);
+    });
   }
   const customers = groupCustomerRecords(customerRecords);
   return {

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.147';
-const VERSION_LABEL = 'v1.6.147 · 客户云存储连接修复版';
+const APP_VERSION = '1.6.148';
+const VERSION_LABEL = 'v1.6.148 · 客户清单加载加速版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -5237,7 +5237,7 @@ async function loadAllCustomers(){
   allCustomersState = { ...allCustomersState, loading: true, error: '' };
   renderAllCustomersPanel();
   try {
-    const result = await api('/api/customers?mode=internal&client_id=internal', { suppressInternalUnauthorized: true });
+    const result = await api('/api/customers?mode=internal&client_id=internal', { suppressInternalUnauthorized: true, timeoutMs: 60000 });
     allCustomersState = {
       customers: Array.isArray(result.customers) ? result.customers : [],
       errors: Array.isArray(result.errors) ? result.errors : [],
