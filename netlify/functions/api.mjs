@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.145';
-const VERSION_LABEL = 'v1.6.145 · 对标账号输入可读性修复版';
+const APP_VERSION = '1.6.146';
+const VERSION_LABEL = 'v1.6.146 · 客户云存储恢复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -3534,22 +3534,27 @@ const cloudStore = async () => {
     const mod = await import('@netlify/blobs');
     const getStore = mod.getStore || mod.default?.getStore;
     if (!getStore) return (cachedCloudStore = null);
-    // 1) 优先运行时自动注入：支持 consistency:'strong' 的 uncachedEdgeURL 直读，
-    //    避免显式凭据路径走签名 URL 时出现的写读传播延迟（任务刚创建可能短暂读不到）。
+    // 优先使用 Netlify 自动注入且按部署轮换的站点级 Blobs 上下文。
+    // 部分运行时没有 uncachedEdgeURL，强制 strong 会让有效上下文被误判为不可用。
     try {
-      const runtimeStore = getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' });
+      const runtimeContext = typeof mod.getEnvironmentContext === 'function' ? mod.getEnvironmentContext() : {};
+      const runtimeStore = runtimeContext?.uncachedEdgeURL
+        ? getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' })
+        : getStore(CLOUD_STATE_STORE);
       await runtimeStore.get('__store_probe__', { type: 'text' });
       return (cachedCloudStore = runtimeStore);
     } catch {
-      // 运行时未注入上下文或强一致不可用时，继续尝试显式凭据保底。
+      // 本地或旧运行时没有自动上下文时，继续尝试显式凭据保底。
     }
-    // 2) 显式凭据（CLI/本地/部分运行时不自动注入的兜底），保证数据持久化。
+    // 显式凭据仅作为本地/兼容性兜底，不把账户级 CLI 凭据写入函数环境。
     const siteID = envValue('NETLIFY_BLOBS_SITE_ID', 'NETLIFY_SITE_ID', 'SITE_ID');
     const token = envValue('NETLIFY_BLOBS_TOKEN', 'NETLIFY_API_TOKEN', 'NETLIFY_AUTH_TOKEN');
     if (siteID && token) {
-      return (cachedCloudStore = getStore({ name: CLOUD_STATE_STORE, siteID, token, consistency: 'strong' }));
+      const explicitStore = getStore({ name: CLOUD_STATE_STORE, siteID, token, consistency: 'strong' });
+      await explicitStore.get('__store_probe__', { type: 'text' });
+      return (cachedCloudStore = explicitStore);
     }
-    return (cachedCloudStore = getStore({ name: CLOUD_STATE_STORE, consistency: 'strong' }));
+    return (cachedCloudStore = null);
   } catch {
     return (cachedCloudStore = null);
   }
