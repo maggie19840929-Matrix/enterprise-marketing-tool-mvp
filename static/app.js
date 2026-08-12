@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.148';
-const VERSION_LABEL = 'v1.6.148 · 客户清单加载加速版';
+const APP_VERSION = '1.6.149';
+const VERSION_LABEL = 'v1.6.149 · 对标洞察操作引导版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -6490,7 +6490,19 @@ function scheduleBenchmarkWorkbenchPoll(){
   if (!isBenchmarkInsightsRoute()) return;
   const running = (benchmarkWorkbenchState.jobs || []).some((job) => ['pending', 'generating'].includes(job.status));
   const status = $('#benchmarkPollingStatus');
-  if (status) status.textContent = running ? '洞察正在后台分析，页面会自动刷新。' : '暂无运行中的任务。';
+  const activeProfiles = (benchmarkWorkbenchState.profiles || []).filter((item) => item.status !== 'archived');
+  const readyContents = (benchmarkWorkbenchState.contents || []).filter((item) => item.status === 'ready');
+  const analyzeButton = $('#benchmarkAnalyzeBtn');
+  if (analyzeButton) {
+    analyzeButton.disabled = benchmarkWorkbenchState.loading || running || !activeProfiles.length || !readyContents.length;
+    analyzeButton.textContent = running ? '正在分析...' : '分析当前项目对标内容';
+  }
+  if (status) {
+    if (running) status.textContent = '洞察正在后台分析，页面会自动刷新。';
+    else if (!activeProfiles.length) status.textContent = '先完成第 2 步：保存至少一个对标账号。';
+    else if (!readyContents.length) status.textContent = '账号已保存。请完成第 3 步：添加至少一条代表内容。';
+    else status.textContent = `资料已齐：${activeProfiles.length} 个账号、${readyContents.length} 条代表内容，可以开始分析。`;
+  }
   if (!running) return;
   benchmarkWorkbenchPollTimer = window.setTimeout(() => {
     loadBenchmarkProjectData({ quiet: true }).catch((error) => setBenchmarkStatus(error.message || '洞察刷新失败', 'error'));
@@ -6715,8 +6727,16 @@ async function submitBenchmarkProfile(form){
     }),
   });
   form.reset();
-  toast(`已保存对标账号：${result.profile?.account_name || ''}`);
   await loadBenchmarkProjectData();
+  const profileName = result.profile?.account_name || '对标账号';
+  const contentForm = $('#benchmarkContentForm');
+  const profilePicker = contentForm?.querySelector('[name="benchmark_profile_id"]');
+  if (profilePicker) profilePicker.value = result.profile?.benchmark_profile_id || '';
+  const nextField = contentForm?.querySelector('[name="title"]');
+  toast(`已保存对标账号：${profileName}`);
+  setBenchmarkStatus(`已保存“${profileName}”。下一步：填写至少一条代表内容，系统才有依据生成洞察。`);
+  contentForm?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  window.setTimeout(() => nextField?.focus(), 350);
 }
 
 async function submitBenchmarkContent(form){
@@ -6739,12 +6759,21 @@ async function submitBenchmarkContent(form){
     }),
   });
   form.reset();
-  toast(`已保存代表内容：${result.content?.title || ''}`);
   await loadBenchmarkProjectData();
+  const contentTitle = result.content?.title || '代表内容';
+  const analyzeButton = $('#benchmarkAnalyzeBtn');
+  toast(`已保存代表内容：${contentTitle}`);
+  setBenchmarkStatus(`已保存“${contentTitle}”。资料已齐，可以点击“分析当前项目对标内容”。`);
+  analyzeButton?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  window.setTimeout(() => analyzeButton?.focus(), 350);
 }
 
 async function createBenchmarkAnalysisJob(){
   if (!benchmarkWorkbenchState.clientId || !benchmarkWorkbenchState.projectId) throw new Error('请先选择客户和项目');
+  const activeProfiles = (benchmarkWorkbenchState.profiles || []).filter((item) => item.status !== 'archived');
+  const readyContents = (benchmarkWorkbenchState.contents || []).filter((item) => item.status === 'ready');
+  if (!activeProfiles.length) throw new Error('请先完成第 2 步：保存至少一个对标账号');
+  if (!readyContents.length) throw new Error('账号已保存，请继续完成第 3 步：添加至少一条有标题或摘要的代表内容');
   const requestId = `benchmark-${benchmarkWorkbenchState.clientId}-${benchmarkWorkbenchState.projectId}-${Date.now()}`;
   const result = await api('/api/benchmark-jobs', {
     method: 'POST',
@@ -6758,6 +6787,7 @@ async function createBenchmarkAnalysisJob(){
   });
   toast(result.duplicate ? '已恢复同一洞察任务。' : '洞察任务已提交，正在后台分析。');
   await loadBenchmarkProjectData();
+  setBenchmarkStatus(result.duplicate ? '已恢复洞察任务，页面会自动刷新分析结果。' : '洞察任务已提交，页面会自动刷新分析结果。');
 }
 
 async function reviewBenchmarkInsight(insightId, status){
