@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.142';
-const VERSION_LABEL = 'v1.6.142 · 生产链路与客户体验收口版';
+const APP_VERSION = '1.6.143';
+const VERSION_LABEL = 'v1.6.143 · 客户账号视觉生成版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -307,6 +307,10 @@ let feishuCollaborationState = { scope: '', loading: false, error: '', status: n
 let customerPendingCoCreationPayload = null;
 let lastCustomerGenerationPayload = null;
 let pendingCustomerPlanJob = null;
+const CUSTOMER_BRAND_IMAGE_POLL_MS = 3500;
+const CUSTOMER_BRAND_IMAGE_MAX_POLLS = 90;
+const customerBrandImagePollTimers = new Map();
+const customerBrandImageRuntime = new Map();
 
 const api = async (url, opts={}) => {
   const {
@@ -465,6 +469,7 @@ const normalizeState = (state = {}) => {
     selected_plan_id: state.selected_plan_id || '',
     latest_next_round: state.latest_next_round || null,
     activated_next_round_from: state.activated_next_round_from || '',
+    account_visuals: state.account_visuals && typeof state.account_visuals === 'object' ? state.account_visuals : {},
     customer_key: state.customer_key || assessment?.customer_key || '',
     dedicated_customer: state.dedicated_customer || assessment?.dedicated_customer || '',
     cloud_sync_version: state.cloud_sync_version || '',
@@ -903,6 +908,7 @@ function customerCloudProjectStore(saved = {}){
     selected_plan_id: saved.selected_plan_id || '',
     latest_next_round: saved.latest_next_round || records[0]?.daily_advice?.next_round || null,
     activated_next_round_from: saved.activated_next_round_from || '',
+    account_visuals: saved.account_visuals && typeof saved.account_visuals === 'object' ? saved.account_visuals : {},
     customer_key: saved.customer_key || assessment.customer_key || explicitCustomerClientId() || clientId,
     dedicated_customer: saved.dedicated_customer || assessment.dedicated_customer || '',
     intake_history: Array.isArray(clientState.intake_history) ? clientState.intake_history : [assessment],
@@ -990,6 +996,7 @@ function buildVersionedProjectState(result = {}, payload = {}, source = 'custome
     plans: result.plans || [],
     feedback: Array.isArray(existing.feedback) ? existing.feedback : [],
     review: null,
+    account_visuals: existing.account_visuals && typeof existing.account_visuals === 'object' ? existing.account_visuals : {},
     intake_history: intakeHistory,
     diagnosis_history: [diagnosis, ...archived].slice(0, 30),
     active_diagnosis_id: diagnosis.id || existing.active_diagnosis_id || null,
@@ -1111,6 +1118,7 @@ function resetCustomerTrialForm(){
 
 function startBlankCustomerProject(){
   const currentId = customerClientId();
+  resetCustomerBrandImageRuntime();
   safeStorage.removeItem(customerTrialStorageKey(currentId));
   if (!explicitCustomerClientId()) {
     safeStorage.setItem(CUSTOMER_SESSION_KEY, newAnonymousClientId());
@@ -1152,6 +1160,7 @@ function renderCustomerGeneratedState(saved = {}, options = {}){
     const roundNumber = customerActiveRound(saved);
     if (planTitle) planTitle.textContent = roundNumber > 1 ? `第 ${roundNumber} 轮内容计划` : '本轮内容计划';
   }
+  window.setTimeout(() => restoreCustomerBrandImages(saved).catch(() => {}), 0);
   renderCustomerRoundHistory(saved);
   updateCustomerSelectedPlanDisplay(saved);
   const whyBox = $('#customerWhyBox');
@@ -2160,6 +2169,7 @@ function applyCustomerPlanJobResult(result = {}, scopedPayload = {}){
     plans,
     records: [],
     content_rounds: [],
+    account_visuals: clientState.account_visuals || {},
     active_round: 1,
     current_round: 1,
     suggestion: customerSuggestionText,
@@ -2498,15 +2508,63 @@ function customerFallbackPlans(payload){
   ];
 }
 
+const customerBrandImageLabel = (imageType = '') => imageType === 'background' ? '主页背景图' : '账号头像';
+
+function customerBrandImageMeta(imageType = '', saved = loadCustomerTrialState()){
+  const runtime = customerBrandImageRuntime.get(imageType) || {};
+  const stored = saved?.account_visuals?.[imageType] || {};
+  return {...stored, ...runtime, image_type: imageType};
+}
+
+function customerBrandImageCardHtml(imageType = '', saved = loadCustomerTrialState()){
+  const meta = customerBrandImageMeta(imageType, saved);
+  const label = customerBrandImageLabel(imageType);
+  const ready = meta.status === 'ready' && Boolean(meta.image?.url);
+  const generating = meta.status === 'generating';
+  const failed = meta.status === 'failed';
+  const readonly = Boolean(customerShareTokenFromUrl());
+  const preview = ready
+    ? `<img src="${esc(meta.image.url)}" alt="${esc(label)}预览" data-customer-brand-preview />`
+    : `<span data-customer-brand-placeholder>${generating ? '正在生成' : imageType === 'avatar' ? '1:1 头像预览' : '主页背景预览'}</span>`;
+  const statusText = meta.progress_label
+    || (readonly ? '保存链接可查看已生成图片；请在原项目页面发起生成。'
+      : generating ? '正在生成，通常需要 1-3 分钟。'
+        : failed ? '这次没有生成成功，可以重新试一次。'
+          : imageType === 'avatar' ? '生成一张手机端缩小后仍清晰的账号头像。' : '生成一张为头像和简介预留安全区域的主页背景图。');
+  const buttonText = generating ? '正在生成…' : (meta.task_id ? `重新生成${label}` : `生成${label}`);
+  return `<article class="customer-brand-image-card is-${esc(imageType)}${ready ? ' is-ready' : ''}${generating ? ' is-generating' : ''}${failed ? ' is-failed' : ''}" data-customer-brand-image-card="${esc(imageType)}">
+    <div class="customer-brand-image-preview">${preview}</div>
+    <div class="customer-brand-image-copy">
+      <span>${esc(label)}</span>
+      <p data-customer-brand-status aria-live="polite">${esc(statusText)}</p>
+      <div class="customer-brand-image-actions">
+        ${readonly ? '' : `<button type="button" data-customer-brand-generate="${esc(imageType)}"${generating ? ' disabled' : ''}>${esc(buttonText)}</button>`}
+        <a href="${ready ? esc(meta.image.url) : '#'}" download="${ready ? esc(meta.image.download_name || `${label}.png`) : ''}" data-customer-brand-download${ready ? '' : ' hidden'}>下载图片</a>
+      </div>
+    </div>
+  </article>`;
+}
+
 function customerAccountSetupHtml(setup = {}){
   if (!setup || typeof setup !== 'object' || !setup.account_name) return '';
   const bio = (Array.isArray(setup.bio_lines) ? setup.bio_lines : []).map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
   const pinned = (Array.isArray(setup.pinned_note_directions) ? setup.pinned_note_directions : []).map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
+  const saved = loadCustomerTrialState();
   return `<article class="customer-advice-block customer-account-setup">
     <span>准备</span>
     <div>
       <h3>发布前，先把账号基础设置好</h3>
       <p>头像、背景图和简介先统一，客户看完内容后才更容易确认你是谁、是否值得咨询。</p>
+      <section class="customer-brand-image-studio" aria-label="账号头像和主页背景图生成">
+        <div class="customer-brand-image-studio-head">
+          <strong>直接生成账号视觉</strong>
+          <small>系统会结合你的业务、客户和账号定位生成，不需要自己写提示词。</small>
+        </div>
+        <div class="customer-brand-image-grid">
+          ${customerBrandImageCardHtml('avatar', saved)}
+          ${customerBrandImageCardHtml('background', saved)}
+        </div>
+      </section>
       <details>
         <summary>查看账号起步设置</summary>
         <dl class="customer-account-setup-list">
@@ -2520,6 +2578,223 @@ function customerAccountSetupHtml(setup = {}){
       </details>
     </div>
   </article>`;
+}
+
+function customerBrandImageProjectId(saved = loadCustomerTrialState()){
+  return String(saved?.project_id || saved?.project?.id || clientState.project?.id || '').trim();
+}
+
+function resetCustomerBrandImageRuntime(){
+  customerBrandImagePollTimers.forEach((timer)=>window.clearTimeout(timer));
+  customerBrandImagePollTimers.clear();
+  customerBrandImageRuntime.clear();
+}
+
+function persistCustomerBrandImageMeta(image = {}){
+  const imageType = String(image.image_type || '');
+  if (!['avatar', 'background'].includes(imageType)) return;
+  const current = loadCustomerTrialState({allowDedicatedFallback: true});
+  const previous = current.account_visuals?.[imageType] || {};
+  const entry = {
+    task_id: String(image.task_id || previous.task_id || ''),
+    project_id: String(image.project_id || previous.project_id || customerBrandImageProjectId(current)),
+    image_type: imageType,
+    status: String(image.status || previous.status || ''),
+    asset_id: String(image.image?.asset_id || previous.asset_id || ''),
+    resolution: String(image.image?.resolution || previous.resolution || ''),
+    progress_label: customerText(image.progress_label || previous.progress_label || ''),
+    updated_at: image.updated_at || localTimestamp(),
+  };
+  const next = {
+    ...current,
+    account_visuals: {...(current.account_visuals || {}), [imageType]: entry},
+    updated_at: localTimestamp(),
+  };
+  saveCustomerTrialState(next);
+  if (['ready', 'failed'].includes(entry.status)) scheduleCustomerTrialCloudSync(next);
+}
+
+function renderCustomerBrandImageState(image = {}){
+  const imageType = String(image.image_type || '');
+  if (!['avatar', 'background'].includes(imageType)) return;
+  const previous = customerBrandImageRuntime.get(imageType) || {};
+  const sameTask = !previous.task_id || !image.task_id || previous.task_id === image.task_id;
+  const next = {
+    ...(sameTask ? previous : {}),
+    ...image,
+    image: image.image || (sameTask ? previous.image : null),
+  };
+  customerBrandImageRuntime.set(imageType, next);
+  const card = document.querySelector(`[data-customer-brand-image-card="${imageType}"]`);
+  if (!card) return;
+  const ready = next.status === 'ready' && Boolean(next.image?.url);
+  const generating = next.status === 'generating';
+  const delayed = next.status === 'delayed';
+  const failed = next.status === 'failed';
+  card.classList.toggle('is-ready', ready);
+  card.classList.toggle('is-generating', generating);
+  card.classList.toggle('is-delayed', delayed);
+  card.classList.toggle('is-failed', failed);
+  const preview = card.querySelector('.customer-brand-image-preview');
+  if (preview) {
+    preview.innerHTML = ready
+      ? `<img src="${esc(next.image.url)}" alt="${esc(customerBrandImageLabel(imageType))}预览" data-customer-brand-preview />`
+      : `<span data-customer-brand-placeholder>${generating ? '正在生成' : delayed ? '仍在生成' : imageType === 'avatar' ? '1:1 头像预览' : '主页背景预览'}</span>`;
+  }
+  const status = card.querySelector('[data-customer-brand-status]');
+  if (status) status.textContent = customerText(next.progress_label || '等待生成');
+  const button = card.querySelector('[data-customer-brand-generate]');
+  if (button) {
+    button.disabled = generating;
+    button.textContent = generating
+      ? '正在生成…'
+      : delayed
+        ? '检查生成进度'
+        : next.task_id ? `重新生成${customerBrandImageLabel(imageType)}` : `生成${customerBrandImageLabel(imageType)}`;
+  }
+  const download = card.querySelector('[data-customer-brand-download]');
+  if (download) {
+    download.hidden = !ready;
+    download.href = ready ? next.image.url : '#';
+    download.download = ready ? (next.image.download_name || `${customerBrandImageLabel(imageType)}.png`) : '';
+  }
+}
+
+function scheduleCustomerBrandImagePoll(imageType = '', taskId = '', projectId = '', attempt = 0){
+  const existing = customerBrandImagePollTimers.get(imageType);
+  if (existing) window.clearTimeout(existing);
+  const timer = window.setTimeout(() => {
+    customerBrandImagePollTimers.delete(imageType);
+    pollCustomerBrandImage(imageType, taskId, projectId, attempt).catch(() => {});
+  }, CUSTOMER_BRAND_IMAGE_POLL_MS);
+  customerBrandImagePollTimers.set(imageType, timer);
+}
+
+async function pollCustomerBrandImage(imageType = '', taskId = '', projectId = '', attempt = 0, {announce = false} = {}){
+  if (!taskId || !projectId) return null;
+  const activeProjectId = customerBrandImageProjectId();
+  if (activeProjectId && activeProjectId !== projectId) return null;
+  try {
+    const result = await api(`/api/customer-brand-images/${encodeURIComponent(taskId)}?client_id=${encodeURIComponent(customerClientId())}&project_id=${encodeURIComponent(projectId)}`, {timeoutMs: 30000});
+    const image = result?.image;
+    if (!image) throw new Error('没有读取到图片任务');
+    renderCustomerBrandImageState(image);
+    persistCustomerBrandImageMeta(image);
+    if (image.status === 'generating') {
+      if (attempt + 1 < CUSTOMER_BRAND_IMAGE_MAX_POLLS) {
+        scheduleCustomerBrandImagePoll(imageType, taskId, projectId, attempt + 1);
+      } else {
+        const delayed = {...image, status: 'delayed', progress_label: '图片仍在后台生成，稍后可点击检查进度。'};
+        renderCustomerBrandImageState(delayed);
+        persistCustomerBrandImageMeta(delayed);
+      }
+    } else if (image.status === 'ready' && announce) {
+      toast(`${customerBrandImageLabel(imageType)}已生成，可以预览和下载`);
+    } else if (image.status === 'failed' && announce) {
+      toast(image.progress_label || '这次图片没有生成成功，请重新试一次');
+    }
+    return image;
+  } catch (error) {
+    if (attempt + 1 < Math.min(CUSTOMER_BRAND_IMAGE_MAX_POLLS, 8)) {
+      scheduleCustomerBrandImagePoll(imageType, taskId, projectId, attempt + 1);
+      return null;
+    }
+    const delayed = {
+      task_id: taskId,
+      project_id: projectId,
+      image_type: imageType,
+      status: 'delayed',
+      progress_label: '暂时没有读到生成结果，请稍后点击检查进度。',
+    };
+    renderCustomerBrandImageState(delayed);
+    persistCustomerBrandImageMeta(delayed);
+    return null;
+  }
+}
+
+async function restoreCustomerBrandImages(saved = loadCustomerTrialState()){
+  const projectId = customerBrandImageProjectId(saved);
+  if (!projectId || customerShareTokenFromUrl()) {
+    const existing = Object.values(saved?.account_visuals || {}).filter((item)=>item?.task_id);
+    existing.forEach((item)=>pollCustomerBrandImage(item.image_type, item.task_id, projectId, 0).catch(() => {}));
+    return;
+  }
+  try {
+    const result = await api(`/api/customer-brand-images?client_id=${encodeURIComponent(customerClientId())}&project_id=${encodeURIComponent(projectId)}`, {timeoutMs: 20000});
+    const images = Array.isArray(result?.images) ? result.images : [];
+    images.forEach((image) => {
+      renderCustomerBrandImageState(image);
+      persistCustomerBrandImageMeta(image);
+      pollCustomerBrandImage(image.image_type, image.task_id, projectId, 0).catch(() => {});
+    });
+    const knownTypes = new Set(images.map((image)=>image.image_type));
+    Object.values(saved?.account_visuals || {})
+      .filter((item)=>item?.task_id && !knownTypes.has(item.image_type))
+      .forEach((item)=>pollCustomerBrandImage(item.image_type, item.task_id, projectId, 0).catch(() => {}));
+  } catch {
+    Object.values(saved?.account_visuals || {})
+      .filter((item)=>item?.task_id)
+      .forEach((item)=>pollCustomerBrandImage(item.image_type, item.task_id, projectId, 0).catch(() => {}));
+  }
+}
+
+async function generateCustomerBrandImage(imageType = '', button = null){
+  if (!['avatar', 'background'].includes(imageType)) return;
+  const current = loadCustomerTrialState({allowDedicatedFallback: true});
+  const projectId = customerBrandImageProjectId(current);
+  if (!projectId) return toast('请先生成内容建议，再制作账号图片');
+  const runtime = customerBrandImageRuntime.get(imageType) || current.account_visuals?.[imageType] || {};
+  if (runtime.status === 'delayed' && runtime.task_id) {
+    if (button) button.disabled = true;
+    await pollCustomerBrandImage(imageType, runtime.task_id, projectId, 0, {announce: true});
+    if (button) button.disabled = false;
+    return;
+  }
+  const requestId = `account-${imageType}-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`;
+  const pending = {
+    task_id: '',
+    project_id: projectId,
+    image_type: imageType,
+    status: 'generating',
+    progress_label: `正在生成${customerBrandImageLabel(imageType)}，通常需要 1-3 分钟。`,
+    updated_at: localTimestamp(),
+  };
+  renderCustomerBrandImageState(pending);
+  persistCustomerBrandImageMeta(pending);
+  if (button) button.disabled = true;
+  try {
+    await syncCustomerTrialCloudState(current, {silent: true});
+    const result = await api('/api/customer-brand-images', {
+      method: 'POST',
+      timeoutMs: 30000,
+      body: JSON.stringify({
+        client_id: customerClientId(),
+        project_id: projectId,
+        image_type: imageType,
+        request_id: requestId,
+      }),
+    });
+    const image = result?.task;
+    if (!image?.task_id) throw new Error('图片任务没有成功创建，请稍后重试');
+    renderCustomerBrandImageState(image);
+    persistCustomerBrandImageMeta(image);
+    if (image.status === 'generating') scheduleCustomerBrandImagePoll(imageType, image.task_id, projectId, 0);
+    else if (image.status === 'ready') toast(`${customerBrandImageLabel(imageType)}已生成，可以预览和下载`);
+    else if (image.status === 'failed') toast(image.progress_label || '这次图片没有生成成功，请重新试一次');
+  } catch (error) {
+    const failed = {
+      project_id: projectId,
+      image_type: imageType,
+      status: 'failed',
+      progress_label: error?.message || '这次图片没有生成成功，请重新试一次。',
+      updated_at: localTimestamp(),
+    };
+    renderCustomerBrandImageState(failed);
+    persistCustomerBrandImageMeta(failed);
+    toast(failed.progress_label);
+  } finally {
+    if (button && customerBrandImageRuntime.get(imageType)?.status !== 'generating') button.disabled = false;
+  }
 }
 
 function buildCustomerSuggestion(payload, diagnosis, plans){
@@ -4283,7 +4558,7 @@ function initCustomerTrial(){
       {assessment: savedCustomerState.assessment, diagnosis: savedCustomerState.diagnosis, plans: savedCustomerState.plans || []},
       savedCustomerState.assessment,
       'customer_public',
-      clientState,
+      {...clientState, account_visuals: savedCustomerState.account_visuals || {}},
       '浏览器恢复'
     );
     renderCustomerGeneratedState(savedCustomerState);
@@ -4431,6 +4706,11 @@ function initCustomerTrial(){
     const button = event.target?.closest?.('[data-customer-record-plan]');
     if (!button) return;
     selectCustomerEffectPlan(button.dataset.customerRecordPlan);
+  });
+  $('#customerResult')?.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('[data-customer-brand-generate]');
+    if (!button) return;
+    generateCustomerBrandImage(button.dataset.customerBrandGenerate || '', button).catch(() => {});
   });
   $('#customerNextAdvice')?.addEventListener('click', (event) => {
     const continueBtn = event.target?.closest?.('[data-customer-continue]');

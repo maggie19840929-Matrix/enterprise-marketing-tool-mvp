@@ -47,6 +47,8 @@ const request = (method, path, body, options = {}) => {
     || normalizedPath === 'feedback'
     || normalizedPath === 'customer-growth-advice'
     || normalizedPath === 'track'
+    || normalizedPath === 'customer-brand-images'
+    || normalizedPath.startsWith('customer-brand-images/')
     || normalizedPath === 'plan-jobs'
     || normalizedPath.startsWith('plan-jobs/');
   const hasExplicitCustomerAccess = Object.prototype.hasOwnProperty.call(providedHeaders, 'x-customer-access-token');
@@ -174,7 +176,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.142', `public diagnosis should return app_version 1.6.142, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.143', `public diagnosis should return app_version 1.6.143, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1505,7 +1507,12 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.142'") && appJs.includes("v1.6.142 · 生产链路与客户体验收口版"), 'application should expose the reviewed v1.6.142 production-context release');
+assert(appJs.includes("const APP_VERSION = '1.6.143'") && appJs.includes("v1.6.143 · 客户账号视觉生成版"), 'application should expose the reviewed v1.6.143 customer account visual release');
+assert(appJs.includes('function generateCustomerBrandImage') && appJs.includes('function restoreCustomerBrandImages') && appJs.includes("api('/api/customer-brand-images'") && appJs.includes('data-customer-brand-generate'), 'customer results should generate, poll, restore and retry account avatar/background images through the dedicated customer API');
+assert(appJs.includes('resetCustomerBrandImageRuntime();') && appJs.includes('account_visuals: clientState.account_visuals || {}'), 'customer account visual state should be project-scoped and cleared when starting a blank project');
+assert(warRoomCss.includes('.customer-brand-image-studio') && warRoomCss.includes('.customer-brand-image-grid') && warRoomCss.includes('@keyframes customer-brand-image-spin'), 'customer avatar/background generation should have scoped responsive loading and preview styles');
+assert(apiSource.includes("path === '/customer-brand-images'") && apiSource.includes('customerBrandImageTaskView') && apiSource.includes('customerBrandImagePromptFor'), 'backend should expose a dedicated customer-safe account visual API and build prompts server-side');
+assert(apiSource.includes('process.env.DEPLOY_URL || process.env.DEPLOY_PRIME_URL || process.env.URL'), 'background generation should stay on the current deploy so previews cannot invoke an older production function');
 assert(indexHtml.includes('id="customerAccountUsage"') && indexHtml.includes('href="/plans"') && appJs.includes("api('/api/account/entitlements'"), 'signed-in account panel should show strategy-cycle usage and link to the plan page');
 assert(appJs.match(/entitlement = entitlement \|\| \{\};/g)?.length >= 2, 'signed-out account rendering should tolerate a missing entitlement snapshot');
 assert(plansHtml.includes('选择适合你经营节奏的套餐') && plansHtml.includes('额度怎么计算') && plansJs.includes("fetch('/api/commercial/plans'") && plansJs.includes("fetch('/api/account/entitlements'"), 'public plan page should explain customer-facing units and load server-owned entitlements');
@@ -1718,11 +1725,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.142') && indexHtml.includes('/styles.css?v=1.6.142') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.142'), 'public customer page should use the v1.6.142 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.143') && indexHtml.includes('/styles.css?v=1.6.143') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.143'), 'public customer page should use the v1.6.143 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.142') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.142') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.142') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.143') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.143') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.143') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1754,7 +1761,7 @@ assert(warRoomCss.includes('v1.6.133 method entry and scenario page') && warRoom
 assert(warRoomCss.includes('.customer-growth-path li{') && warRoomCss.includes('margin-top:0!important'), 'method growth-path steps should override generic adjacent-list spacing so labels and arrows stay aligned');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
 assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
-assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.142') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
+assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.143') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
 assert(publicAccountMenuJs.includes("fetch('/api/auth/session'") && publicAccountMenuJs.includes("fetch('/api/account/entitlements'") && publicAccountMenuJs.includes("fetch('/api/auth/logout'") && publicAccountMenuJs.includes("window.location.assign('/invite')") && publicAccountMenuJs.includes('剩余用量'), 'shared public account menu should read the real session and quota, enter the invitation center, and perform backend logout');
 assert(publicAccountMenuJs.includes('initPublicNavigationState') && publicAccountMenuJs.includes('publicNavIcon') && publicAccountMenuJs.includes("link.setAttribute('aria-current', 'page')") && !publicAccountMenuJs.includes("link.classList.add('is-navigating')"), 'public navigation should add consistent leading icons and retain a destination-page state without a synthetic loading indicator');
 assert(warRoomCss.includes('a[aria-current="page"]') && warRoomCss.includes('.public-nav-icon') && warRoomCss.includes('a:hover') && !warRoomCss.includes('.public-navigation-status') && !warRoomCss.includes('public-nav-progress') && !warRoomCss.includes('public-nav-soft-glow'), 'public navigation should change icon and label color on hover/current state without a spinner, progress bar, status toast or glow animation');
@@ -2291,10 +2298,11 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.142' && health.version_label === 'v1.6.142 · 生产链路与客户体验收口版', 'public application health version should report v1.6.142');
+assert(health.version === '1.6.143' && health.version_label === 'v1.6.143 · 客户账号视觉生成版', 'public application health version should report v1.6.143');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.features?.includes('commercial_entitlements_p2') && health.features?.includes('commercial_usage_reservations'), 'health should expose P2 entitlements and usage reservations');
 assert(health.features?.includes('referral_rewards_v1'), 'health should expose the account-scoped referral reward capability');
+assert(health.features?.includes('customer_account_visual_generation'), 'health should expose customer account avatar/background generation');
 assert(health.features?.includes('billing_orders_p1') && health.features?.includes('manual_payment_activation') && health.commercialization?.billing_mode === 'manual_review', 'health should expose the honest P1 billing order and manual activation mode');
 assert(health.commercialization?.enabled === false && health.commercialization?.quota_mode === 'observe_only', 'commercial enforcement should remain observe-only unless explicitly enabled');
 assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_label, 'health should expose only the non-sensitive internal delivery module version');
@@ -3528,6 +3536,89 @@ const backgroundCoverAssets = (await (await handler(internalRequest('GET', `asse
 const generatedBackgroundCoverAsset = backgroundCoverAssets.find((asset) => asset.asset_id === generatedBackgroundCover.output_asset_ids[0]);
 assert(generatedBackgroundCoverAsset?.storage_url === 'data:image/png;base64,AAAAAP01MatrixPTEAAAA=', 'customer sanitizer must not alter embedded image data URLs');
 assert(openAiImageCalls === 1, 'completed background image tasks should call the image provider exactly once');
+
+const nakedCustomerAvatarResponse = await handler(request('POST', 'customer-brand-images', {
+  client_id: 'dental',
+  project_id: 'project-dental',
+  image_type: 'avatar',
+  request_id: 'customer-avatar-no-auth-0001',
+}, { customerAccess: false }));
+assert(nakedCustomerAvatarResponse.status === 401, 'customer account image generation must require customer ownership proof');
+const crossProjectAvatarResponse = await handler(request('POST', 'customer-brand-images', {
+  client_id: 'dental',
+  project_id: 'project-florist',
+  image_type: 'avatar',
+  request_id: 'customer-avatar-cross-project-0001',
+}));
+assert(crossProjectAvatarResponse.status === 404, 'customer account image generation must not cross project/client boundaries');
+
+const customerAvatarPayload = {
+  client_id: 'dental',
+  project_id: 'project-dental',
+  image_type: 'avatar',
+  request_id: 'customer-avatar-generation-0001',
+};
+const customerAvatarResponse = await handler(request('POST', 'customer-brand-images', customerAvatarPayload));
+assert(customerAvatarResponse.status === 202, `customer avatar generation should queue asynchronously, got ${customerAvatarResponse.status}`);
+const customerAvatarCreated = await customerAvatarResponse.json();
+assert(customerAvatarCreated.task?.status === 'generating' && customerAvatarCreated.task?.image_type === 'avatar', 'customer avatar endpoint should return a safe generating state');
+const customerAvatarPublicCreateText = JSON.stringify(customerAvatarCreated);
+['provider', 'requested_model', 'actual_model', 'fallback', 'debug', 'prompt', 'qa'].forEach((field) => {
+  assert(!customerAvatarPublicCreateText.includes(field), `customer avatar create response must hide internal field ${field}`);
+});
+const customerAvatarReplayResponse = await handler(request('POST', 'customer-brand-images', customerAvatarPayload));
+const customerAvatarReplay = await customerAvatarReplayResponse.json();
+assert(customerAvatarReplay.task?.task_id === customerAvatarCreated.task.task_id && customerAvatarReplay.duplicate === true, 'customer avatar request retry should reuse the same task');
+assert(openAiImageTriggerCalls === 2, 'customer avatar request retry must not trigger a duplicate background job');
+const customerAvatarInternal = (await (await handler(internalRequest('GET', `generation-tasks/${customerAvatarCreated.task.task_id}?client_id=dental`))).json()).task;
+assert(customerAvatarInternal.purpose === 'customer_account_visual' && customerAvatarInternal.asset_role === 'account_avatar', 'customer avatar task should retain an internal account-visual purpose and asset role');
+assert(customerAvatarInternal.output_spec.size === '1024x1024' && customerAvatarInternal.prompt.includes('社区口腔门诊'), 'customer avatar prompt should be generated on the server from the current project business');
+assert(customerAvatarInternal.prompt.includes('不要生成任何文字') && customerAvatarInternal.prompt.includes('手机端头像尺寸'), 'customer avatar prompt should enforce text-free mobile-size legibility');
+const customerAvatarBackgroundResponse = await backgroundGenerationHandler(new Request('http://localhost/.netlify/functions/generate-background', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-background-generation-token': BACKGROUND_GENERATION_TOKEN,
+  },
+  body: JSON.stringify({ client_id: 'dental', task_id: customerAvatarCreated.task.task_id }),
+}));
+assert(customerAvatarBackgroundResponse.status === 200, 'customer avatar should complete through the authenticated background function');
+const customerAvatarDetailResponse = await handler(request('GET', `customer-brand-images/${customerAvatarCreated.task.task_id}?client_id=dental&project_id=project-dental`));
+assert(customerAvatarDetailResponse.status === 200, 'customer avatar detail should be readable by the owning customer');
+const customerAvatarDetail = await customerAvatarDetailResponse.json();
+assert(customerAvatarDetail.image?.status === 'ready' && customerAvatarDetail.image?.image?.url?.startsWith('data:image/png;base64,'), 'completed customer avatar should expose a usable image preview and download URL');
+const customerAvatarPublicDetailText = JSON.stringify(customerAvatarDetail);
+['provider', 'requested_model', 'actual_model', 'fallback', 'debug', 'prompt', 'qa'].forEach((field) => {
+  assert(!customerAvatarPublicDetailText.includes(field), `customer avatar detail must hide internal field ${field}`);
+});
+
+const customerBackgroundResponse = await handler(request('POST', 'customer-brand-images', {
+  client_id: 'dental',
+  project_id: 'project-dental',
+  image_type: 'background',
+  request_id: 'customer-background-generation-0001',
+}));
+assert(customerBackgroundResponse.status === 202, 'customer background image should queue asynchronously');
+const customerBackgroundCreated = await customerBackgroundResponse.json();
+const customerBackgroundInternal = (await (await handler(internalRequest('GET', `generation-tasks/${customerBackgroundCreated.task.task_id}?client_id=dental`))).json()).task;
+assert(customerBackgroundInternal.asset_role === 'account_background' && customerBackgroundInternal.output_spec.size === '1536x1024', 'customer background task should use its own wide output specification and asset role');
+assert(customerBackgroundInternal.prompt.includes('右侧和上半区') && customerBackgroundInternal.prompt.includes('左下与中下区域保留充足安全留白'), 'customer background prompt should protect the profile and introduction overlay areas');
+const customerBackgroundGenerationResponse = await backgroundGenerationHandler(new Request('http://localhost/.netlify/functions/generate-background', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-background-generation-token': BACKGROUND_GENERATION_TOKEN,
+  },
+  body: JSON.stringify({ client_id: 'dental', task_id: customerBackgroundCreated.task.task_id }),
+}));
+assert(customerBackgroundGenerationResponse.status === 200, 'customer background image should complete through the background function');
+const customerBrandImageListResponse = await handler(request('GET', 'customer-brand-images?client_id=dental&project_id=project-dental'));
+assert(customerBrandImageListResponse.status === 200, 'owning customer should list the latest avatar and background tasks for the current project');
+const customerBrandImageList = await customerBrandImageListResponse.json();
+assert(customerBrandImageList.images?.length === 2 && new Set(customerBrandImageList.images.map((item) => item.image_type)).size === 2, 'customer account visual list should restore one latest avatar and one latest background task');
+const crossCustomerBrandImageRead = await handler(request('GET', `customer-brand-images/${customerAvatarCreated.task.task_id}?client_id=florist&project_id=project-florist`));
+assert(crossCustomerBrandImageRead.status === 404, 'another customer bucket must not read an account image task by task id');
+assert(openAiImageCalls === 3, 'internal cover plus customer avatar and background should each call the image provider exactly once');
 globalThis.fetch = originalFetch;
 delete process.env.OPENAI_API_KEY;
 delete process.env.SAFE_TO_RUN;

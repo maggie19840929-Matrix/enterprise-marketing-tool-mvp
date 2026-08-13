@@ -19,11 +19,12 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.142';
-const VERSION_LABEL = 'v1.6.142 · 生产链路与客户体验收口版';
+const APP_VERSION = '1.6.143';
+const VERSION_LABEL = 'v1.6.143 · 客户账号视觉生成版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
+const CUSTOMER_BRAND_IMAGE_PURPOSE = 'customer_account_visual';
 const REQUESTED_CONTENT_MODEL = process.env.CONTENT_PLANNING_MODEL || 'rule_template';
 const CUSTOMER_STRATEGY_MODEL = process.env.CUSTOMER_STRATEGY_MODEL || process.env.STRATEGY_JUDGMENT_MODEL || 'gpt-4.1';
 const CUSTOMER_COPY_MODEL = process.env.CUSTOMER_COPY_MODEL || process.env.CLAUDE_OPUS_MODEL || 'claude-3-opus-20240229';
@@ -7018,6 +7019,10 @@ const createGenerationTask = async (payload = {}) => {
     provider_job_id: '',
     idempotency_key,
     content_batch_id,
+    purpose: String(payload.purpose || ''),
+    image_type: String(payload.image_type || ''),
+    asset_role: String(payload.asset_role || ''),
+    generation_reservation: payload.generation_reservation || null,
     prompt: payload.prompt || '',
     production_context,
     output_spec: {
@@ -7093,8 +7098,8 @@ const outputAssetForTask = async (task, output = {}) => {
     sha256,
     duration: output.duration || task.output_spec?.duration || '',
     resolution: output.resolution || task.output_spec?.size || '',
-    uploaded_by: 'model-adapter',
-    source: 'internal',
+    uploaded_by: task.submitted_by || 'model-adapter',
+    source: task.purpose === CUSTOMER_BRAND_IMAGE_PURPOSE ? 'client' : 'internal',
     usage_scope: 'current_project_only',
     status: 'ok',
     notes: output.text || output.summary || 'mock adapter output',
@@ -7102,7 +7107,7 @@ const outputAssetForTask = async (task, output = {}) => {
     content_batch_id: task.content_batch_id || '',
     content_plan_record_id: task.content_plan_record_id || '',
     source_task_id: task.task_id || '',
-    asset_role: task.generation_type === 'cover' ? 'cover' : task.generation_type,
+    asset_role: task.asset_role || (task.generation_type === 'cover' ? 'cover' : task.generation_type),
     generation_brief: task.prompt || '',
   });
 };
@@ -7719,6 +7724,26 @@ const adapterForTask = (task = {}) => generationAdapters[task.provider] || gener
 const shouldRunAdapterInBackground = (adapter = {}) =>
   Boolean(adapter.isBackground && (adapter.name !== 'openai-image' || openaiApiKey()));
 
+const settleCustomerBrandImageGeneration = async (task = {}, submitted = {}, outcome = 'completed', error = '') => {
+  if (task.purpose !== CUSTOMER_BRAND_IMAGE_PURPOSE || !task.generation_reservation?.reservation_key) return;
+  const meta = {
+    provider: submitted.provider || task.provider || 'openai-image',
+    requested_model: task.requested_model || OPENAI_IMAGE_MODEL,
+    actual_model: submitted.actual_model || task.actual_model || task.requested_model || OPENAI_IMAGE_MODEL,
+    fallback: Boolean(submitted.fallback ?? task.fallback),
+    fallback_reason: submitted.fallback_reason || task.fallback_reason || error || null,
+    provider_attempt_count: 1,
+  };
+  await completeGenerationMetering({
+    reservation: task.generation_reservation,
+    clientId: task.client_id,
+    jobId: task.task_id,
+    result: { generation_meta: meta },
+    outcome,
+    error,
+  });
+};
+
 const validateTaskAssets = async (task) => {
   const ids = ensureArray(task.input_asset_ids).map(String).filter(Boolean);
   if (!ids.length) return { ok: true, assets: [] };
@@ -7728,7 +7753,7 @@ const validateTaskAssets = async (task) => {
   return { ok: missing.length === 0, assets: ids.map((id) => byId.get(id)).filter(Boolean), missing };
 };
 
-const backgroundBaseUrl = () => String(process.env.URL || process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL || 'https://sales-improve.fpmatrix.cn').replace(/\/+$/, '');
+const backgroundBaseUrl = () => String(process.env.DEPLOY_URL || process.env.DEPLOY_PRIME_URL || process.env.URL || 'https://sales-improve.fpmatrix.cn').replace(/\/+$/, '');
 
 const triggerBackgroundGeneration = async (clientId, taskId) => {
   const url = `${backgroundBaseUrl()}/.netlify/functions/generate-background`;
@@ -7794,6 +7819,7 @@ export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } =
   await saveTask(task);
   const assetCheck = await validateTaskAssets(task);
   if (!assetCheck.ok) {
+    await settleCustomerBrandImageGeneration(task, {}, 'failed', 'blocked_asset_missing');
     return saveTask(withStatus({
       ...task,
       error: `素材缺失或不可读：${assetCheck.missing.join(', ')}`,
@@ -7813,8 +7839,20 @@ export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } =
   } catch (error) {
     submitted = { ok: false, provider: adapter.name, actual_model: 'rule_template', fallback_reason: error?.message || 'adapter_failed', error: error?.message || 'adapter_failed' };
   }
-  await recordInternalProviderUsage({ task, submitted });
+  if (task.purpose !== CUSTOMER_BRAND_IMAGE_PURPOSE) {
+    await recordInternalProviderUsage({ task, submitted });
+  }
   if (!submitted.ok) {
+    if (task.purpose === CUSTOMER_BRAND_IMAGE_PURPOSE) {
+      console.error(JSON.stringify({
+        event: 'customer_brand_image_generation_failed',
+        task_id: task.task_id,
+        image_type: task.image_type || '',
+        provider: submitted.provider || adapter.name,
+        reason: submitted.fallback_reason || submitted.error || 'adapter_failed',
+      }));
+    }
+    await settleCustomerBrandImageGeneration(task, submitted, 'failed', submitted.error || submitted.fallback_reason || 'adapter_failed');
     const status = /auth|key|credential/i.test(submitted.fallback_reason || submitted.error || '') ? 'blocked_model_auth' : 'failed';
     task = withStatus({
       ...task,
@@ -7849,6 +7887,7 @@ export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } =
   const asset = await outputAssetForTask(task, submitted.output || {});
   task = withStatus({ ...task, output_asset_ids: [asset.asset_id] }, 'generated', '后台大模型已生成');
   task = withStatus(task, 'qa_pending', '等待内部 QA');
+  await settleCustomerBrandImageGeneration(task, submitted, 'completed');
   return saveTask(task);
 };
 
@@ -7860,6 +7899,7 @@ export const markBackgroundGenerationFailure = async ({ client_id = '', task_id 
   if (ensureArray(task.output_asset_ids).length || ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status)) {
     return task;
   }
+  await settleCustomerBrandImageGeneration(task, {}, 'failed', String(error || 'background_generation_failed'));
   return saveTask(withStatus({
     ...task,
     fallback: true,
@@ -7882,6 +7922,7 @@ const submitGenerationTask = async (clientId, taskId) => {
   const assetCheck = await validateTaskAssets(task);
   if (!assetCheck.ok) {
     task = withStatus({ ...task, error: `素材缺失或不可读：${assetCheck.missing.join(', ')}` }, 'blocked_asset_missing', '素材校验失败');
+    await settleCustomerBrandImageGeneration(task, {}, 'failed', 'blocked_asset_missing');
     return saveTask(task);
   }
   if (task.production_context?.context_version !== 'business-context-v1') {
@@ -7901,6 +7942,7 @@ const submitGenerationTask = async (clientId, taskId) => {
   task = withStatus(task, 'queued', '进入模型队列');
   if (String(task.prompt || '').includes('[mock_fail_auth]')) {
     task = withStatus({ ...task, actual_model: 'rule_template', fallback: true, fallback_reason: 'missing_provider_key', error: '模型鉴权失败' }, 'blocked_model_auth', 'mock 鉴权失败');
+    await settleCustomerBrandImageGeneration(task, {}, 'failed', 'missing_provider_key');
     return saveTask(task);
   }
   if (shouldRunAdapterInBackground(adapter)) {
@@ -7938,6 +7980,7 @@ const submitGenerationTask = async (clientId, taskId) => {
           trigger_attempts: trigger.attempts || 0,
         },
       }, trigger.error === 'missing_background_generation_token' ? 'blocked_model_auth' : 'failed', '后台任务点火失败');
+      await settleCustomerBrandImageGeneration(task, {}, 'failed', trigger.error || 'background_trigger_failed');
       return saveTask(task);
     }
     const latest = (await getTask(task.client_id, task.task_id)) || task;
@@ -8129,6 +8172,228 @@ const clientVisibleTask = (task = {}) => sanitizeCustomerPayload({
   qa: { qa_status: task.qa?.qa_status || 'pending', qa_notes: task.qa?.qa_notes || '' },
   updated_at: task.updated_at,
 });
+
+const CUSTOMER_BRAND_IMAGE_CONFIG = {
+  avatar: {
+    label: '账号头像',
+    generation_type: 'image',
+    content_type: '头像',
+    asset_role: 'account_avatar',
+    size: '1024x1024',
+    ratio: '1:1',
+  },
+  background: {
+    label: '主页背景图',
+    generation_type: 'cover',
+    content_type: '背景图',
+    asset_role: 'account_background',
+    size: '1536x1024',
+    ratio: '3:2',
+  },
+};
+
+const normalizeCustomerBrandImageType = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(CUSTOMER_BRAND_IMAGE_CONFIG, normalized) ? normalized : '';
+};
+
+const customerBrandImagePromptFor = (project = {}, imageType = '') => {
+  const config = CUSTOMER_BRAND_IMAGE_CONFIG[imageType];
+  if (!config) throw benchmarkHttpError('请选择要生成头像还是主页背景图', 400);
+  const projectState = project.state || {};
+  const assessment = projectState.assessment || {};
+  const setup = projectState.diagnosis?.account_setup || {};
+  const businessName = compactGenerationText(
+    assessment.company_name || project.name || assessment.industry || '当前业务账号',
+    80,
+  ).replace(/作战台$/u, '');
+  const industry = compactGenerationText(assessment.industry || '企业服务', 180);
+  const audience = compactGenerationText(assessment.target_customer || '目标客户', 180);
+  const positioning = compactGenerationText(setup.positioning || `${industry}的专业内容账号`, 180);
+  const platform = compactGenerationText(setup.starting_platform?.platform || assessment.current_channels || '小红书', 40);
+  const visualDirection = compactGenerationText(
+    imageType === 'avatar' ? setup.avatar_direction : setup.background_direction,
+    260,
+  );
+  const shared = [
+    `为“${businessName}”制作${platform}账号的${config.label}。`,
+    `业务：${industry}。`,
+    `目标客户：${audience}。`,
+    `账号定位：${positioning}。`,
+    visualDirection ? `既定视觉方向：${visualDirection}。` : '',
+    '整体要求：成熟、专业、有辨识度，像真实商业品牌资产，不像廉价营销海报或通用素材模板。',
+    '不得出现平台 Logo、第三方商标、二维码、手机号、社交账号、水印或未经提供的资质标识。',
+    '画面中不要生成任何文字、字母或数字，避免错误文字影响直接使用。',
+  ].filter(Boolean);
+  if (imageType === 'avatar') {
+    return [...shared,
+      '正方形头像构图，主体居中，使用一个与业务相关且易记的核心符号；轮廓简洁、对比清楚、细节克制。',
+      '必须保证缩小到手机端头像尺寸后仍然清晰抓眼，不使用复杂场景、细碎元素或人脸特写。',
+    ].join('\n');
+  }
+  return [...shared,
+    '横向主页背景构图，核心视觉放在画面右侧和上半区，左下与中下区域保留充足安全留白。',
+    '避免关键信息贴边，适配不同手机裁切；与头像保持同一套色彩和视觉语言，但不要简单放大头像。',
+  ].join('\n');
+};
+
+const isCustomerBrandImageTask = (task = {}) =>
+  task?.purpose === CUSTOMER_BRAND_IMAGE_PURPOSE
+  && Boolean(normalizeCustomerBrandImageType(task?.image_type));
+
+const customerBrandImageFriendlyError = (task = {}) => {
+  const reason = String(task.fallback_reason || task.error || '');
+  if (/rate/i.test(reason)) return '生成请求有点频繁，请稍等片刻再试。';
+  if (/auth|key|credential|safe_to_run/i.test(reason)) return '图片生成服务暂不可用，请稍后再试。';
+  if (/timeout|timed out|abort/i.test(reason)) return '这次生成等待时间过长，请重新试一次。';
+  return '这次图片没有生成成功，请重新试一次。';
+};
+
+const customerBrandImageFailureCode = (task = {}) => {
+  const reason = String(task.fallback_reason || task.error || '');
+  if (!reason) return 'generation_failed';
+  if (/missing_background_generation_token/i.test(reason)) return 'background_unavailable';
+  if (/background_trigger/i.test(reason)) return 'background_start_failed';
+  if (/auth|key|credential|safe_to_run/i.test(reason)) return 'image_service_unavailable';
+  if (/timeout|timed out|abort/i.test(reason)) return 'generation_timeout';
+  if (/rate|429/i.test(reason)) return 'too_many_requests';
+  if (/400|invalid|unsupported|size|model/i.test(reason)) return 'request_rejected';
+  return 'generation_failed';
+};
+
+const customerBrandImageTaskView = async ({ clientId = '', task = null, includeOutput = false } = {}) => {
+  if (!task || !isCustomerBrandImageTask(task)) return null;
+  const config = CUSTOMER_BRAND_IMAGE_CONFIG[task.image_type];
+  const failed = ['failed', 'blocked_asset_missing', 'blocked_model_auth', 'qa_failed'].includes(task.status)
+    || Boolean(task.fallback);
+  let outputAsset = null;
+  if (includeOutput && !failed && ensureArray(task.output_asset_ids).length) {
+    const assets = await listAssets({ clientId, projectId: task.project_id });
+    const outputIds = new Set(ensureArray(task.output_asset_ids).map(String));
+    outputAsset = assets.find((asset) => outputIds.has(String(asset.asset_id))) || null;
+  }
+  const hasUsableOutput = Boolean(
+    outputAsset?.status === 'ok'
+    && outputAsset.storage_url
+    && !String(outputAsset.storage_url).startsWith('mock://'),
+  );
+  const terminal = ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status);
+  const status = failed ? 'failed' : (terminal && (!includeOutput || hasUsableOutput) ? 'ready' : 'generating');
+  const progressLabel = status === 'ready'
+    ? `${config.label}已生成，可以预览和下载。`
+    : status === 'failed'
+      ? customerBrandImageFriendlyError(task)
+      : '正在生成，通常需要 1-3 分钟；你可以继续浏览本轮计划。';
+  return sanitizeCustomerPayload({
+    task_id: task.task_id,
+    project_id: task.project_id,
+    image_type: task.image_type,
+    label: config.label,
+    status,
+    progress_label: progressLabel,
+    retryable: status === 'failed',
+    ...(status === 'failed' ? { failure_code: customerBrandImageFailureCode(task) } : {}),
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+    ...(hasUsableOutput ? {
+      image: {
+        asset_id: outputAsset.asset_id,
+        url: outputAsset.storage_url,
+        mime_type: outputAsset.mime_type || 'image/png',
+        resolution: outputAsset.resolution || config.size,
+        download_name: `${task.image_type === 'avatar' ? '账号头像' : '主页背景图'}-${task.project_id}.png`,
+      },
+    } : {}),
+  });
+};
+
+const listCustomerBrandImageTasks = async ({ clientId = '', projectId = '' } = {}) => {
+  const current = await readCloudCollection('tasks', clientId);
+  const tasks = ensureArray(current.tasks)
+    .filter((task) => isCustomerBrandImageTask(task) && String(task.project_id || '') === String(projectId || ''))
+    .sort((a, b) => compareTimestampDesc(a.updated_at || a.created_at, b.updated_at || b.created_at));
+  const latest = [];
+  Object.keys(CUSTOMER_BRAND_IMAGE_CONFIG).forEach((imageType) => {
+    const task = tasks.find((item) => item.image_type === imageType);
+    if (task) latest.push(task);
+  });
+  return Promise.all(latest.map((task) => customerBrandImageTaskView({ clientId, task, includeOutput: false })));
+};
+
+const createCustomerBrandImageTask = async ({ request = null, clientId = '', payload = {} } = {}) => {
+  const imageType = normalizeCustomerBrandImageType(payload.image_type);
+  if (!imageType) throw benchmarkHttpError('请选择要生成头像还是主页背景图', 400);
+  if (!openaiApiKey() || !paidGenerationSafeToRun()) {
+    throw benchmarkHttpError('图片生成服务正在准备中，请稍后再试。', 503);
+  }
+  const project = await benchmarkProjectFor(clientId, payload.project_id);
+  const config = CUSTOMER_BRAND_IMAGE_CONFIG[imageType];
+  const requestId = generationRequestId(payload);
+  const reservation = await reserveGenerationRequest({
+    request,
+    clientId,
+    requestId,
+    route: 'customer-brand-images',
+    usageType: `account_${imageType}`,
+  });
+  if (reservation.would_rate_limit && reservation.rate_limit_enforced) {
+    await completeGenerationMetering({ reservation, clientId, outcome: 'rate_limited', error: 'rate_limited' });
+    return { rate_limited: true, reservation };
+  }
+  let task;
+  try {
+    task = await createGenerationTask({
+      project_id: String(project.id),
+      project_name: String(project.name || ''),
+      client_id: clientId,
+      client_name: String(project.state?.assessment?.company_name || project.name || ''),
+      content_plan_record_id: `account_setup_${imageType}`,
+      content_batch_id: `account_setup_${project.id}`,
+      platform: String(project.state?.diagnosis?.account_setup?.starting_platform?.platform || project.state?.assessment?.current_channels || '小红书'),
+      content_type: config.content_type,
+      generation_type: config.generation_type,
+      requested_model: 'GPT-Image-2',
+      idempotency_key: `customer-brand-image:${clientId}:${project.id}:${imageType}:${requestId}`,
+      purpose: CUSTOMER_BRAND_IMAGE_PURPOSE,
+      image_type: imageType,
+      asset_role: config.asset_role,
+      generation_reservation: reservation,
+      prompt: customerBrandImagePromptFor(project, imageType),
+      output_spec: {
+        size: config.size,
+        ratio: config.ratio,
+        style: '成熟商业品牌视觉、清晰克制、手机端易识别',
+        usage: config.label,
+        client_visible: true,
+      },
+      submitted_by: 'customer_public',
+    });
+    await linkGenerationReservation(reservation, task.task_id);
+    const submitted = await submitGenerationTask(clientId, task.task_id);
+    if (submitted.status === 'failed' || submitted.status === 'blocked_model_auth') {
+      console.error(JSON.stringify({
+        event: 'customer_brand_image_submit_failed',
+        task_id: submitted.task_id,
+        image_type: submitted.image_type || imageType,
+        status: submitted.status,
+        reason: submitted.fallback_reason || submitted.error || 'generation_failed',
+      }));
+    }
+    return {
+      task: await customerBrandImageTaskView({ clientId, task: submitted, includeOutput: true }),
+      duplicate: Boolean(task.idempotent_replay || reservation.duplicate),
+    };
+  } catch (error) {
+    await completeGenerationMetering({
+      reservation,
+      clientId,
+      jobId: task?.task_id || requestId,
+      outcome: 'failed',
+      error: error?.message || 'customer_brand_image_failed',
+    });
+    throw error;
+  }
+};
 
 const formatBitableDateValue = (value) => {
   const date = shanghaiClock(new Date(value));
@@ -9423,6 +9688,7 @@ export default async (request, context = {}) => {
   const path = `/${route.replace(/^\/+/, '')}`;
   const internalAuthorized = hasValidInternalAuth(request);
   const deliveryResourceMatch = path.match(/^\/(delivery-projects|delivery-cycles|collaboration-tasks|collaboration-approvals|shooting-schedules|weekly-reports|delivery-feishu-bindings)(?:\/([^/]+))?$/);
+  const customerBrandImageMatch = path.match(/^\/customer-brand-images\/([^/]+)$/);
   try {
     const requestClientId = clientIdFrom({}, url, request);
     if (request.method === 'GET') {
@@ -9435,7 +9701,7 @@ export default async (request, context = {}) => {
         module_version: GENERATION_WORKBENCH_VERSION,
         benchmark_module_version: BENCHMARK_INSIGHTS_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'generation_business_context_v1', 'generation_asset_auto_link', 'generation_multimodal_assets', 'generation_idempotency', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'generation_business_context_v1', 'generation_asset_auto_link', 'generation_multimodal_assets', 'generation_idempotency', 'customer_account_visual_generation', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -9652,6 +9918,34 @@ export default async (request, context = {}) => {
           return json({ ...customerState, project_store: projectStore }, 200);
         }
         return json(customerState, 200, { internal: internalAuthorized });
+      }
+      if (path === '/customer-brand-images') {
+        const projectId = String(url.searchParams.get('project_id') || '').trim();
+        if (!projectId) return json({ error: '读取账号图片需要 project_id' }, 400);
+        const brandImageAccess = await authorizeCustomerRoute({
+          request,
+          clientId: requestClientId,
+          internalAuthorized,
+        });
+        if (!brandImageAccess.ok) return brandImageAccess.response;
+        await benchmarkProjectFor(requestClientId, projectId);
+        return json({ images: await listCustomerBrandImageTasks({ clientId: requestClientId, projectId }) }, 200, { internal: internalAuthorized });
+      }
+      if (customerBrandImageMatch) {
+        const projectId = String(url.searchParams.get('project_id') || '').trim();
+        if (!projectId) return json({ error: '读取账号图片需要 project_id' }, 400);
+        const brandImageAccess = await authorizeCustomerRoute({
+          request,
+          clientId: requestClientId,
+          internalAuthorized,
+        });
+        if (!brandImageAccess.ok) return brandImageAccess.response;
+        await benchmarkProjectFor(requestClientId, projectId);
+        const task = await getTask(requestClientId, decodeURIComponent(customerBrandImageMatch[1]));
+        if (!task || !isCustomerBrandImageTask(task) || String(task.project_id || '') !== projectId) {
+          return json({ error: '账号图片任务不存在' }, 404);
+        }
+        return json({ image: await customerBrandImageTaskView({ clientId: requestClientId, task, includeOutput: true }) });
       }
       if (path === '/assets') {
         if (!internalAuthorized) return unauthorized();
@@ -9971,6 +10265,19 @@ export default async (request, context = {}) => {
         }
       }
       return json(await writeCloudState(payload, payloadClientId), 201, { internal: internalAuthorized });
+    }
+    if (request.method === 'POST' && path === '/customer-brand-images') {
+      const brandImageAccess = await authorizeCustomerRoute({
+        request,
+        clientId: payloadClientId,
+        payload,
+        internalAuthorized,
+        ownerOnly: true,
+      });
+      if (!brandImageAccess.ok) return brandImageAccess.response;
+      const created = await createCustomerBrandImageTask({ request, clientId: payloadClientId, payload });
+      if (created.rate_limited) return rateLimitedResponse(created.reservation);
+      return json(created, 202, { internal: internalAuthorized });
     }
     if (request.method === 'POST' && path === '/assets') {
       if (!internalAuthorized) return unauthorized();
