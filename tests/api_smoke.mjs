@@ -174,18 +174,20 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.140', `public diagnosis should return app_version 1.6.140, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.142', `public diagnosis should return app_version 1.6.142, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
 assert(diagnosis.loop_score < 30, `loop_score must stay low before feedback, got ${diagnosis.loop_score}`);
-assert(diagnosis.account_setup.account_name === '内容决策局', 'meta-marketing test account should get 内容决策局 cold-start setup');
+assert(diagnosis.account_setup.account_name === '获客罗盘', 'meta-marketing test account should use the current public product name in cold-start setup');
 assert(diagnosis.account_setup.starting_platform.platform === '小红书', 'cold-start setup should expose starting platform');
 assert(diagnosis.account_setup.naming_warning.includes('保持专业和尊重'), 'cold-start setup should include naming warning');
+assert(diagnosis.account_setup.background_direction && diagnosis.account_setup.pinned_note_directions.length === 3 && diagnosis.account_setup.pinning_rule.includes('已经发布的笔记'), 'Xiaohongshu account setup should include avatar-adjacent background guidance and the real published-note pinning rule');
 assert(diagnosis.platform_recommendations.primary[0].platform === '小红书', 'new account should prioritize 小红书');
 assert(!diagnosis.platform_recommendations.primary.some((x) => x.platform.includes('美团')), '美团/大众点评 must not be own-account primary platform');
 assert(diagnosis.platform_recommendations.client_platforms.some((x) => x.platform.includes('美团')), '美团 can appear only as target-client platform');
 assert(plans.length === 7, `expected 7 plans, got ${plans.length}`);
+assert(plans.filter((plan) => plan.platform === '小红书').every((plan) => Array.from(plan.topic).length <= 20), 'all Xiaohongshu plan topics should pass the server-side 20-character hard limit');
 
 const personalizationSettingsClientId = 'non-personalized-plan-owner';
 const defaultPersonalizationSettingsResponse = await handler(request('GET', `user/settings?client_id=${personalizationSettingsClientId}`));
@@ -557,6 +559,26 @@ assert(basketballPlatformStrategies.get('抖音') && basketballPlatformStrategie
 assert(new Set([...basketballPlatformStrategies.values()]).size >= 3, 'Douyin/XHS/Video Account strategy text should be clearly different');
 assert(new Set(basketballData.plans.map((plan) => plan.experiment_type)).size >= 5, 'basketball 7-day plan should cover multiple experiment types, not average posting');
 assert(Array.isArray(basketballData.diagnosis.strategy_mvp.growth_gaps), 'basketball diagnosis should expose growth gap prompts as a non-blocking array');
+
+const huokeCompassData = await submitAssessmentForClient('huoke-compass-self-test', {
+  company_name: '',
+  industry: '线上营销咨询与内容增长工具',
+  main_goal: '获得更多有效咨询',
+  target_customer: '需要持续线上获客的企业主、门店负责人和服务型商家',
+  offer: '',
+  current_channels: '小红书',
+  biggest_problem: '不知道发什么',
+  co_creation: {
+    selected_direction: '客户痛点型',
+    avoided_content: ['不想太硬广'],
+    confirmed_at: '2026-08-14 10:00:00',
+  },
+});
+const huokeCompassTopics = huokeCompassData.plans.slice(0, 3).map((plan) => plan.topic);
+assert(huokeCompassData.diagnosis.account_setup.account_name === '获客罗盘', 'marketing-growth account setup should use the current product name instead of a retired sample name');
+assert(huokeCompassTopics.some((topic) => topic.includes('企业不知道发什么')) && huokeCompassTopics.some((topic) => topic.includes('AI生成内容')), 'marketing-growth first topics should directly explain the customer problem and system differentiation');
+assert(!huokeCompassTopics.some((topic) => /与内容增长工具|这思路|太顺了/.test(topic)), `marketing-growth topics should remain grammatical and concrete: ${huokeCompassTopics.join(' / ')}`);
+assert(huokeCompassData.plans.every((plan) => Array.from(plan.topic).length <= 20), 'marketing-growth Xiaohongshu topics should stay within 20 characters');
 
 const martialArtsData = await submitAssessmentForClient('ziwuxian-martial-arts', {
   company_name: '子武限武术搏击俱乐部',
@@ -1483,7 +1505,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.140'") && appJs.includes("v1.6.140 · 首轮选题语义质量修复版"), 'application should expose the reviewed v1.6.140 topic-quality release');
+assert(appJs.includes("const APP_VERSION = '1.6.142'") && appJs.includes("v1.6.142 · 生产链路与客户体验收口版"), 'application should expose the reviewed v1.6.142 production-context release');
 assert(indexHtml.includes('id="customerAccountUsage"') && indexHtml.includes('href="/plans"') && appJs.includes("api('/api/account/entitlements'"), 'signed-in account panel should show strategy-cycle usage and link to the plan page');
 assert(appJs.match(/entitlement = entitlement \|\| \{\};/g)?.length >= 2, 'signed-out account rendering should tolerate a missing entitlement snapshot');
 assert(plansHtml.includes('选择适合你经营节奏的套餐') && plansHtml.includes('额度怎么计算') && plansJs.includes("fetch('/api/commercial/plans'") && plansJs.includes("fetch('/api/account/entitlements'"), 'public plan page should explain customer-facing units and load server-owned entitlements');
@@ -1539,6 +1561,8 @@ assert(apiSource.includes('至少3条直接回应 customer_language/buyer_object
 assert(apiSource.includes('优先沿用strategy_quality里的客户原话、购买异议和真实素材') && apiSource.includes('每条可用指标决定下一步'), 'next-round prompt should use customer evidence and measurable feedback decisions');
 assert(appJs.includes('客户原话依据') && appJs.includes('可用证据') && appJs.includes('策略证据'), 'existing collapsed reasoning and internal plan QA should expose customer evidence without adding a new customer page');
 assert(indexHtml.includes('name="current_channels" value="还不确定"') && indexHtml.includes('name="biggest_problem" value="不知道发什么"'), 'customer intake should require only the three core text fields and carry safe defaults for platform and biggest problem');
+assert(indexHtml.includes('list="customerMainGoalOptions"') && indexHtml.includes('获得更多有效咨询') && indexHtml.includes('暂时不确定，请系统根据业务建议') && indexHtml.includes('可直接选择，也可以写自己的目标'), 'customer goal input should provide clear common choices while preserving free-form input');
+assert(indexHtml.includes('暂时不确定，由系统推荐') && indexHtml.includes('不想拍人物正脸') && !indexHtml.includes('不想拍孩子正脸'), 'customer choices should explain automatic platform recommendation and avoid industry-specific face-shooting copy');
 assert((customerAssessmentFormHtml.match(/\srequired(?:\s|\/?>)/g) || []).length === 3, 'customer intake should contain exactly three required fields');
 const customerOptionalStart = customerAssessmentFormHtml.indexOf('<details class="customer-more-fields customer-optional-fields">');
 assert(customerOptionalStart >= 0 && customerAssessmentFormHtml.indexOf('name="current_channels"') > customerOptionalStart && customerAssessmentFormHtml.indexOf('name="content_mode"') > customerOptionalStart && customerAssessmentFormHtml.indexOf('name="biggest_problem"') > customerOptionalStart, 'platform, content mode and biggest problem should all live inside the default-collapsed optional section');
@@ -1591,6 +1615,13 @@ assert(indexHtml.includes('脚本 · Kimi K2.6') && indexHtml.includes('文案 �
 assert(appJs.includes("script: 'Kimi (kimi-k2.6)'") && appJs.includes('function generationOutputTextForTask') && appJs.includes('function renderGenerationOutput') && appJs.includes('data-gw-action="copy-output"'), 'internal generation workbench should map Kimi tasks and render copyable output text from generated assets');
 assert(appJs.includes('function renderGenerationCompleteness') && appJs.includes('completeness_checked') && appJs.includes('continuation_rounds') && appJs.includes('regeneration_attempted'), 'internal task cards should progressively disclose Kimi completeness, continuation, and regeneration evidence');
 assert(appJs.includes("submitButton.textContent = '正在创建并提交...'") && appJs.includes("api(`/api/generation-tasks/${encodeURIComponent(taskId)}/submit`") && appJs.includes("taskCard?.scrollIntoView({behavior:'smooth', block:'center'})"), 'creating an internal generation task should immediately submit it and locate the active task card');
+assert(appJs.includes('form.dataset.activeRequestId') && appJs.includes('data.idempotency_key = form.dataset.activeRequestId'), 'generation form retries should reuse an explicit idempotency key instead of creating duplicate tasks');
+assert(appJs.includes('function copyGenerationText') && appJs.includes('浏览器没有允许复制'), 'generation output copying should fall back cleanly when clipboard permission is denied');
+assert(appJs.includes('function syncGenerationProjectContext') && appJs.includes("setValue('#generationTaskForm [name=\"content_plan_record_id\"]', planId)"), 'generation workbench should bind the active customer project and content plan instead of keeping QA defaults');
+assert(appJs.includes('function customerAccountSetupHtml') && appJs.includes('发布前，先把账号基础设置好') && appJs.includes('建议置顶的笔记'), 'customer results should expose a lightweight account setup module with correct pinning semantics');
+assert(appJs.includes("return '内容增长咨询与工具'") && appJs.includes('const goalText = customerText(goal'), 'customer offer inference should identify marketing-growth services before parsing goal verbs so it cannot produce a broken conjunction-led offer');
+assert(apiSource.includes("topic: '企业不知道发什么，先问客户这3题'") && apiSource.includes("topic: 'AI生成内容为什么总像模板'") && apiSource.includes("topic: '内容发了没效果，先看哪3个数'"), 'meta-marketing co-creation should use concrete customer-facing topic seeds instead of generic offer concatenation');
+assert(appJs.includes("task.adapter_state?.background_started_at || task.adapter_state?.triggered_at") && appJs.includes('const latestFailed = latestTask'), 'generation UI should use the real background start time and must not let historical success mask the latest failure');
 assert(warRoomCss.includes('v1.6.114 internal Kimi output preview') && warRoomCss.includes('body.internal-mode .generation-output-preview') && warRoomCss.includes('body.internal-mode .generation-completeness-grid'), 'internal dark-theme stylesheet should provide readable output and completeness panels without changing the customer shell');
 assert(appJs.includes('GENERATION_WORKBENCH_REFRESH_MS = 5000') && appJs.includes('function scheduleGenerationWorkbenchRefresh') && appJs.includes('function refreshGeneratingWorkbenchTasks') && appJs.includes('页面每 5 秒自动更新'), 'internal background generation should refresh automatically instead of leaving Kimi tasks visibly stuck in generating');
 assert(appJs.includes('function renderGenerationTaskActions') && appJs.includes('function renderGenerationTechnicalDetails') && appJs.includes('查看历史任务') && appJs.includes('generation-running-button'), 'internal task cards should expose only status-appropriate actions and collapse technical/history details');
@@ -1602,6 +1633,9 @@ for (const type of ['script', 'copy', 'video', 'cover', 'image']) {
 assert(appJs.includes('const GENERATION_TYPE_UI = {') && appJs.includes('function generationOutputSpecFor') && appJs.includes('data-generation-fields') && appJs.includes('generationOutputMediaForTask'), 'internal generation form should switch type-specific fields and render text/image/video outputs');
 assert(appJs.includes("String(asset?.storage_url || '').trim()"), 'text generation output should not crash when no image or video asset exists');
 assert(apiSource.includes('const IMAGE_BG_TIMEOUT_MS =') && apiSource.includes('const shouldRunAdapterInBackground =') && apiSource.includes("adapter.name === 'openai-image'"), 'real cover and image tasks should use the existing long-running background generation path');
+assert(apiSource.includes("context_version: 'business-context-v1'") && apiSource.includes('const generationProjectContext = async') && apiSource.includes('const autoLinkedGenerationAssetIds = async'), 'generation tasks should carry server-built customer context and automatically link same-plan assets');
+assert(apiSource.includes('idempotent_replay: true') && apiSource.includes('idempotency_key'), 'generation task creation should be idempotent across network retries');
+assert(indexHtml.includes('name="content_plan_record_id" type="hidden" value="qa_content_plan_001"'), 'uploaded assets should carry a content plan binding that can be replaced with the active project plan');
 assert(appJs.includes("data-gw-action=\"check-progress\"") && appJs.includes('generatingTasks.map((task)') && apiSource.includes('missingStartIsStale') && apiSource.includes('markBackgroundGenerationFailure'), 'generating tasks should support active progress checks, missed-trigger recovery and explicit background failure states');
 assert(warRoomCss.includes('v1.6.116 generation type fields and resilient progress') && warRoomCss.includes('.generation-type-field-group[hidden]') && warRoomCss.includes('.generation-running-state') && warRoomCss.includes('.generation-output-media'), 'internal-only styles should keep typed inputs, progress and media previews readable');
 assert(appJs.includes('function activateCustomerNextRound') && appJs.includes('data-customer-activate-round') && appJs.includes('previous_rounds') && appJs.includes('content_rounds'), 'customer client should support activating the next 7-day round and carrying prior round topics forward');
@@ -1684,11 +1718,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.140') && indexHtml.includes('/styles.css?v=1.6.140') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.140'), 'public customer page should use the v1.6.140 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.142') && indexHtml.includes('/styles.css?v=1.6.142') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.142'), 'public customer page should use the v1.6.142 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.140') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.140') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.140') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.142') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.142') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.142') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1720,7 +1754,7 @@ assert(warRoomCss.includes('v1.6.133 method entry and scenario page') && warRoom
 assert(warRoomCss.includes('.customer-growth-path li{') && warRoomCss.includes('margin-top:0!important'), 'method growth-path steps should override generic adjacent-list spacing so labels and arrows stay aligned');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
 assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
-assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.140') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
+assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.142') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
 assert(publicAccountMenuJs.includes("fetch('/api/auth/session'") && publicAccountMenuJs.includes("fetch('/api/account/entitlements'") && publicAccountMenuJs.includes("fetch('/api/auth/logout'") && publicAccountMenuJs.includes("window.location.assign('/invite')") && publicAccountMenuJs.includes('剩余用量'), 'shared public account menu should read the real session and quota, enter the invitation center, and perform backend logout');
 assert(publicAccountMenuJs.includes('initPublicNavigationState') && publicAccountMenuJs.includes('publicNavIcon') && publicAccountMenuJs.includes("link.setAttribute('aria-current', 'page')") && !publicAccountMenuJs.includes("link.classList.add('is-navigating')"), 'public navigation should add consistent leading icons and retain a destination-page state without a synthetic loading indicator');
 assert(warRoomCss.includes('a[aria-current="page"]') && warRoomCss.includes('.public-nav-icon') && warRoomCss.includes('a:hover') && !warRoomCss.includes('.public-navigation-status') && !warRoomCss.includes('public-nav-progress') && !warRoomCss.includes('public-nav-soft-glow'), 'public navigation should change icon and label color on hover/current state without a spinner, progress bar, status toast or glow animation');
@@ -2257,7 +2291,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.140' && health.version_label === 'v1.6.140 · 首轮选题语义质量修复版', 'public application health version should report v1.6.140');
+assert(health.version === '1.6.142' && health.version_label === 'v1.6.142 · 生产链路与客户体验收口版', 'public application health version should report v1.6.142');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.features?.includes('commercial_entitlements_p2') && health.features?.includes('commercial_usage_reservations'), 'health should expose P2 entitlements and usage reservations');
 assert(health.features?.includes('referral_rewards_v1'), 'health should expose the account-scoped referral reward capability');
@@ -2267,6 +2301,7 @@ assert(health.delivery_module_version === '1.6.122' && !health.delivery_module_l
 assert(health.module === 'generation-workbench', 'health should expose generation workbench module');
 assert(health.module_version === 'generation-workbench-v1', 'health should expose generation workbench module_version');
 assert(Array.isArray(health.features) && health.features.includes('async_video_polling'), 'health should list generation workbench features');
+assert(['generation_business_context_v1', 'generation_asset_auto_link', 'generation_multimodal_assets', 'generation_idempotency'].every((feature) => health.features.includes(feature)), 'health should expose the contextual and idempotent generation production chain');
 assert(health.features.includes('feishu_inbound_v1') && health.features.includes('feishu_bitable_pull_v1') && health.features.includes('feishu_bitable_push_v1') && health.features.includes('feishu_webhook'), 'health should expose Feishu stage-A inbound, stage-B pull, stage-C push and webhook capabilities');
 assert(health.providers?.openai === false && health.providers?.image_model === 'gpt-image-2' && health.providers?.image_background === true, 'health should expose non-secret image provider readiness, model and background execution evidence');
 assert(health.providers?.ark === false && health.providers?.seedance_model === 'doubao-seedance-2-0-260128', 'health should expose non-secret video provider readiness and model evidence');
@@ -2995,6 +3030,23 @@ const assetData = await assetRes.json();
 assert(assetData.asset.sha256 === referenceSha, 'asset upload should preserve server-verified sha256');
 assert(assetData.asset.status === 'ok', 'asset status should be ok');
 
+const dentalContextTaskResponse = await handler(internalRequest('POST', 'generation-tasks', {
+  project_id: 'project-dental',
+  client_id: 'dental',
+  client_name: '社区口腔门诊',
+  content_plan_record_id: String(dentalData.plans[0].id),
+  platform: '小红书',
+  generation_type: 'copy',
+  prompt: '根据当前选题生成一篇小红书笔记',
+  output_spec: { format: '小红书笔记', client_visible: false },
+}));
+assert(dentalContextTaskResponse.status === 201, 'generation task should load the existing customer project context');
+const dentalContextTask = (await dentalContextTaskResponse.json()).task;
+assert(dentalContextTask.production_context?.context_found === true, 'generation task should snapshot an existing project business context');
+assert(dentalContextTask.production_context?.business?.industry.includes('口腔'), 'production context must retain the current customer industry');
+assert(dentalContextTask.production_context?.plan?.topic === dentalData.plans[0].topic, 'production context must bind the selected content plan topic');
+assert(dentalContextTask.production_context?.platform_rules?.some((rule) => rule.includes('20个字符')), 'production context must include the selected platform publishing rules');
+
 const videoTaskRes = await handler(internalRequest('POST', 'generation-tasks', {
   project_id: qaProjectId,
   client_id: qaClientId,
@@ -3003,6 +3055,7 @@ const videoTaskRes = await handler(internalRequest('POST', 'generation-tasks', {
   platform: '小红书',
   content_type: '视频',
   generation_type: 'video',
+  idempotency_key: 'qa-video-generation-request-001',
   requested_model: 'Seedance 2.0',
   prompt: '生成一条项目化素材验收短视频 mock',
   output_spec: { size: '1080x1920', duration: '6s', ratio: '9:16', generate_audio: true, style: '真实工作台演示', client_visible: true },
@@ -3013,6 +3066,15 @@ const videoTask = (await videoTaskRes.json()).task;
 assert(videoTask.status === 'draft', 'video task should start as draft');
 assert(videoTask.requested_model === 'Seedance 2.0', 'video task requested_model should be Seedance 2.0');
 assert(videoTask.output_spec.ratio === '9:16' && videoTask.output_spec.generate_audio === true, 'video task should preserve ratio and audio settings');
+const repeatedVideoTaskResponse = await handler(internalRequest('POST', 'generation-tasks', {
+  project_id: qaProjectId,
+  client_id: qaClientId,
+  content_plan_record_id: 'qa_content_plan_001',
+  generation_type: 'video',
+  idempotency_key: 'qa-video-generation-request-001',
+}));
+const repeatedVideoTask = (await repeatedVideoTaskResponse.json()).task;
+assert(repeatedVideoTask.task_id === videoTask.task_id && repeatedVideoTask.idempotent_replay === true, 'repeating a generation create request with the same idempotency key must reuse the saved task');
 
 const submittedVideo = await (await handler(internalRequest('POST', `generation-tasks/${videoTask.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedVideo.task.status === 'generating', 'video submit should enter generating, not wait for final output');
@@ -3134,7 +3196,7 @@ const copyTask = await (await handler(internalRequest('POST', 'generation-tasks'
   project_id: qaProjectId,
   client_id: qaClientId,
   client_name: 'QA测试客户',
-  content_plan_record_id: 'qa_content_plan_003',
+  content_plan_record_id: 'qa_content_plan_002',
   platform: '小红书',
   generation_type: 'copy',
   requested_model: 'Claude + GLM A/B',
@@ -3143,6 +3205,8 @@ const copyTask = await (await handler(internalRequest('POST', 'generation-tasks'
 }))).json();
 assert(copyTask.task.content_type === '文案', 'copy task should default to the correct customer-facing content type');
 assert(copyTask.task.output_spec.style === 'A/B', 'copy task should preserve its type-specific output setting');
+assert(copyTask.task.input_asset_ids.includes(submittedCover.task.output_asset_ids[0]), 'copy tasks should automatically inherit generated images from the same content plan');
+assert(copyTask.task.auto_linked_asset_ids.includes(submittedCover.task.output_asset_ids[0]) && copyTask.task.production_context?.asset_briefs?.length >= 1, 'automatic same-batch asset linking should remain auditable in task context');
 const submittedCopy = await (await handler(internalRequest('POST', `generation-tasks/${copyTask.task.task_id}/submit`, { client_id: qaClientId }))).json();
 assert(submittedCopy.task.status === 'qa_pending', 'copy task should synchronously generate and enter qa_pending');
 assert(submittedCopy.task.provider === 'claude-text+glm-text', 'copy task should run Claude + GLM A/B adapter');
@@ -3156,6 +3220,8 @@ process.env.URL = 'https://background-smoke.example';
 let backgroundTriggerRequest = null;
 let kimiGenerationCalls = 0;
 let lastKimiUserPrompt = '';
+let lastKimiUserContent = null;
+let lastKimiRequestBody = null;
 const kimiGeneratedText = '安标系统短视频脚本：先说明企业最容易忽略的合规节点，再给出现场可执行的检查清单。';
 let kimiResponseQueue = [];
 globalThis.fetch = async (url, options = {}) => {
@@ -3171,7 +3237,11 @@ globalThis.fetch = async (url, options = {}) => {
   if (requestUrl.endsWith('/chat/completions')) {
     kimiGenerationCalls += 1;
     const requestBody = JSON.parse(String(options.body || '{}'));
-    lastKimiUserPrompt = String(requestBody.messages?.filter((item) => item.role === 'user')?.[0]?.content || '');
+    lastKimiRequestBody = requestBody;
+    lastKimiUserContent = requestBody.messages?.filter((item) => item.role === 'user')?.[0]?.content || '';
+    lastKimiUserPrompt = Array.isArray(lastKimiUserContent)
+      ? String(lastKimiUserContent.find((item) => item?.type === 'text')?.text || '')
+      : String(lastKimiUserContent || '');
     const queued = kimiResponseQueue.shift() || {};
     return new Response(JSON.stringify({
       model: 'kimi-k2.6',
@@ -3184,16 +3254,30 @@ globalThis.fetch = async (url, options = {}) => {
   }
   throw new Error(`unexpected Kimi smoke fetch: ${requestUrl}`);
 };
+const kimiReferenceAsset = (await (await handler(internalRequest('POST', 'assets', {
+  client_id: qaClientId,
+  client_name: 'QA测试客户',
+  project_id: qaProjectId,
+  project_name: '企业营销工具验收测试',
+  content_plan_record_id: 'qa_content_plan_kimi_background',
+  original_filename: 'kimi-reference.png',
+  mime_type: 'image/png',
+  storage_url: 'data:image/png;base64,AAAA',
+  generation_brief: '负责人在检测现场展示资料检查清单',
+  source: 'internal',
+  usage_scope: 'current_project_only',
+}))).json()).asset;
 const kimiTaskResponse = await handler(internalRequest('POST', 'generation-tasks', {
   project_id: qaProjectId,
   client_id: qaClientId,
   client_name: 'QA测试客户',
   content_plan_record_id: 'qa_content_plan_kimi_background',
-  platform: '视频号',
+  platform: '小红书',
   content_type: '脚本',
   generation_type: 'script',
   prompt: '为安标系统生成一条负责人能直接录制的短视频脚本',
   output_spec: { format: '口播脚本', target_duration: '60秒', must_include: '合规节点、检查清单', style: '负责人专业口播', client_visible: false },
+  input_asset_ids: [kimiReferenceAsset.asset_id],
 }));
 assert(kimiTaskResponse.status === 201, 'Kimi background task should be created');
 const kimiTask = (await kimiTaskResponse.json()).task;
@@ -3235,6 +3319,10 @@ const kimiAssets = (await kimiAssetsResponse.json()).assets;
 const kimiOutputAsset = kimiAssets.find((asset) => asset.asset_id === polledKimi.task.output_asset_ids[0]);
 assert(kimiOutputAsset?.notes === kimiGeneratedText, 'generated Kimi script should be readable from the output asset notes field');
 assert(lastKimiUserPrompt.includes('内容形式：口播脚本') && lastKimiUserPrompt.includes('目标时长：60秒') && lastKimiUserPrompt.includes('必须包含：合规节点、检查清单'), 'Kimi should receive the structured script settings in its model prompt');
+assert(lastKimiRequestBody?.thinking?.type === 'disabled', 'Kimi copy and script generation should disable extended thinking so the response budget remains available for the deliverable');
+assert(Array.isArray(lastKimiUserContent) && lastKimiUserContent.some((item) => item?.type === 'image_url'), 'Kimi should receive selected image assets through the multimodal message when a readable image URL exists');
+assert(lastKimiUserPrompt.includes('本批次已关联素材') && lastKimiUserPrompt.includes('负责人在检测现场展示资料检查清单'), 'Kimi should receive the same-batch asset brief in addition to the image payload');
+assert(lastKimiUserPrompt.includes('小红书所有标题候选都不得超过20个字符') && lastKimiUserPrompt.includes('标点和emoji均计入'), 'Kimi should receive the Xiaohongshu 20-character title limit as a platform-level hard rule');
 assert(polledKimi.task.adapter_manifest?.output?.completeness_checked === true && polledKimi.task.adapter_manifest?.output?.completeness_passed === true, 'complete Kimi text should retain positive completeness evidence');
 assert(polledKimi.task.adapter_manifest?.output?.continuation_rounds === 0 && polledKimi.task.adapter_manifest?.output?.regeneration_attempted === false, 'complete Kimi text should not spend continuation or regeneration calls');
 const repeatedBackgroundResponse = await backgroundGenerationHandler(authorizedBackgroundRequest());
@@ -3389,10 +3477,12 @@ process.env.OPENAI_API_KEY = 'smoke-openai-image-key';
 process.env.SAFE_TO_RUN = 'true';
 process.env.URL = 'https://background-image-smoke.example';
 let openAiImageTrigger = null;
+let openAiImageTriggerCalls = 0;
 let openAiImageCalls = 0;
 globalThis.fetch = async (url, options = {}) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith('/.netlify/functions/generate-background')) {
+    openAiImageTriggerCalls += 1;
     openAiImageTrigger = JSON.parse(String(options.body || '{}'));
     return new Response('', { status: 202 });
   }
@@ -3419,6 +3509,9 @@ const submittedBackgroundCover = (await (await handler(internalRequest('POST', `
 assert(submittedBackgroundCover.status === 'generating', 'configured OpenAI image tasks should return immediately and generate in the background');
 assert(openAiImageCalls === 0, 'image submit must not wait for the long-running image model in the synchronous API request');
 assert(openAiImageTrigger?.task_id === backgroundCoverTask.task_id, 'image submit should trigger the shared authenticated background function');
+const repeatedBackgroundCoverSubmit = (await (await handler(internalRequest('POST', `generation-tasks/${backgroundCoverTask.task_id}/submit`, { client_id: qaClientId }))).json()).task;
+assert(repeatedBackgroundCoverSubmit.task_id === backgroundCoverTask.task_id && repeatedBackgroundCoverSubmit.status === 'generating', 'repeated image submit should return the existing in-flight task');
+assert(openAiImageTriggerCalls === 1 && openAiImageCalls === 0, 'repeated image submit must not trigger a second provider job or image generation call');
 const generatedBackgroundCoverResponse = await backgroundGenerationHandler(new Request('http://localhost/.netlify/functions/generate-background', {
   method: 'POST',
   headers: {
@@ -3667,6 +3760,7 @@ for (const qualityCase of qualityCases) {
   const result = await response.json();
   assert(result.generation_meta?.provider === 'volcengine_ark' && result.generation_meta?.fallback === false, `${qualityCase.id} quality cleanup should preserve real model evidence`);
   assert(result.plans.every((plan) => plan.platform === '小红书'), `${qualityCase.id} selected XHS platform should not be replaced`);
+  assert(result.plans.every((plan) => Array.from(plan.topic).length <= 20), `${qualityCase.id} XHS titles should pass the 20-character server gate`);
   assertPlanCtaQuality(`${qualityCase.id} content quality`, result);
   const topicText = result.plans.map((plan) => plan.topic).join('｜');
   assert(!/一文讲清|干货整理|全面解析|深度解析|知识科普/.test(topicText), `${qualityCase.id} XHS titles should remove textbook phrasing: ${topicText}`);

@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.140';
-const VERSION_LABEL = 'v1.6.140 · 首轮选题语义质量修复版';
+const APP_VERSION = '1.6.142';
+const VERSION_LABEL = 'v1.6.142 · 生产链路与客户体验收口版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -1177,8 +1177,9 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
 const accountSetupFor = (assessment, recommendations) => {
   const isMeta = isMetaMarketingAccount(assessment);
   const primary = recommendations?.primary?.[0]?.platform || '小红书';
+  const isXiaohongshu = primary === '小红书';
   const preference = assessment.account_preference || '';
-  const accountName = preference || (isMeta ? '内容决策局' : `${assessment.company_name || '品牌'}内容增长号`);
+  const accountName = preference || (isMeta ? '获客罗盘' : `${assessment.company_name || assessment.industry || '品牌'}内容增长号`);
   const positioning = isMeta
     ? '企业内容增长 / 企业获客 / AI营销复盘'
     : `${assessment.industry || '当前行业'}内容获客与客户信任建立`;
@@ -1200,13 +1201,22 @@ const accountSetupFor = (assessment, recommendations) => {
     avatar_direction: isMeta
       ? '小红书精致感图标：内容卡片 + 决策指针 + AI节点 + 增长箭头；头像不放文字。'
       : '用品牌/服务核心符号做简洁头像，不堆文字，不做廉价营销海报。',
+    background_direction: isXiaohongshu
+      ? '使用横向品牌背景图，核心图形和短句避开头像、昵称覆盖区域；少字、高对比，手机端缩小后仍能识别。'
+      : '使用横向品牌背景图，保留安全留白，核心信息不要贴边或堆叠联系方式。',
+    pinned_note_directions: isXiaohongshu
+      ? ['我是谁、能帮谁解决什么问题', '真实服务过程或案例证据', '客户咨询前最需要了解的事项']
+      : ['账号定位说明', '真实服务过程或案例证据', '客户下一步如何了解服务'],
+    pinning_rule: isXiaohongshu
+      ? '小红书只能置顶已经发布的笔记；先发布并验证内容，再选择最能说明定位、建立信任和承接咨询的笔记置顶。'
+      : '置顶内容必须来自已发布内容，优先保留定位、信任证据和服务入口三类信息。',
     starting_platform: {
       platform: primary,
       reason: recommendations?.primary?.[0]?.reason || '先选择一个主平台跑7天小样本，避免多平台分散。',
       rule: platformStyleRulesFor(primary),
     },
     naming_warning: '对外称呼优先用老板、企业主、商家、门店老板、企业负责人，保持专业和尊重。',
-    scope_note: '账号基础设置是发布前门禁：定位、简介、主页关键词、头像方向和起步主平台先确认，再生成内容。',
+    scope_note: '账号基础设置是发布前门禁：定位、简介、主页关键词、头像、背景图和起步主平台先确认，再开始发布。',
   };
 };
 
@@ -1556,6 +1566,7 @@ const coCreationTopicSeeds = (assessment = {}) => {
   const basketball = service.type === 'youth_basketball';
   const martialArts = service.type === 'martial_arts' || isMartialArtsText(biz);
   const postpartum = service.type === 'postpartum';
+  const marketingGrowth = service.type === 'marketing_growth';
   const withEmphasis = (rows) => emphasis
     ? [{ topic: `${emphasis}，客户最想先确认什么`, angle: `围绕客户特别强调的「${emphasis}」展开`, cta: basketball ? '引导家长咨询孩子年龄和体验课时间' : martialArts ? '引导家长咨询孩子年龄、基础和体验课时间' : postpartum ? '引导客户说明产后阶段和身体情况' : '引导客户咨询具体情况' }, ...rows]
     : rows;
@@ -1620,6 +1631,27 @@ const coCreationTopicSeeds = (assessment = {}) => {
       { topic: '产后身体的这些变化，很多宝妈以为忍忍就过去了', angle: '先回应真实困扰，而不是介绍项目清单', cta: '引导客户描述自己的情况' },
       { topic: '骨盆、腹直肌、盆底肌，产后先看哪一个', angle: '用客户视角把项目关系讲清楚', cta: '引导咨询自己适合从哪里开始' },
       { topic: '产后修复不是越早越好，也不是越贵越好', angle: '拆解常见误区和犹豫点', cta: '引导咨询合适的时机' },
+    ]);
+  }
+  if (marketingGrowth) {
+    if (direction.includes('信任') || direction.includes('案例')) {
+      return withEmphasis([
+        { topic: 'AI生成内容为什么总像模板', angle: '解释缺少业务上下文、真实素材和发布反馈时，模型为什么只能给通用答案', cta: '保存这份判断清单' },
+        { topic: '内容工具准不准，先看它记住了什么', angle: '用客户资料、当轮选题和历史效果说明持续记忆的价值', cta: '主页了解工作方式' },
+        { topic: '一次生成和持续优化，差别在哪', angle: '对比单次问答与发布后用真实数据调整下一轮的区别', cta: '带上业务咨询方向' },
+      ]);
+    }
+    if (direction.includes('转化') || direction.includes('咨询')) {
+      return withEmphasis([
+        { topic: '内容有浏览没咨询，先查这3处', angle: '从选题、信任证据和咨询承接三个环节定位问题', cta: '保存这份自查清单' },
+        { topic: '企业内容怎么从浏览走到咨询', angle: '把内容目标、客户问题和下一步动作连成完整路径', cta: '主页了解优化方法' },
+        { topic: '下一条内容怎么改，数据会告诉你', angle: '说明曝光、互动和咨询分别对应哪种调整动作', cta: '记录数据再做判断' },
+      ]);
+    }
+    return withEmphasis([
+      { topic: '企业不知道发什么，先问客户这3题', angle: '从客户真实问题而不是产品功能开始选题', cta: '保存这份选题清单' },
+      { topic: 'AI生成内容为什么总像模板', angle: '说明业务资料、素材和反馈如何让建议变得具体', cta: '主页了解工作方式' },
+      { topic: '内容发了没效果，先看哪3个数', angle: '用曝光、互动和咨询判断下一条该改哪里', cta: '记录数据再做判断' },
     ]);
   }
   if (direction.includes('信任')) {
@@ -2060,7 +2092,7 @@ const planTopicQualityIssue = (value = '', assessment = {}) => {
   if (!isMetaMarketingAccount(assessment) && /不知道发什么|做内容.*卡壳|内容发了没效果|如何引流|没流量|没咨询/.test(topic)) return 'operator_perspective';
   return '';
 };
-const safePlanTopicFallback = (assessment = {}, index = 0) => {
+const safePlanTopicFallback = (assessment = {}, index = 0, maxLength = 24) => {
   const target = shortAudience(assessment.target_customer || '目标客户');
   const pain = painLabel(assessment.customer_pain || '', assessment.biggest_problem || '');
   const titles = naturalPlanTitles({
@@ -2070,7 +2102,20 @@ const safePlanTopicFallback = (assessment = {}, index = 0) => {
     painShort: pain,
     goal: assessment.main_goal || '',
   });
-  return limitPlanText(titles[index % Math.max(titles.length, 1)] || '先看客户真正关心的3个问题', 24);
+  return limitPlanText(titles[index % Math.max(titles.length, 1)] || '先看客户真正关心的3个问题', maxLength);
+};
+const fitPlanTopicToPlatform = (value = '', platform = '', assessment = {}, index = 0) => {
+  const topic = trimPlanNoise(value);
+  const maxLength = String(platform).includes('小红书') ? 20 : 24;
+  if (planTextLength(topic) <= maxLength) return topic;
+  const question = /[？?]/.test(topic);
+  const clauses = topic.split(/[，。！？；：,.!?;:]/).map(trimPlanNoise).filter(Boolean);
+  const clause = clauses.find((item) => planTextLength(item) >= 7 && planTextLength(item) + (question ? 1 : 0) <= maxLength);
+  if (clause) return `${clause}${question ? '？' : ''}`;
+  const fallback = safePlanTopicFallback(assessment, index, maxLength);
+  if (planTextLength(fallback) <= maxLength) return fallback;
+  const suffix = /[？?]$/.test(fallback) ? '？' : '';
+  return `${Array.from(fallback).slice(0, Math.max(1, maxLength - planTextLength(suffix))).join('')}${suffix}`;
 };
 const cleanPlanTopicForPlatform = (value = '', platform = '', assessment = {}, index = 0) => {
   const original = trimPlanNoise(value);
@@ -2087,9 +2132,11 @@ const cleanPlanTopicForPlatform = (value = '', platform = '', assessment = {}, i
         cleaned = limitPlanText(`${hooks[index % hooks.length]}${core}`, 24);
       }
     }
-    return planTopicQualityIssue(cleaned, assessment) ? safePlanTopicFallback(assessment, index) : cleaned;
+    const qualitySafe = planTopicQualityIssue(cleaned, assessment) ? safePlanTopicFallback(assessment, index) : cleaned;
+    return fitPlanTopicToPlatform(qualitySafe, platform, assessment, index);
   } catch {
-    return planTopicQualityIssue(original, assessment) ? safePlanTopicFallback(assessment, index) : original;
+    const qualitySafe = planTopicQualityIssue(original, assessment) ? safePlanTopicFallback(assessment, index) : original;
+    return fitPlanTopicToPlatform(qualitySafe, platform, assessment, index);
   }
 };
 const postProcessPlanRows = (rows = [], platforms = [], assessment = {}) => {
@@ -6267,6 +6314,11 @@ const createAsset = async (payload = {}) => {
       : null,
     status: payload.status || (buffer || payload.storage_url ? 'ok' : 'unreadable'),
     notes: payload.notes || '',
+    content_batch_id: String(payload.content_batch_id || (payload.content_plan_record_id ? generationBatchIdFor(payload) : '')),
+    content_plan_record_id: String(payload.content_plan_record_id || ''),
+    source_task_id: String(payload.source_task_id || ''),
+    asset_role: String(payload.asset_role || ''),
+    generation_brief: String(payload.generation_brief || ''),
   };
   await upsertCollectionItem('assets', client_id, asset, 'asset_id');
   return asset;
@@ -6777,12 +6829,177 @@ const patchDeliveryResource = async (kind, clientId, id, payload = {}) => {
   return updated;
 };
 
+const compactGenerationText = (value = '', maxLength = 320) =>
+  Array.from(String(value || '').replace(/\s+/g, ' ').trim()).slice(0, maxLength).join('');
+
+const generationPlatformRulesFor = (platform = '') => {
+  const normalized = String(platform || '').trim();
+  const common = [
+    '不得编造客户没有提供的资质、案例、效果、销量或承诺。',
+    '不得使用保证效果、绝对第一、百分百有效等无法证明的绝对化表述。',
+    '不得在正文中直接放手机号、微信号、二维码或外部导流链接。',
+  ];
+  if (normalized === '小红书') {
+    return [
+      '小红书所有标题候选都不得超过20个字符，汉字、数字、标点和emoji均计入。',
+      '标题必须语义完整、单独可读，不用留言关键词或评论区诱导换取资料。',
+      '封面与正文避免大面积联系方式、二维码、第三方水印或无授权品牌标识。',
+      ...common,
+    ];
+  }
+  if (normalized === '抖音') {
+    return [
+      '前三秒先讲具体问题，不使用虚假效果对比、夸大承诺或诱导互动话术。',
+      '画面、字幕和口播避免直接展示联系方式、二维码、外链和无授权第三方标识。',
+      ...common,
+    ];
+  }
+  if (normalized === '视频号') {
+    return [
+      '表达以可信、清楚为先，不使用夸张猎奇承诺或强迫转发、点赞话术。',
+      '画面和文案避免直接展示联系方式、二维码、外链和无授权第三方标识。',
+      ...common,
+    ];
+  }
+  return common;
+};
+
+const generationBatchIdFor = (payload = {}) => {
+  const explicit = String(payload.content_batch_id || '').trim();
+  if (explicit) return explicit.slice(0, 120);
+  const seed = [payload.client_id, payload.project_id, payload.content_plan_record_id].map((item) => String(item || '').trim()).join('|');
+  return `content_batch_${sha256Hex(seed).slice(0, 16)}`;
+};
+
+const generationProjectContext = async ({ clientId = '', projectId = '', contentPlanRecordId = '', platform = '', inputAssets = [] } = {}) => {
+  const empty = {
+    context_version: 'business-context-v1',
+    context_found: false,
+    project: { id: String(projectId || ''), name: '' },
+    business: {},
+    plan: { id: String(contentPlanRecordId || '') },
+    feedback: { record_count: 0, latest: null },
+    market_signal: {},
+    account_setup: {},
+    platform_rules: generationPlatformRulesFor(platform),
+    asset_briefs: [],
+    generated_at: nowIso(),
+  };
+  const cloud = await readCloudState(clientId, { internal: clientId === 'internal' }).catch(() => null);
+  const projects = ensureArray(cloud?.project_store?.projects);
+  const project = projects.find((item) => String(item?.id || item?.state?.project?.id || '') === String(projectId || ''));
+  const projectState = project?.state || {};
+  const assetBriefs = inputAssets.slice(0, 8).map((asset, index) => ({
+    order: index + 1,
+    asset_id: asset.asset_id,
+    filename: compactGenerationText(asset.original_filename, 100),
+    mime_type: asset.mime_type || '',
+    role: compactGenerationText(asset.asset_role || asset.usage, 60),
+    brief: compactGenerationText(asset.generation_brief || asset.notes, 260),
+  }));
+  if (!project || !projectState.assessment) return { ...empty, asset_briefs: assetBriefs };
+  const assessment = projectState.assessment || {};
+  const diagnosis = projectState.diagnosis || {};
+  const plan = ensureArray(projectState.plans).find((item) => samePlanRef(item?.id ?? item?.content_plan_id, contentPlanRecordId)) || {};
+  const feedbackRows = [...ensureArray(projectState.feedback?.length ? projectState.feedback : projectState.records)]
+    .sort((a, b) => compareTimestampDesc(a?.created_at || a?.updated_at, b?.created_at || b?.updated_at));
+  const latestFeedback = feedbackRows[0] || null;
+  const review = projectState.review || projectState.latest_next_round?.review_judgment || null;
+  const benchmark = assessment.benchmark || diagnosis.benchmark_reference || {};
+  return {
+    ...empty,
+    context_found: true,
+    project: {
+      id: String(project.id || projectState.project?.id || projectId || ''),
+      name: compactGenerationText(project.name || projectState.project?.name || assessment.company_name || assessment.industry, 100),
+      cycle_id: String(projectState.current_cycle_id || ''),
+    },
+    business: {
+      company_name: compactGenerationText(assessment.company_name, 100),
+      industry: compactGenerationText(assessment.industry, 220),
+      goal: compactGenerationText(assessment.main_goal, 220),
+      target_customer: compactGenerationText(assessment.target_customer, 220),
+      offer: compactGenerationText(assessment.offer, 220),
+      customer_pain: compactGenerationText(assessment.customer_pain || assessment.biggest_problem, 260),
+      available_assets: compactGenerationText(assessment.content_assets || assessment.best_recent_content, 260),
+    },
+    plan: {
+      id: String(plan.id ?? plan.content_plan_id ?? contentPlanRecordId ?? ''),
+      topic: compactGenerationText(plan.topic || plan.title, 180),
+      angle: compactGenerationText(plan.angle || plan.content_hypothesis, 260),
+      cta: compactGenerationText(plan.cta, 140),
+      content_brief: compactGenerationText(plan.content_brief, 320),
+      why: compactGenerationText(plan.customer_reasoning || plan.why_platform_fit, 260),
+    },
+    feedback: {
+      record_count: feedbackRows.length,
+      latest: latestFeedback ? {
+        plan_topic: compactGenerationText(latestFeedback.plan_topic, 160),
+        views: playbackValue(latestFeedback),
+        engagement: feedbackEngagement(latestFeedback),
+        consultations: numValue(latestFeedback.consultations),
+        notes: compactGenerationText(latestFeedback.notes || latestFeedback.observation_tags, 260),
+      } : null,
+      review: review ? {
+        winner_topic: compactGenerationText(review.winner_topic || review.winning_theme || review.more, 180),
+        bottleneck: compactGenerationText(review.bottleneck || review.less, 220),
+        next_action: compactGenerationText(review.next_actions || review.next_suggestion || review.decision, 260),
+      } : null,
+    },
+    market_signal: {
+      platform: compactGenerationText(benchmark.platform, 40),
+      accounts: ensureArray(benchmark.accounts).slice(0, 3).map((item) => compactGenerationText(item, 160)),
+      notes: compactGenerationText(benchmark.notes || benchmark.summary || benchmark.sample_content, 280),
+    },
+    account_setup: diagnosis.account_setup && typeof diagnosis.account_setup === 'object' ? diagnosis.account_setup : {},
+    asset_briefs: assetBriefs,
+  };
+};
+
+const autoLinkedGenerationAssetIds = async ({ clientId = '', projectId = '', contentPlanRecordId = '', generationType = '', explicitAssetIds = [] } = {}) => {
+  const explicit = [...new Set(ensureArray(explicitAssetIds).map(String).filter(Boolean))];
+  if (!['script', 'copy'].includes(generationType)) return { inputAssetIds: explicit, autoLinkedAssetIds: [] };
+  const taskState = await readCloudCollection('tasks', clientId);
+  const related = ensureArray(taskState.tasks)
+    .filter((task) => String(task.project_id || '') === String(projectId || ''))
+    .filter((task) => samePlanRef(task.content_plan_record_id, contentPlanRecordId))
+    .filter((task) => ['image', 'cover'].includes(task.generation_type))
+    .filter((task) => ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status))
+    .sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at));
+  const autoLinkedAssetIds = [...new Set(related.flatMap((task) => ensureArray(task.output_asset_ids).map(String)).filter(Boolean))].slice(0, 8);
+  return { inputAssetIds: [...new Set([...explicit, ...autoLinkedAssetIds])].slice(0, 8), autoLinkedAssetIds };
+};
+
 const createGenerationTask = async (payload = {}) => {
   const client_id = normalizeClientId(payload.client_id);
   const missing = ['project_id', 'client_id', 'content_plan_record_id'].filter((key) => !String(payload[key] || '').trim());
   if (missing.length || !client_id) throw new Error(`创建生成任务缺少必填归属字段：${missing.join(', ') || 'client_id'}`);
   const generation_type = payload.generation_type || generationTypeForContent(payload.content_type) || 'copy';
   const requested_model = payload.requested_model || requestedModelForGeneration(generation_type);
+  const idempotency_key = String(payload.idempotency_key || '').trim().slice(0, 160);
+  if (idempotency_key) {
+    const current = await readCloudCollection('tasks', client_id);
+    const existing = ensureArray(current.tasks).find((item) => item.idempotency_key === idempotency_key);
+    if (existing) return { ...existing, idempotent_replay: true };
+  }
+  const content_batch_id = generationBatchIdFor({ ...payload, client_id });
+  const linkedAssets = await autoLinkedGenerationAssetIds({
+    clientId: client_id,
+    projectId: payload.project_id,
+    contentPlanRecordId: payload.content_plan_record_id,
+    generationType: generation_type,
+    explicitAssetIds: payload.input_asset_ids,
+  });
+  const availableAssets = await listAssets({ clientId: client_id, projectId: String(payload.project_id) });
+  const assetById = new Map(availableAssets.map((asset) => [String(asset.asset_id), asset]));
+  const inputAssets = linkedAssets.inputAssetIds.map((id) => assetById.get(String(id))).filter(Boolean);
+  const production_context = await generationProjectContext({
+    clientId: client_id,
+    projectId: String(payload.project_id),
+    contentPlanRecordId: String(payload.content_plan_record_id),
+    platform: payload.platform || '小红书',
+    inputAssets,
+  });
   const task = {
     task_id: payload.task_id || makeId('task'),
     project_id: String(payload.project_id),
@@ -6799,7 +7016,10 @@ const createGenerationTask = async (payload = {}) => {
     fallback_reason: null,
     error: '',
     provider_job_id: '',
+    idempotency_key,
+    content_batch_id,
     prompt: payload.prompt || '',
+    production_context,
     output_spec: {
       size: payload.output_spec?.size || payload.size || 'auto',
       duration: payload.output_spec?.duration || payload.duration || '',
@@ -6815,7 +7035,8 @@ const createGenerationTask = async (payload = {}) => {
       usage: payload.output_spec?.usage || payload.usage || '',
       client_visible: Boolean(payload.output_spec?.client_visible ?? payload.client_visible ?? true),
     },
-    input_asset_ids: ensureArray(payload.input_asset_ids),
+    input_asset_ids: linkedAssets.inputAssetIds,
+    auto_linked_asset_ids: linkedAssets.autoLinkedAssetIds,
     output_asset_ids: [],
     status: payload.status || 'draft',
     qa: {
@@ -6878,6 +7099,11 @@ const outputAssetForTask = async (task, output = {}) => {
     status: 'ok',
     notes: output.text || output.summary || 'mock adapter output',
     text_content: body,
+    content_batch_id: task.content_batch_id || '',
+    content_plan_record_id: task.content_plan_record_id || '',
+    source_task_id: task.task_id || '',
+    asset_role: task.generation_type === 'cover' ? 'cover' : task.generation_type,
+    generation_brief: task.prompt || '',
   });
 };
 
@@ -6936,6 +7162,47 @@ const parseDurationSeconds = (value = '') => {
   return match ? Number(match[0]) : 8;
 };
 
+const generationContextPrompt = (task = {}) => {
+  const context = task.production_context || {};
+  const business = context.business || {};
+  const plan = context.plan || {};
+  const feedback = context.feedback || {};
+  const market = context.market_signal || {};
+  const accountSetup = context.account_setup || {};
+  const lines = [
+    ['项目', context.project?.name],
+    ['行业/业务', business.industry],
+    ['本轮目标', business.goal],
+    ['目标客户', business.target_customer],
+    ['产品/服务', business.offer],
+    ['客户顾虑', business.customer_pain],
+    ['已有素材', business.available_assets],
+    ['当前选题', plan.topic],
+    ['内容角度', plan.angle],
+    ['内容简报', plan.content_brief],
+    ['行动承接', plan.cta],
+    ['为什么这样做', plan.why],
+    ['账号定位', accountSetup.positioning || accountSetup.account_positioning || accountSetup.bio],
+    ['市场参考', market.notes],
+  ].filter(([, value]) => String(value || '').trim()).map(([label, value]) => `- ${label}：${value}`);
+  if (feedback.latest) {
+    lines.push(`- 最近真实反馈：主题「${feedback.latest.plan_topic || '未标注'}」，曝光 ${feedback.latest.views || 0}，互动 ${feedback.latest.engagement || 0}，咨询 ${feedback.latest.consultations || 0}${feedback.latest.notes ? `；观察：${feedback.latest.notes}` : ''}`);
+  }
+  if (feedback.review) {
+    lines.push(`- 已验证复盘：胜出主题「${feedback.review.winner_topic || '暂无'}」；当前瓶颈：${feedback.review.bottleneck || '暂无'}；下一步：${feedback.review.next_action || '暂无'}`);
+  }
+  const assetLines = ensureArray(context.asset_briefs).map((asset) =>
+    `- 素材${asset.order || ''}${asset.role ? `（${asset.role}）` : ''}：${asset.filename || asset.asset_id || '未命名'}${asset.brief ? `；内容说明：${asset.brief}` : ''}`
+  );
+  const ruleLines = ensureArray(context.platform_rules).map((rule) => `- ${rule}`);
+  return [
+    lines.length ? `系统已关联的真实业务上下文：\n${lines.join('\n')}` : '',
+    assetLines.length ? `本批次已关联素材（按顺序理解画面和用途）：\n${assetLines.join('\n')}` : '',
+    ruleLines.length ? `发布前必须遵守的平台规则：\n${ruleLines.join('\n')}` : '',
+    '生成要求：只服务当前客户、当前选题和当前平台；不得套用其他行业案例。用户补充要求与业务上下文冲突时，以业务上下文和平台规则为准。',
+  ].filter(Boolean).join('\n\n');
+};
+
 const generationModelPrompt = (task = {}) => {
   const spec = task.output_spec || {};
   const labels = [
@@ -6952,7 +7219,32 @@ const generationModelPrompt = (task = {}) => {
     ['是否生成声音', task.generation_type === 'video' ? (spec.generate_audio ? '是' : '否') : ''],
   ].filter(([, value]) => String(value || '').trim());
   const settings = labels.map(([label, value]) => `- ${label}：${value}`).join('\n');
-  return [String(task.prompt || '').trim(), settings ? `生成设置：\n${settings}` : ''].filter(Boolean).join('\n\n');
+  return [
+    generationContextPrompt(task),
+    String(task.prompt || '').trim() ? `运营补充要求：\n${String(task.prompt || '').trim()}` : '',
+    settings ? `生成设置：\n${settings}` : '',
+  ].filter(Boolean).join('\n\n');
+};
+
+const kimiUserContentFor = (prompt = '', inputAssets = []) => {
+  const images = ensureArray(inputAssets)
+    .filter((asset) => String(asset.mime_type || '').startsWith('image/'))
+    .map((asset) => String(asset.storage_url || '').trim())
+    .filter((url) => /^(?:https?:\/\/|data:image\/)/i.test(url))
+    .filter((url) => !url.startsWith('data:image/') || url.length <= 5_500_000)
+    .slice(0, 4);
+  if (!images.length) return prompt;
+  return [
+    ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+    { type: 'text', text: `${prompt}\n\n上方图片属于同一内容批次，请按图片顺序和实际画面组织正文，不要虚构图片中看不到的事实。` },
+  ];
+};
+
+const appendKimiUserInstruction = (content, instruction = '') => {
+  if (!Array.isArray(content)) return `${String(content || '')}\n\n${instruction}`.trim();
+  return content.map((item, index) => index === content.length - 1 && item?.type === 'text'
+    ? { ...item, text: `${String(item.text || '')}\n\n${instruction}`.trim() }
+    : item);
 };
 
 const seedanceContentFor = (task = {}, inputAssets = []) => {
@@ -7173,6 +7465,7 @@ const callKimiText = async ({ messages = [], timeoutMs, retries = 0, maxTokens =
         body: JSON.stringify({
           model: KIMI_MODEL,
           messages,
+          thinking: { type: 'disabled' },
           temperature: 1,
           max_tokens: maxTokens,
         }),
@@ -7204,16 +7497,17 @@ const callKimiText = async ({ messages = [], timeoutMs, retries = 0, maxTokens =
   };
 };
 
-const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, retries = 0 } = {}) => {
+const submitKimiTextSingle = async ({ task, inputAssets = [] }, { timeoutMs = KIMI_TIMEOUT_MS, retries = 0 } = {}) => {
   const prompt = generationModelPrompt(task) || '生成一份营销短内容脚本';
   const output = { storage_url: `mock://kimi-text/${task.task_id}.txt`, mime_type: 'text/plain', text: `Kimi mock：${prompt}` };
   if (!kimiApiKey()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_KEY_MISSING', output });
   if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'kimi-text', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const originalPrompt = prompt;
+  const originalUserContent = kimiUserContentFor(originalPrompt, inputAssets);
   const initial = await callKimiText({
     messages: [
       { role: 'system', content: kimiSystemPrompt },
-      { role: 'user', content: originalPrompt },
+      { role: 'user', content: originalUserContent },
     ],
     timeoutMs,
     // Background Functions cap at 15 minutes; reserve time for continuation and one full rewrite.
@@ -7250,7 +7544,7 @@ const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, ret
     const continuation = await callKimiText({
       messages: [
         { role: 'system', content: kimiSystemPrompt },
-        { role: 'user', content: originalPrompt },
+        { role: 'user', content: originalUserContent },
         { role: 'assistant', content: text },
         {
           role: 'user',
@@ -7285,7 +7579,7 @@ const submitKimiTextSingle = async ({ task }, { timeoutMs = KIMI_TIMEOUT_MS, ret
         { role: 'system', content: kimiSystemPrompt },
         {
           role: 'user',
-          content: `${originalPrompt}\n\n完整性要求：请从头输出一份完整稿件，不要提及此前截断；所有标题、句子和列表项都必须写完，接近篇幅上限时主动压缩并完整收尾。`,
+          content: appendKimiUserInstruction(originalUserContent, '完整性要求：请从头输出一份完整稿件，不要提及此前截断；所有标题、句子和列表项都必须写完，接近篇幅上限时主动压缩并完整收尾。'),
         },
       ],
       timeoutMs,
@@ -7498,12 +7792,24 @@ export const runBackgroundGeneration = async ({ client_id = '', task_id = '' } =
     },
   }, 'generating', '后台模型开始生成');
   await saveTask(task);
+  const assetCheck = await validateTaskAssets(task);
+  if (!assetCheck.ok) {
+    return saveTask(withStatus({
+      ...task,
+      error: `素材缺失或不可读：${assetCheck.missing.join(', ')}`,
+      adapter_state: {
+        ...(task.adapter_state || {}),
+        background_completed_at: nowIso(),
+        last_background_error: 'blocked_asset_missing',
+      },
+    }, 'blocked_asset_missing', '后台生成前素材复核失败'));
+  }
   let submitted;
   try {
     const backgroundOptions = adapter.name === 'openai-image'
       ? { timeoutMs: IMAGE_BG_TIMEOUT_MS, retries: 0 }
       : { timeoutMs: KIMI_BG_TIMEOUT_MS, retries: KIMI_MAX_RETRIES };
-    submitted = await adapter.submit({ task, outputSpec: task.output_spec }, backgroundOptions);
+    submitted = await adapter.submit({ task, inputAssets: assetCheck.assets, outputSpec: task.output_spec }, backgroundOptions);
   } catch (error) {
     submitted = { ok: false, provider: adapter.name, actual_model: 'rule_template', fallback_reason: error?.message || 'adapter_failed', error: error?.message || 'adapter_failed' };
   }
@@ -7570,12 +7876,26 @@ export const markBackgroundGenerationFailure = async ({ client_id = '', task_id 
 const submitGenerationTask = async (clientId, taskId) => {
   let task = await getTask(clientId, taskId);
   if (!task) throw new Error('生成任务不存在');
+  if (task.status === 'generating' || ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status)) return task;
   task = withStatus(task, 'submitted', '提交生成');
   task = withStatus(task, 'asset_checking', '检查参考素材');
   const assetCheck = await validateTaskAssets(task);
   if (!assetCheck.ok) {
     task = withStatus({ ...task, error: `素材缺失或不可读：${assetCheck.missing.join(', ')}` }, 'blocked_asset_missing', '素材校验失败');
     return saveTask(task);
+  }
+  if (task.production_context?.context_version !== 'business-context-v1') {
+    task = {
+      ...task,
+      production_context: await generationProjectContext({
+        clientId: task.client_id,
+        projectId: task.project_id,
+        contentPlanRecordId: task.content_plan_record_id,
+        platform: task.platform,
+        inputAssets: assetCheck.assets,
+      }),
+      updated_at: nowIso(),
+    };
   }
   const adapter = adapterForTask(task);
   task = withStatus(task, 'queued', '进入模型队列');
@@ -9115,7 +9435,7 @@ export default async (request, context = {}) => {
         module_version: GENERATION_WORKBENCH_VERSION,
         benchmark_module_version: BENCHMARK_INSIGHTS_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'generation_business_context_v1', 'generation_asset_auto_link', 'generation_multimodal_assets', 'generation_idempotency', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),

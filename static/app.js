@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.140';
-const VERSION_LABEL = 'v1.6.140 · 首轮选题语义质量修复版';
+const APP_VERSION = '1.6.142';
+const VERSION_LABEL = 'v1.6.142 · 生产链路与客户体验收口版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1418,6 +1418,9 @@ function localSampleDiagnosis(){
       bio_lines: ['不教玄学涨粉，只看内容有没有带来客户', '每周一张表复盘发布、回填和咨询'],
       homepage_keywords: ['内容复盘', '企业获客', '老板增长'],
       avatar_direction: '深色专业文字标识，避免花哨IP感',
+      background_direction: '横向品牌背景图，核心信息避开头像和昵称覆盖区域，少字并保留安全留白。',
+      pinned_note_directions: ['账号定位说明', '真实服务案例或过程', '客户咨询前需要了解的事项'],
+      pinning_rule: '只能置顶已经发布的笔记；先发布并验证，再选择定位、信任和咨询承接内容置顶。',
       starting_platform: {platform:'小红书', reason:'先验证收藏和咨询信号', rule:'短正文、强分段、不要评论区关键词引导'},
       naming_warning: '对外称老板/企业主/商家，避免小老板。',
     },
@@ -2495,6 +2498,30 @@ function customerFallbackPlans(payload){
   ];
 }
 
+function customerAccountSetupHtml(setup = {}){
+  if (!setup || typeof setup !== 'object' || !setup.account_name) return '';
+  const bio = (Array.isArray(setup.bio_lines) ? setup.bio_lines : []).map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
+  const pinned = (Array.isArray(setup.pinned_note_directions) ? setup.pinned_note_directions : []).map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
+  return `<article class="customer-advice-block customer-account-setup">
+    <span>准备</span>
+    <div>
+      <h3>发布前，先把账号基础设置好</h3>
+      <p>头像、背景图和简介先统一，客户看完内容后才更容易确认你是谁、是否值得咨询。</p>
+      <details>
+        <summary>查看账号起步设置</summary>
+        <dl class="customer-account-setup-list">
+          <div><dt>账号名</dt><dd>${esc(customerText(setup.account_name))}</dd></div>
+          <div><dt>账号定位</dt><dd>${esc(customerText(setup.positioning))}</dd></div>
+          ${bio ? `<div><dt>简介建议</dt><dd><ul>${bio}</ul></dd></div>` : ''}
+          <div><dt>头像方向</dt><dd>${esc(customerText(setup.avatar_direction))}</dd></div>
+          <div><dt>背景图方向</dt><dd>${esc(customerText(setup.background_direction))}</dd></div>
+          ${pinned ? `<div><dt>建议置顶的笔记</dt><dd><ul>${pinned}</ul><small>${esc(customerText(setup.pinning_rule))}</small></dd></div>` : ''}
+        </dl>
+      </details>
+    </div>
+  </article>`;
+}
+
 function buildCustomerSuggestion(payload, diagnosis, plans){
   const safePlans = (plans && plans.length ? plans : customerFallbackPlans(payload)).slice(0, 3);
   const problem = customerText(payload.biggest_problem);
@@ -2553,6 +2580,7 @@ function buildCustomerSuggestion(payload, diagnosis, plans){
       <div><span>AI 内容策略助手</span><strong>不是套用固定模板，本次建议已结合</strong></div>
       <ul>${aiContextHtml}</ul>
     </section>
+    ${customerAccountSetupHtml(diagnosis?.account_setup)}
     <article class="customer-advice-block">
       <span>1</span>
       <div><h3>你现在最需要解决的问题</h3><p>${esc(problem)}。先不要急着多发，先把内容和「${esc(goal)}」连起来。</p></div>
@@ -3697,20 +3725,21 @@ function customerPlatformMatrixHtml(payload = {}, plans = []){
 
 function customerOfferFromGoal(goal, industry){
   const text = customerText(`${goal || ''} ${industry || ''}`);
-  const explicitMatch = text.match(/(?:咨询|预约|了解|报名|购买)([^，。；;、\s]{2,18})/);
-  if (explicitMatch?.[1]) return explicitMatch[1];
   if (/盆底肌|漏尿|产后修复|产康/.test(text)) return '盆底肌修复';
-  const consultMatch = text.match(/咨询([^，。/、\s]{2,16})/);
-  if (consultMatch?.[1]) return consultMatch[1];
   if (/美甲/.test(text)) return '美甲套餐';
   if (/篮球销售|卖篮球|篮球售卖|篮球零售|篮球专卖|篮球店|篮球用品|篮球器材|篮球装备|篮球商品|训练篮球|比赛篮球/.test(text)) return '篮球商品';
   if (/饰品|首饰|耳饰|耳环|项链|手链|戒指|发夹|配饰|珠宝|银饰/.test(text)) return '饰品款式';
   if (/女装|服装|穿搭|包包|鞋履|香薰|礼物|买手店|零售|上新/.test(text)) return '商品款式';
   if (/武术|搏击|散打|拳击|泰拳|跆拳道|格斗|防身术|少儿武术|少儿搏击|武馆|搏击俱乐部|武术搏击/.test(text)) return '武术搏击体验课';
   if (/少儿篮球|小学生篮球|幼儿篮球|青少年篮球|篮球培训|篮球训练|篮球启蒙|篮球课|运球|投篮/.test(text)) return '少儿篮球体验课';
+  if (/线上营销咨询|内容营销咨询|营销咨询|营销策划|内容策略服务|企业内容增长|内容增长工具|营销增长工具|内容获客工具|获客罗盘|FP Matrix|FPMATRIX/i.test(text)) return '内容增长咨询与工具';
   if (/美容|医美|产康/.test(text)) return '到店服务';
   if (/装修/.test(text)) return '装修方案';
   if (/留学|教育|培训/.test(text)) return '咨询方案';
+  const goalText = customerText(goal || '');
+  const explicitMatch = goalText.match(/(?:咨询|预约|了解|报名|购买)([^，。；;、\s]{2,18})/);
+  const explicitOffer = customerText(explicitMatch?.[1] || '').replace(/^(?:与|和|及|量|人数|客户)/, '');
+  if (explicitOffer.length >= 2) return explicitOffer;
   return '相关服务';
 }
 
@@ -4841,6 +4870,9 @@ function renderAllFromClient(){
   renderTopReturnProjectAction();
   settleInternalHashTarget();
   renderGenerationWorkbenchRoute();
+  if (isGenerationWorkbenchRoute() && syncGenerationProjectContext()) {
+    loadGenerationWorkbench().catch((error)=>toast(error.message || '生产工作台加载失败'));
+  }
   renderInternalOpsTabs();
   document.body.classList.toggle('customer-edit-mode', isInternalProfile() && customerDetailEditMode);
 }
@@ -5626,6 +5658,9 @@ function renderAccountSetup(setup){
     <p><strong>简介：</strong><br>${(setup.bio_lines || []).map(esc).join('<br>')}</p>
     <p><strong>主页关键词：</strong>${esc((setup.homepage_keywords || []).join(' / '))}</p>
     <p><strong>头像方向：</strong>${esc(setup.avatar_direction || '')}</p>
+    <p><strong>背景图方向：</strong>${esc(setup.background_direction || '')}</p>
+    <p><strong>建议置顶的笔记：</strong>${esc((setup.pinned_note_directions || []).join(' / '))}</p>
+    <p><strong>置顶规则：</strong>${esc(setup.pinning_rule || '')}</p>
     <p><strong>起步主平台：</strong>${esc(setup.starting_platform?.platform || '')}｜${esc(setup.starting_platform?.reason || '')}</p>
     <p><strong>平台表达规则：</strong>${esc(setup.starting_platform?.rule || '')}</p>
     <p><strong>称呼门禁：</strong>${esc(setup.naming_warning || '')}</p>
@@ -6836,6 +6871,38 @@ const generationClientId = () =>
 const generationProjectId = () =>
   $('#generationTaskForm [name="project_id"]')?.value || $('#generationAssetForm [name="project_id"]')?.value || 'qa_project_generation';
 
+function syncGenerationProjectContext(){
+  if (!isInternalProfile()) return false;
+  const activeProject = (projectStore.projects || []).find((item)=>String(item.id) === String(projectStore.activeProjectId))
+    || (projectStore.projects || [])[0]
+    || null;
+  const state = activeProject?.state || clientState || {};
+  if (!hasRestorableState(state)) return false;
+  const clientId = explicitCustomerClientId() || normalizeClientId(state.assessment?.client_id || state.client_id || activeProject?.client_id) || INTERNAL_CLIENT_ID;
+  const projectId = String(activeProject?.id || state.project?.id || '').trim();
+  const plans = Array.isArray(state.plans) ? state.plans : [];
+  const planId = String(plans[0]?.id ?? plans[0]?.content_plan_id ?? '').trim();
+  const clientName = customerDisplayName(state.assessment || {}, state.project || activeProject || null);
+  const projectName = String(activeProject?.name || state.project?.name || clientName || '').trim();
+  if (!projectId || !planId) return false;
+  let changed = false;
+  const setValue = (selector, value) => {
+    const input = $(selector);
+    if (!input || String(input.value || '') === String(value || '')) return;
+    input.value = value;
+    changed = true;
+  };
+  setValue('#generationTaskForm [name="client_id"]', clientId);
+  setValue('#generationTaskForm [name="project_id"]', projectId);
+  setValue('#generationTaskForm [name="content_plan_record_id"]', planId);
+  setValue('#generationAssetForm [name="client_id"]', clientId);
+  setValue('#generationAssetForm [name="project_id"]', projectId);
+  setValue('#generationAssetForm [name="project_name"]', projectName);
+  setValue('#generationAssetForm [name="client_name"]', clientName);
+  setValue('#generationAssetForm [name="content_plan_record_id"]', planId);
+  return changed;
+}
+
 function setGenerationMessage(selector, message, tone = 'success'){
   const el = $(selector);
   if (!el) return;
@@ -6969,8 +7036,23 @@ function generationStatusLabel(status = ''){
 }
 
 function generationTaskAgeMs(task = {}){
-  const timestamp = Date.parse(task.updated_at || task.created_at || '');
+  const timestamp = Date.parse(
+    task.status === 'generating'
+      ? (task.adapter_state?.background_started_at || task.adapter_state?.triggered_at || task.adapter_state?.queued_at || task.created_at || '')
+      : (task.updated_at || task.created_at || '')
+  );
   return Number.isFinite(timestamp) ? Math.max(0, Date.now() - timestamp) : 0;
+}
+
+function generationFriendlyError(task = {}){
+  const raw = String(task.error || task.fallback_reason || '').trim();
+  if (!raw) return '任务没有完成，请检查原因后重新生成。';
+  if (/kimi_empty_output|empty_output/i.test(raw)) return '模型没有返回可用成稿，请点击“重新生成”。';
+  if (/timeout|timed out|aborted/i.test(raw)) return '模型响应超时，系统已保留任务，可以稍后重新生成。';
+  if (/overload|rate.?limit|429|503/i.test(raw)) return '模型当前繁忙，请稍后点击“重新生成”。';
+  if (/auth|key|credential/i.test(raw)) return '模型配置暂不可用，请联系系统管理员处理。';
+  if (/background.*trigger|后台任务启动失败/i.test(raw)) return '后台任务没有成功启动，请点击“重新生成”。';
+  return sanitizeCustomerText(raw);
 }
 
 function generationTaskProgressText(task = {}){
@@ -6985,9 +7067,22 @@ function generationTaskProgressText(task = {}){
   if (task.status === 'delivered') return '这条内容已完成交付。';
   if (task.status === 'qa_failed') return '内容未通过验收，可调整生成需求后重新生成。';
   if (task.status === 'failed' || String(task.status || '').startsWith('blocked_')) {
-    return task.error || '任务没有完成，请检查原因后重新生成。';
+    return generationFriendlyError(task);
   }
   return '任务状态已更新。';
+}
+
+function renderGenerationContextSummary(task = {}){
+  const context = task.production_context || {};
+  if (!context.context_found && !(context.asset_briefs || []).length) return '';
+  const labels = [
+    context.business?.industry ? '业务资料' : '',
+    context.plan?.topic ? '当前选题' : '',
+    Number(context.feedback?.record_count || 0) ? `${Number(context.feedback.record_count)} 条反馈` : '',
+    (context.asset_briefs || []).length ? `${context.asset_briefs.length} 份素材` : '',
+    (context.platform_rules || []).length ? `${task.platform || '平台'}规则` : '',
+  ].filter(Boolean);
+  return labels.length ? `<p class="generation-context-summary">系统已关联：${labels.map(esc).join(' · ')}</p>` : '';
 }
 
 function renderGenerationRunningState(task = {}){
@@ -7156,7 +7251,8 @@ function renderGenerationTaskCard(task = {}){
         </div>
         <span class="generation-status" data-status="${esc(task.status || 'draft')}">${esc(generationStatusLabel(task.status))}</span>
       </div>
-      ${task.error ? `<p class="generation-error">${esc(task.error)}</p>` : ''}
+      ${task.error ? `<p class="generation-error">${esc(generationFriendlyError(task))}</p>` : ''}
+      ${renderGenerationContextSummary(task)}
       ${renderGenerationRunningState(task)}
       ${renderGenerationOutput(task)}
       ${renderGenerationTaskActions(task)}
@@ -7223,13 +7319,19 @@ function scheduleGenerationWorkbenchRefresh(){
   if (!isGenerationWorkbenchRoute()) return;
   const generatingTasks = (generationWorkbenchState.tasks || []).filter((task) => task.status === 'generating');
   if (!generatingTasks.length) {
-    const hasFreshOutput = (generationWorkbenchState.tasks || []).some((task) =>
-      ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(task.status)
-    );
-    updateGenerationAutoStatus(hasFreshOutput ? '成稿已更新，可以直接查看和复制。' : '任务状态已更新。');
+    const latestTask = [...(generationWorkbenchState.tasks || [])].sort((a, b) =>
+      Date.parse(b.updated_at || b.created_at || '') - Date.parse(a.updated_at || a.created_at || '')
+    )[0];
+    const latestSucceeded = latestTask && ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(latestTask.status);
+    const latestFailed = latestTask && (latestTask.status === 'failed' || String(latestTask.status || '').startsWith('blocked_'));
+    updateGenerationAutoStatus(latestSucceeded ? '最新成稿已更新，可以直接查看和复制。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。');
     const taskMessage = $('#generationTaskMessage');
     if (taskMessage?.textContent.includes('后台生成')) {
-      setGenerationMessage('#generationTaskMessage', '成稿已完成，请在下方查看、复制并验收。');
+      setGenerationMessage(
+        '#generationTaskMessage',
+        latestSucceeded ? '成稿已完成，请在下方查看、复制并验收。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。',
+        latestFailed ? 'error' : 'success'
+      );
     }
     return;
   }
@@ -7265,6 +7367,7 @@ async function refreshGeneratingWorkbenchTasks(){
 
 async function loadGenerationWorkbench({scheduleRefresh = true} = {}){
   if (!isGenerationWorkbenchRoute()) return;
+  syncGenerationProjectContext();
   const profile = currentProfile();
   const clientId = generationClientId();
   const projectId = generationProjectId();
@@ -7400,6 +7503,11 @@ async function handleGenerationAssetSubmit(form){
 
 async function handleGenerationTaskSubmit(form){
   const data = formData(form);
+  const cryptoApi = globalThis.crypto;
+  form.dataset.activeRequestId = form.dataset.activeRequestId
+    || (cryptoApi?.randomUUID ? `generation_${cryptoApi.randomUUID()}` : `generation_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+  data.idempotency_key = form.dataset.activeRequestId;
+  data.client_name = clientState.assessment?.company_name || clientState.project?.name || data.client_name || '';
   const selectedAssets = $$('#generationAssetPicker input[type="checkbox"]:checked').map((input)=>input.value);
   data.input_asset_ids = selectedAssets;
   data.output_spec = generationOutputSpecFor(data, form);
@@ -7418,12 +7526,17 @@ async function handleGenerationTaskSubmit(form){
       method: 'POST',
       body: JSON.stringify({client_id: data.client_id}),
     });
+    const status = String(submitted.task?.status || '');
+    const succeeded = ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(status);
+    const failed = status === 'failed' || status.startsWith('blocked_');
     setGenerationMessage(
       '#generationTaskMessage',
-      submitted.task?.status === 'generating'
+      status === 'generating'
         ? '任务已进入后台生成。通常需要 30-90 秒，页面会自动更新，离开本页也不会中断。'
-        : '成品已经生成，请在下方直接查看并验收。'
+        : succeeded ? '成品已经生成，请在下方直接查看并验收。' : failed ? generationFriendlyError(submitted.task) : '任务已创建，请在下方查看当前状态。',
+      failed ? 'error' : 'success'
     );
+    delete form.dataset.activeRequestId;
     await loadGenerationWorkbench();
     const taskCard = document.querySelector(`.generation-task-card[data-task-id="${CSS.escape(String(taskId))}"]`);
     taskCard?.scrollIntoView({behavior:'smooth', block:'center'});
@@ -7461,13 +7574,16 @@ async function runGenerationTaskAction(action, taskId){
   await loadGenerationWorkbench();
 }
 
-async function copyGenerationTaskOutput(taskId){
-  const task = (generationWorkbenchState.tasks || []).find((item) => String(item.task_id) === String(taskId));
-  const text = generationOutputTextForTask(task);
-  if (!text) throw new Error('这条任务还没有可复制的成稿');
+async function copyGenerationText(value = ''){
+  const text = String(value || '');
+  if (!text) return false;
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-  } else {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {}
+  }
+  try {
     const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.setAttribute('readonly', '');
@@ -7475,9 +7591,19 @@ async function copyGenerationTaskOutput(taskId){
     textarea.style.opacity = '0';
     document.body.appendChild(textarea);
     textarea.select();
-    document.execCommand('copy');
+    const copied = document.execCommand('copy');
     textarea.remove();
+    return copied;
+  } catch {
+    return false;
   }
+}
+
+async function copyGenerationTaskOutput(taskId){
+  const task = (generationWorkbenchState.tasks || []).find((item) => String(item.task_id) === String(taskId));
+  const text = generationOutputTextForTask(task);
+  if (!text) throw new Error('这条任务还没有可复制的成稿');
+  if (!await copyGenerationText(text)) throw new Error('浏览器没有允许复制，请手动选择成稿文字复制');
   toast('成稿已复制，可以粘贴使用');
 }
 
@@ -7486,19 +7612,7 @@ async function copyGenerationTaskAssetLink(taskId){
   const asset = generationOutputMediaForTask(task);
   const url = generationRenderableMediaUrl(asset);
   if (!url) throw new Error('这条任务还没有可复制的成品链接');
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(url);
-  } else {
-    const textarea = document.createElement('textarea');
-    textarea.value = url;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    textarea.remove();
-  }
+  if (!await copyGenerationText(url)) throw new Error('浏览器没有允许复制，请手动复制成品链接');
   toast('成品链接已复制');
 }
 

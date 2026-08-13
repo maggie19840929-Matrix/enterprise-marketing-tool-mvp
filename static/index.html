@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.140" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.140" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.140" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.142" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.142" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.142" />
 </head>
 <body class="customer-mode">
   <script>
@@ -24,7 +24,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.140" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.142" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -57,7 +57,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.140" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.142" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -155,7 +155,16 @@
             </label>
             <label class="customer-brief-field customer-brief-field-main">
               <span class="customer-field-title">你现在最想达成什么目标？*</span>
-              <input name="main_goal" required placeholder="如：获得更多有效咨询、预约体验、到店转化或复购" />
+              <input name="main_goal" list="customerMainGoalOptions" required placeholder="选择常见目标，或直接输入你的目标" />
+              <datalist id="customerMainGoalOptions">
+                <option value="获得更多有效咨询"></option>
+                <option value="提升预约或到店人数"></option>
+                <option value="促进课程报名或产品成交"></option>
+                <option value="提升老客户复购"></option>
+                <option value="建立品牌信任"></option>
+                <option value="暂时不确定，请系统根据业务建议"></option>
+              </datalist>
+              <small class="customer-field-hint">可直接选择，也可以写自己的目标。</small>
             </label>
             <label class="customer-brief-field customer-brief-field-main customer-wide">
               <span class="customer-field-title">你的目标客户是谁？*</span>
@@ -171,7 +180,7 @@
                 <button class="customer-choice-chip platform-choice-chip" type="button" data-value="小红书"><span></span><b>小红书</b></button>
                 <button class="customer-choice-chip platform-choice-chip" type="button" data-value="视频号"><span></span><b>视频号</b></button>
                 <button class="customer-choice-chip platform-choice-chip" type="button" data-value="朋友圈/私域"><span></span><b>朋友圈/私域</b></button>
-                <button class="customer-choice-chip platform-choice-chip is-selected" type="button" data-value="还不确定" aria-pressed="true"><span></span><b>还不确定</b></button>
+                <button class="customer-choice-chip platform-choice-chip is-selected" type="button" data-value="还不确定" aria-pressed="true"><span></span><b>暂时不确定，由系统推荐</b></button>
               </div>
             </fieldset>
             <fieldset class="customer-choice-group customer-key-choice">
@@ -338,7 +347,7 @@
               <button class="customer-choice-chip" type="button" data-value="不想太硬广"><span></span>不想太硬广</button>
               <button class="customer-choice-chip" type="button" data-value="不想强调价格"><span></span>不想强调价格</button>
               <button class="customer-choice-chip" type="button" data-value="不想露脸"><span></span>不想露脸</button>
-              <button class="customer-choice-chip" type="button" data-value="不想拍孩子正脸"><span></span>不想拍孩子正脸</button>
+              <button class="customer-choice-chip" type="button" data-value="不想拍人物正脸"><span></span>不想拍人物正脸</button>
               <button class="customer-choice-chip" type="button" data-value="不想承诺效果"><span></span>不想承诺效果</button>
               <button class="customer-choice-chip" type="button" data-value="暂时没有限制"><span></span>暂时没有限制</button>
             </div>
@@ -466,7 +475,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.140" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.142" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -576,7 +585,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.140" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.142" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -963,6 +972,7 @@
           <label>项目名称<input name="project_name" value="企业营销工具验收测试" /></label>
           <label>客户 ID *<input name="client_id" required value="internal" /></label>
           <label>客户名称<input name="client_name" value="QA测试客户" /></label>
+          <input name="content_plan_record_id" type="hidden" value="qa_content_plan_001" />
           <label>素材来源
             <select name="source">
               <option value="internal">内部</option>
@@ -1082,7 +1092,7 @@
               <button class="customer-choice-chip" type="button" data-value="小红书"><span></span>小红书</button>
               <button class="customer-choice-chip" type="button" data-value="视频号"><span></span>视频号</button>
               <button class="customer-choice-chip" type="button" data-value="朋友圈/私域"><span></span>朋友圈/私域</button>
-              <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>还不确定</button>
+              <button class="customer-choice-chip" type="button" data-value="还不确定"><span></span>暂时不确定，由系统推荐</button>
             </div>
           </fieldset>
 
@@ -1233,7 +1243,7 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/public-account-menu.js?v=1.6.140"></script>
-  <script src="/app.js?v=1.6.140"></script>
+  <script src="/public-account-menu.js?v=1.6.142"></script>
+  <script src="/app.js?v=1.6.142"></script>
 </body>
 </html>
