@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.139';
-const VERSION_LABEL = 'v1.6.139 · 对标内容洞察内测版';
+const APP_VERSION = '1.6.140';
+const VERSION_LABEL = 'v1.6.140 · 首轮选题语义质量修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -549,6 +549,7 @@ const serviceTopicFor = (industry = '', offer = '') => {
   if (hasAny(text, ['美容', '皮肤管理', '医美'])) return { service: '皮肤管理项目', scene: '到店前', owner: '真实案例/过程内容', type: 'beauty' };
   if (hasAny(text, ['医疗器械', '医械', '器械检测', '医疗检测', '注册检验', '注册检测', '注册认证', '产品注册', '安规认证', '安规验证', 'ce认证', 'fda注册', 'iso13485', '质量体系'])) return { service: '医疗器械检测/注册/安规认证服务', scene: '做产品注册/检测认证前', owner: '医疗器械合规科普/企业案例内容', type: 'medical_device_compliance' };
   if (hasAny(text, ['安标', '安全生产标准化', '安全标准化', '安全生产', '验厂', '认证辅导', '合规辅导', '工厂合规'])) return { service: '安全生产标准化辅导', scene: '做安标/验厂/合规准备前', owner: '安标合规科普/企业案例内容', type: 'safety_compliance' };
+  if (hasAny(text, ['线上营销咨询', '内容营销咨询', '营销咨询', '营销策划', '内容策略服务', '企业内容增长', '内容增长工具', '营销增长工具', '内容获客工具', '获客罗盘', 'FP Matrix', 'FPMATRIX'])) return { service: '内容增长咨询与工具', scene: '规划内容获客前', owner: '内容策略/真实发布复盘内容', type: 'marketing_growth' };
   if (hasAny(text, ['教育', '培训', '课程', '教培', '体验课'])) return { service: '课程/体验课', scene: '报名前', owner: '课程内容', type: 'education' };
   if (hasAny(text, ['餐饮', '餐厅', '咖啡', '茶饮', '火锅', '烘焙'])) return { service: '到店消费', scene: '选店前', owner: '门店内容', type: 'localfood' };
   const words = compactTopicWords(`${offer} ${industry}`);
@@ -644,6 +645,17 @@ const naturalPlanTitles = ({ audience, industry, offer, painShort, goal }) => {
       `安标评审前，负责人要先确认这5类材料`,
       `工厂安全管理反复扣分，通常卡在这几个细节`,
       `一次安标辅导到底帮企业解决什么问题`,
+    ];
+  }
+  if (service.type === 'marketing_growth') {
+    return [
+      '企业不知道发什么，先找客户常问的问题',
+      'AI生成的内容会不会千篇一律',
+      '内容发了没效果，先看哪3个数据',
+      '企业账号别急着追热点，先确认获客目标',
+      '一条内容从选题到优化要经过哪几步',
+      '内容有浏览没咨询，问题可能出在哪里',
+      '怎样用真实发布数据调整下一轮内容',
     ];
   }
   return [
@@ -814,7 +826,11 @@ const softCta = (offer = '', pain = '') => {
 };
 const isMetaMarketingAccount = (assessment) => {
   const text = [assessment.industry, assessment.offer, assessment.company_name, assessment.account_preference].filter(Boolean).join(' ');
-  return hasAny(text, ['内容决策局', '企业内容增长', '企业获客', 'AI营销复盘', '营销增长决策', '内容获客工具']);
+  return hasAny(text, [
+    '内容决策局', '企业内容增长', '企业获客', 'AI营销复盘', '营销增长决策', '内容获客工具',
+    '线上营销咨询', '内容营销咨询', '营销咨询', '营销策划', '内容策略服务', '内容增长工具',
+    '营销增长工具', '获客罗盘', 'FP Matrix', 'FPMATRIX',
+  ]);
 };
 const addPlatform = (bucket, platform, reason) => {
   if (!bucket.some((item) => item.platform === platform)) bucket.push({ platform, reason });
@@ -823,7 +839,7 @@ const addPlatform = (bucket, platform, reason) => {
 
 const platformStyleRulesFor = (platform) => {
   const rules = {
-    '小红书': '标题要像目标客户真实会说的话，可用“原来、后悔没早知道、谁懂啊”等轻情绪钩子或数字清单感；保持真实、不夸大、不堆 emoji，不要写成工具说明书。',
+    '小红书': '标题要像目标客户真实会说的话，优先使用具体问题、数字清单、对比或判断；必须脱离正文也能独立看懂，不用含糊指代和空泛情绪，不夸大、不堆 emoji，不写成工具说明书。',
     '视频号': '更适合负责人/老板口播、真实案例复盘和信任建立，表达要稳、实在可信，不追求过度网感、不标题党；受众偏成熟，吃干货和情感共鸣。视频号在微信生态内，好内容可被转发到群/朋友圈并经好友社交推荐，可适度做“值得收藏/转发”的实用或共鸣选题；转化承接可引导到公众号/社群/企业微信/私信等私域入口。',
     '朋友圈/私域': '适合承接信任和轻咨询，少用营销腔，多用真实案例、过程和客户问题。',
     '公众号': '适合深度方案、案例沉淀和长期搜索资料，少用 emoji，结构要清楚。',
@@ -1886,13 +1902,18 @@ const planPromptContext = (assessment = {}, diagnosis = {}) => {
   };
 };
 
+const contentPlanPerspectiveRule = (assessment = {}) => isMetaMarketingAccount(assessment)
+  ? '当前账号提供企业营销咨询、内容增长工具或策略服务，目标客户就是企业主、商家和门店负责人。允许选题直接回应“不知道发什么、有浏览没咨询、发布后不会分析”等经营问题，但必须写成目标客户一眼能懂的具体问题或判断，不能写成系统功能口号。'
+  : '视角固定：以商家官方账号身份，写给最终消费者看的内容；选题是消费者会点开的话题，不是教商家如何做营销或“发什么内容”。上下文的 operator_content_pain 只是商家自身困扰，绝不能作为选题。';
+
 const contentPlanPrompt = (assessment, diagnosis) => [
   '请生成正好7条可直接进入内容草稿的选题，只返回JSON对象，不要Markdown。',
   '格式固定为{"plans":[{"topic":"","angle":"","content_type":"","cta":""}]}，每条仅含这4个核心字段。topic<=20字，angle<=24字，content_type<=8字，cta<=14字。',
-  '视角固定：以商家官方账号身份，写给最终消费者看的内容；选题是消费者会点开的话题，不是教商家如何做营销或“发什么内容”。上下文的 operator_content_pain 只是商家自身困扰，绝不能作为选题。',
+  contentPlanPerspectiveRule(assessment),
   '内容写给目标客户，必须贴合行业、目标、消费者痛点和平台；7条角度不得重复；禁止评论区或留言关键词引导；禁止照抄输入长句；禁止编造未提供的优惠、接送、价格或效果承诺。',
+  '每个topic必须是一句能脱离正文独立看懂的完整标题。禁止使用没有明确指向的“这思路、这方法、这样做、这个绝了”等表达；禁止“太顺了、真香、绝了、谁懂啊”等空泛情绪；禁止暗示自动发布、自动运营或用户无需参与。',
   '每条cta必须是完整、自然、口语化的一句话，不得出现“咨询咨询”“预约预约”等叠词，不得以“引导客户/引导家长”开头，也不要与topic重复。7条cta动作要多样，按场景轮换保存清单、主页咨询、预约体验、到店确认、截图问款、了解详情等安全动作，不能全部以“咨询”开头。',
-  '按上下文platforms的顺序轮换平台语感：小红书标题更口语，可用“原来、后悔没早知道、谁懂啊”等轻情绪钩子或数字清单感，但必须真实、不夸大、不堆emoji；抖音保持短视频开头钩子；视频号保持稳健口播/科普，不要把小红书语气套到其他平台。',
+  '按上下文platforms的顺序轮换平台语感：小红书标题口语化但必须具体、完整，优先使用真实问题、数字清单、对比或判断，不得为追求网感牺牲语义；抖音保持短视频开头钩子；视频号保持稳健口播/科普，不要把小红书语气套到其他平台。',
   '除非上下文明确提供，topic、angle、content_type和cta中严禁出现：免费、接送、无隐形消费、包会、保证效果、立减、折扣、优惠、赠送、返现。',
   '根据 variation_direction 改变本批次的选题切口；不要机械复用同一行业的固定标题顺序。',
   '先读 strategy_quality：至少3条直接回应 customer_language/buyer_objections，至少2条使用 proof_assets 里的真实素材做案例、过程或信任内容；如果 proof_assets 为空，只能讲流程、边界和判断标准。',
@@ -2030,19 +2051,45 @@ const selectDiversePlanCta = ({ value = '', platform = '', assessment = {}, used
   usedActions.add(planCtaActionKey(replacement));
   return replacement;
 };
+const planTopicQualityIssue = (value = '', assessment = {}) => {
+  const topic = trimPlanNoise(value);
+  if (planTextLength(topic) < 7) return 'too_short';
+  if (/(?:这|这个|这种|这样|这套)(?:思路|方法|做法|工具|内容|方式)/.test(topic)) return 'vague_reference';
+  if (/太顺了|真香|绝了|谁懂啊|狠狠爱了|封神/.test(topic)) return 'empty_hype';
+  if (/不用蹲在电脑前|全自动|自动发布|自动运营|不用(?:再)?做内容|躺着获客/.test(topic)) return 'unsupported_automation';
+  if (!isMetaMarketingAccount(assessment) && /不知道发什么|做内容.*卡壳|内容发了没效果|如何引流|没流量|没咨询/.test(topic)) return 'operator_perspective';
+  return '';
+};
+const safePlanTopicFallback = (assessment = {}, index = 0) => {
+  const target = shortAudience(assessment.target_customer || '目标客户');
+  const pain = painLabel(assessment.customer_pain || '', assessment.biggest_problem || '');
+  const titles = naturalPlanTitles({
+    audience: target,
+    industry: [assessment.industry, assessment.offer].filter(Boolean).join(' '),
+    offer: assessment.offer || '',
+    painShort: pain,
+    goal: assessment.main_goal || '',
+  });
+  return limitPlanText(titles[index % Math.max(titles.length, 1)] || '先看客户真正关心的3个问题', 24);
+};
 const cleanPlanTopicForPlatform = (value = '', platform = '', assessment = {}, index = 0) => {
   const original = trimPlanNoise(value);
-  if (!original || !String(platform).includes('小红书')) return original;
+  if (!original) return original;
   try {
-    const textbookPattern = /^(?:一文讲清(?:楚)?(?:真相)?|干货整理|全面解析|深度解析|知识科普)[：:]?/;
-    if (!textbookPattern.test(original)) return original;
-    const core = trimPlanNoise(original.replace(textbookPattern, '')) || original;
-    const business = [assessment.industry, assessment.offer, assessment.target_customer].filter(Boolean).join(' ');
-    const consumer = /美甲|美睫|美容|推拿|按摩|养生|篮球|武术|搏击|家长|孩子|摄影|口腔|餐饮|门店|附近/.test(business);
-    const hooks = consumer ? ['原来', '后悔没早知道：', '谁懂啊：'] : ['原来', '先收藏：', '别急着决定：'];
-    return limitPlanText(`${hooks[index % hooks.length]}${core}`, 24);
+    let cleaned = original;
+    if (String(platform).includes('小红书')) {
+      const textbookPattern = /^(?:一文讲清(?:楚)?(?:真相)?|干货整理|全面解析|深度解析|知识科普)[：:]?/;
+      if (textbookPattern.test(cleaned)) {
+        const core = trimPlanNoise(cleaned.replace(textbookPattern, '')) || cleaned;
+        const business = [assessment.industry, assessment.offer, assessment.target_customer].filter(Boolean).join(' ');
+        const consumer = /美甲|美睫|美容|推拿|按摩|养生|篮球|武术|搏击|家长|孩子|摄影|口腔|餐饮|门店|附近/.test(business);
+        const hooks = consumer ? ['先看清：', '别急着选：', '避坑先看：'] : ['先看清：', '别急着决定：', '先判断：'];
+        cleaned = limitPlanText(`${hooks[index % hooks.length]}${core}`, 24);
+      }
+    }
+    return planTopicQualityIssue(cleaned, assessment) ? safePlanTopicFallback(assessment, index) : cleaned;
   } catch {
-    return original;
+    return planTopicQualityIssue(original, assessment) ? safePlanTopicFallback(assessment, index) : original;
   }
 };
 const postProcessPlanRows = (rows = [], platforms = [], assessment = {}) => {
@@ -2170,14 +2217,20 @@ const isRetryableArkFailure = (call = {}) => {
 };
 
 const callArkPlanRows = async (assessment, diagnosis) => {
+  const metaMarketingAccount = isMetaMarketingAccount(assessment);
   const messages = [
     {
       role: 'system',
       content: [
         '你为门店/商家策划内容，但选题是以【商家的官方账号】身份、发给【最终消费者/目标客户】看的内容。',
-        '视角铁律：选题是消费者会主动点开看的内容，绝不是教商家“怎么做营销/发什么内容”。严禁出现“不知道发什么”“如何引流”“内容没思路”这类站在经营者视角的选题。',
-        '上下文里的 operator_content_pain 是商家自己的运营困扰，仅供你理解商家处境，严禁把它变成选题主题或标题。',
+        metaMarketingAccount
+          ? '当前客户本身提供营销咨询/内容增长工具，目标客户是企业主和商家。可以讨论企业内容运营困扰，但标题必须具体、完整，并明确问题或判断，不能写成含糊口号。'
+          : '视角铁律：选题是消费者会主动点开看的内容，绝不是教商家“怎么做营销/发什么内容”。严禁出现“不知道发什么”“如何引流”“内容没思路”这类站在经营者视角的选题。',
+        metaMarketingAccount
+          ? 'operator_content_pain 与目标客户痛点可能重合，可作为问题来源，但不得原样复制，必须转译成企业主能直接理解的选题。'
+          : '上下文里的 operator_content_pain 是商家自己的运营困扰，仅供你理解商家处境，严禁把它变成选题主题或标题。',
         '你必须根据客户真实行业、目标客户、平台、消费者痛点和产品服务生成内容选题。',
+        '标题必须脱离正文也能独立看懂；禁止模糊指代、空泛情绪和未经提供的自动化能力暗示。',
         '禁止评论区/留言关键词引导，禁止输出无关行业，禁止照抄客户字段长句。',
         '只返回 JSON，不要解释。',
       ].join('\n'),
@@ -2187,7 +2240,7 @@ const callArkPlanRows = async (assessment, diagnosis) => {
   const call = await callArkChatCompletion({
     route: '/api/assessments',
     purpose: 'initial_7_day_plan',
-    temperature: 0.55,
+    temperature: 0.45,
     maxTokens: 1400,
     timeoutMs: CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS,
     model: arkPlanModel(),

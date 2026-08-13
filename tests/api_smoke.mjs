@@ -174,7 +174,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.139', `public diagnosis should return app_version 1.6.139, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.140', `public diagnosis should return app_version 1.6.140, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -1483,7 +1483,7 @@ const customerEffectFormHtml = indexHtml.match(/<form id="customerEffectForm"[\s
 const apiSourceIncludes = (needle) => apiSource.includes(needle);
 const redirects = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8');
 const localDevServer = readFileSync(new URL('../scripts/local-dev-server.mjs', import.meta.url), 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.6.139'") && appJs.includes("v1.6.139 · 对标内容洞察内测版"), 'application should expose the reviewed v1.6.139 benchmark-insights release');
+assert(appJs.includes("const APP_VERSION = '1.6.140'") && appJs.includes("v1.6.140 · 首轮选题语义质量修复版"), 'application should expose the reviewed v1.6.140 topic-quality release');
 assert(indexHtml.includes('id="customerAccountUsage"') && indexHtml.includes('href="/plans"') && appJs.includes("api('/api/account/entitlements'"), 'signed-in account panel should show strategy-cycle usage and link to the plan page');
 assert(appJs.match(/entitlement = entitlement \|\| \{\};/g)?.length >= 2, 'signed-out account rendering should tolerate a missing entitlement snapshot');
 assert(plansHtml.includes('选择适合你经营节奏的套餐') && plansHtml.includes('额度怎么计算') && plansJs.includes("fetch('/api/commercial/plans'") && plansJs.includes("fetch('/api/account/entitlements'"), 'public plan page should explain customer-facing units and load server-owned entitlements');
@@ -1533,7 +1533,7 @@ for (const event of ['home_view', 'intake_started', 'generation_submitted', 'gen
 for (const event of ['home_view', 'intake_started', 'generation_submitted', 'effect_recorded', 'next_round_entered']) {
   assert(appJs.includes(`'${event}'`), `customer flow should emit ${event}`);
 }
-assert(apiSource.includes('PLAN_VARIATION_DIRECTIONS') && apiSource.includes('generation_variant: generationVariant') && apiSource.includes('temperature: 0.55') && apiSource.includes('variation_direction'), 'customer plan jobs should rotate a lightweight creative direction and use moderate temperature to reduce same-industry repetition');
+assert(apiSource.includes('PLAN_VARIATION_DIRECTIONS') && apiSource.includes('generation_variant: generationVariant') && apiSource.includes('temperature: 0.45') && apiSource.includes('variation_direction'), 'customer plan jobs should rotate a lightweight creative direction while keeping title semantics stable');
 assert(apiSource.includes("framework_version: 'customer-evidence-p0'") && apiSource.includes('customer_language') && apiSource.includes('buyer_objections') && apiSource.includes('proof_assets') && apiSource.includes('market_calibration'), 'P0 strategy framework should carry customer language, objections, evidence and market calibration into both generation rounds');
 assert(apiSource.includes('至少3条直接回应 customer_language/buyer_objections') && apiSource.includes('至少2条使用 proof_assets') && apiSource.includes('market_calibration 只用于识别已验证的主题和表达结构'), 'initial plan prompt should require evidence-grounded customer-specific topics without copying benchmarks');
 assert(apiSource.includes('优先沿用strategy_quality里的客户原话、购买异议和真实素材') && apiSource.includes('每条可用指标决定下一步'), 'next-round prompt should use customer evidence and measurable feedback decisions');
@@ -1684,11 +1684,11 @@ assert(appJs.indexOf('下一步判断') < appJs.indexOf('function renderOutcomeC
 assert(!appJs.includes('首条待回填'), 'first-link gate should not duplicate the plan cards');
 assert(appJs.includes('plans.slice(0, 3)') && appJs.includes('查看发布角度'), 'plan summary should show only three scan-friendly cards with details collapsed');
 assert(indexHtml.includes('<title>获客罗盘｜FP Matrix 企业第一方增长智能</title>'), 'default title should expose the FP Matrix master brand and customer-facing product name without version text');
-assert(indexHtml.includes('/app.js?v=1.6.139') && indexHtml.includes('/styles.css?v=1.6.139') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.139'), 'public customer page should use the v1.6.139 cache-busted asset references');
+assert(indexHtml.includes('/app.js?v=1.6.140') && indexHtml.includes('/styles.css?v=1.6.140') && indexHtml.includes('/war-room-v1.6.1.css?v=1.6.140'), 'public customer page should use the v1.6.140 cache-busted asset references');
 assert(indexHtml.includes('<body class="customer-mode">') && indexHtml.includes("path === '/internal' || path.startsWith('/internal/')") && indexHtml.indexOf('<body class="customer-mode">') < indexHtml.indexOf('id="customerApp"'), 'initial HTML should choose the customer skin before first paint and switch internal routes synchronously');
 assert(indexHtml.includes("customer-cloud-restore-pending") && stylesCss.includes('body.customer-mode.customer-cloud-restore-pending #customerFormCard') && stylesCss.includes('正在恢复项目'), 'explicit customer links should hide the blank intake form during first-paint cloud restore');
-assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.139') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.139') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
-assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.139') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
+assert(indexHtml.includes('fp-matrix-lockup') && indexHtml.includes('fp-matrix-elephant.svg?v=1.6.140') && indexHtml.includes('/fp-matrix-favicon.svg?v=1.6.140') && indexHtml.includes('<strong>FP</strong><em>MATRIX</em>') && indexHtml.includes('企业第一方增长智能'), 'customer page should expose the official FP Matrix lockup and dedicated favicon');
+assert(indexHtml.includes('customer-product-lockup') && indexHtml.includes('/huoke-compass-mark.svg?v=1.6.140') && indexHtml.includes('获客<span>罗盘</span>') && indexHtml.includes('by FP Matrix'), 'customer hero should expose the Huoke Compass product lockup below the parent brand');
 assert(huokeCompassMark.includes('<title>获客罗盘产品标志</title>') && huokeCompassMark.includes('#F23B49') && huokeCompassMark.includes('#808080'), 'Huoke Compass mark should be a lightweight vector using approved brand colors');
 assert(fpMatrixLogo.includes('viewBox="0 0 182 140"') && fpMatrixLogo.includes('#F23B49') && fpMatrixLogo.includes('FP Matrix 大象标志'), 'FP Matrix logo should use the finalized compact brand-red vector elephant mark');
 assert(fpMatrixFavicon.includes('viewBox="0 0 182 182"') && fpMatrixFavicon.includes('#F23B49') && fpMatrixFavicon.includes('FP Matrix 图标'), 'browser favicon should use a dedicated square safe-area vector');
@@ -1720,7 +1720,7 @@ assert(warRoomCss.includes('v1.6.133 method entry and scenario page') && warRoom
 assert(warRoomCss.includes('.customer-growth-path li{') && warRoomCss.includes('margin-top:0!important'), 'method growth-path steps should override generic adjacent-list spacing so labels and arrows stay aligned');
 assert(privacyHtml.includes('本地存储与云端同步') && privacyHtml.includes('第三方服务与模型调用') && privacyHtml.includes('查阅、复制、更正、补充、删除'), 'privacy policy should cover storage, model calls and data-subject rights');
 assert(!indexHtml.includes('id="customerPrivacySettingsBtn"') && indexHtml.includes('id="customerFooterPrivacySettingsBtn"') && indexHtml.includes('id="personalizedRecommendationToggle"') && indexHtml.includes('个性化推荐/推送'), 'privacy settings should move out of the primary navigation while remaining accessible to signed-out customers');
-assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.139') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
+assert(indexHtml.includes('id="customerAccountBtn"') && indexHtml.includes('data-public-account-label') && indexHtml.includes('/public-account-menu.js?v=1.6.140') && indexHtml.includes('id="customerAccountDialog"') && indexHtml.includes('id="customerAccountEmailForm"') && indexHtml.includes('id="customerAccountCodeForm"') && indexHtml.includes('id="customerAccountPrivacySettings"'), 'customer navigation should expose the shared account menu while retaining account verification, projects and privacy dialogs');
 assert(publicAccountMenuJs.includes("fetch('/api/auth/session'") && publicAccountMenuJs.includes("fetch('/api/account/entitlements'") && publicAccountMenuJs.includes("fetch('/api/auth/logout'") && publicAccountMenuJs.includes("window.location.assign('/invite')") && publicAccountMenuJs.includes('剩余用量'), 'shared public account menu should read the real session and quota, enter the invitation center, and perform backend logout');
 assert(publicAccountMenuJs.includes('initPublicNavigationState') && publicAccountMenuJs.includes('publicNavIcon') && publicAccountMenuJs.includes("link.setAttribute('aria-current', 'page')") && !publicAccountMenuJs.includes("link.classList.add('is-navigating')"), 'public navigation should add consistent leading icons and retain a destination-page state without a synthetic loading indicator');
 assert(warRoomCss.includes('a[aria-current="page"]') && warRoomCss.includes('.public-nav-icon') && warRoomCss.includes('a:hover') && !warRoomCss.includes('.public-navigation-status') && !warRoomCss.includes('public-nav-progress') && !warRoomCss.includes('public-nav-soft-glow'), 'public navigation should change icon and label color on hover/current state without a spinner, progress bar, status toast or glow animation');
@@ -2257,7 +2257,7 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.139' && health.version_label === 'v1.6.139 · 对标内容洞察内测版', 'public application health version should report v1.6.139');
+assert(health.version === '1.6.140' && health.version_label === 'v1.6.140 · 首轮选题语义质量修复版', 'public application health version should report v1.6.140');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.features?.includes('commercial_entitlements_p2') && health.features?.includes('commercial_usage_reservations'), 'health should expose P2 entitlements and usage reservations');
 assert(health.features?.includes('referral_rewards_v1'), 'health should expose the account-scoped referral reward capability');
@@ -3505,7 +3505,8 @@ for (const claim of ['免费', '接送', '无隐形消费', '包会', '保证效
   assert(claimGuardRequestBody.includes(claim), `Ark plan prompt should explicitly forbid unsupported claim: ${claim}`);
 }
 assert(claimGuardRequestBody.includes('cta<=14字') && claimGuardRequestBody.includes('咨询咨询') && claimGuardRequestBody.includes('7条cta动作要多样'), 'Ark plan prompt should constrain CTA length, grammar, and action diversity');
-assert(claimGuardRequestBody.includes('小红书标题更口语') && claimGuardRequestBody.includes('不要把小红书语气套到其他平台'), 'Ark plan prompt should strengthen XHS tone without leaking it into other platforms');
+assert(claimGuardRequestBody.includes('小红书标题口语化') && claimGuardRequestBody.includes('不要把小红书语气套到其他平台'), 'Ark plan prompt should strengthen XHS tone without leaking it into other platforms');
+assert(claimGuardRequestBody.includes('脱离正文也能独立看懂') && claimGuardRequestBody.includes('禁止模糊指代'), 'Ark plan prompt should require semantically complete standalone titles');
 
 let nextRoundRequestBody = null;
 globalThis.fetch = async (_url, options = {}) => {
@@ -3623,6 +3624,17 @@ const qualityCases = [
     topics: ['一文讲清真相：孩子篮球课怎么选', '干货整理：体验课先看哪3点', '6-12岁零基础怎么开始', '练运球也在练哪些体能', '家长旁听先观察这4点', '孩子怕跟不上怎么办', '周末体验课怎么选班型'],
     expected: /篮球|体验课|孩子|家长|体能/,
   },
+  {
+    id: 'marketing-growth',
+    industry: '线上营销咨询与企业内容增长工具',
+    main_goal: '获得有内容营销需求的企业主咨询和产品试用',
+    target_customer: '选题不稳定、发布后不会分析数据的企业主和门店负责人',
+    offer: '获客罗盘内容增长诊断、内容计划与发布效果优化工具',
+    customer_pain: '担心AI内容模板化，不知道发布后如何根据真实数据持续优化',
+    content_assets: '产品页面截图、功能演示和真实发布数据',
+    topics: ['做内容总卡壳？这思路太顺了', '线上做内容不用蹲在电脑前', '内容发了没效果怎么办', '企业账号别急着追热点', '一条内容怎么进入下一轮', '有浏览没咨询问题在哪', '真实数据怎么调整选题'],
+    expected: /AI|内容|企业|获客|数据/,
+  },
 ];
 
 for (const qualityCase of qualityCases) {
@@ -3658,8 +3670,9 @@ for (const qualityCase of qualityCases) {
   assertPlanCtaQuality(`${qualityCase.id} content quality`, result);
   const topicText = result.plans.map((plan) => plan.topic).join('｜');
   assert(!/一文讲清|干货整理|全面解析|深度解析|知识科普/.test(topicText), `${qualityCase.id} XHS titles should remove textbook phrasing: ${topicText}`);
-  assert(/原来|后悔没早知道|谁懂啊|先收藏|别急着决定/.test(topicText), `${qualityCase.id} XHS titles should contain a restrained conversational hook: ${topicText}`);
+  assert(/先看清|别急着选|避坑先看|别急着决定|先判断/.test(topicText) || qualityCase.id === 'marketing-growth', `${qualityCase.id} XHS titles should use a clear conversational hook when textbook phrasing is cleaned: ${topicText}`);
   assert(qualityCase.expected.test(topicText), `${qualityCase.id} titles should stay specific to the customer business: ${topicText}`);
+  assert(!/这思路|这方法|这样做|太顺了|真香|绝了|谁懂啊|不用蹲在电脑前|全自动|自动发布|自动运营/.test(topicText), `${qualityCase.id} titles should pass semantic clarity and capability gates: ${topicText}`);
 }
 
 globalThis.fetch = async () => new Response(JSON.stringify({
