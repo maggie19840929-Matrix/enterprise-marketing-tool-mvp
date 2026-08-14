@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.152';
-const VERSION_LABEL = 'v1.6.152 · 项目恢复稳定版';
+const APP_VERSION = '1.6.153';
+const VERSION_LABEL = 'v1.6.153 · 反馈保存即时响应版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -4910,9 +4910,11 @@ function initCustomerTrial(){
   });
   $('#customerEffectForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const form = e.currentTarget;
+    if (form.dataset.saving === 'true') return;
     const current = loadCustomerTrialState();
     const records = Array.isArray(current.records) ? current.records : [];
-    const data = formData(e.target);
+    const data = formData(form);
     const selectedPlan = customerPlanById(current, data.content_plan_id);
     if (!selectedPlan) {
       setCustomerMessage('#customerEffectMessage', '请先在上方内容计划里选择实际发布的那一条；系统不会默认绑定第一条。', 'error');
@@ -4924,18 +4926,94 @@ function initCustomerTrial(){
     if (engagement && !splitEngagement) data.likes = String(engagement);
     data.publish_link = normalizeExternalUrl(data.publish_link || '');
     const selectedPlanId = planIdValue(selectedPlan);
-    const markedPlans = customerPlans(current).map((plan)=>samePlanId(planIdValue(plan), selectedPlanId) ? {...plan, status: '已记录效果'} : plan);
-    let record = {...data, client_id: customerClientId(), engagement, content_plan_id: selectedPlanId, plan_topic: selectedPlan.topic || '', created_at: localTimestamp()};
-    let nextState = {...current, plans: markedPlans.length ? markedPlans : current.plans, records: [record, ...records], selected_plan_id: selectedPlanId, updated_at: localTimestamp()};
+    const activeRound = customerActiveRound(current);
+    const existingRecord = records.find((item)=>samePlanId(item.content_plan_id, selectedPlanId)
+      && Number(item.round_number || activeRound) === activeRound);
+    const recordId = existingRecord?.record_id || `customer-effect-${activeRound}-${String(selectedPlanId).replace(/[^a-z0-9_-]+/gi, '-')}`;
+    const otherRecords = records.filter((item)=>customerRecordKey(item) !== recordId
+      && !(samePlanId(item.content_plan_id, selectedPlanId) && Number(item.round_number || activeRound) === activeRound));
+    const markedPlans = customerPlans(current).map((plan)=>samePlanId(planIdValue(plan), selectedPlanId)
+      ? {...plan, status: data.publish_link ? '已发布' : '已记录效果', ...(data.publish_link ? {publish_link: data.publish_link} : {})}
+      : plan);
+    let record = {
+      ...(existingRecord || {}),
+      ...data,
+      record_id: recordId,
+      client_id: customerClientId(),
+      engagement,
+      content_plan_id: selectedPlanId,
+      plan_topic: selectedPlan.topic || '',
+      round_number: activeRound,
+      created_at: existingRecord?.created_at || localTimestamp(),
+      updated_at: localTimestamp(),
+    };
+    let nextState = {...current, plans: markedPlans.length ? markedPlans : current.plans, records: [record, ...otherRecords], selected_plan_id: selectedPlanId, updated_at: localTimestamp()};
+    const submitButton = form.querySelector('[type="submit"]');
+    const originalButtonText = submitButton?.textContent || '保存记录';
+    form.dataset.saving = 'true';
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = '正在保存...';
+    }
+    setCustomerMessage('#customerEffectMessage', '正在保存发布数据，请稍候...');
+
+    const persistEffectState = () => {
+      saveCustomerTrialState(nextState);
+      if (clientState?.project || clientState.plans?.length) {
+        clientState.plans = nextState.plans;
+        clientState.records = nextState.records;
+        clientState.active_round = nextState.active_round || activeRound;
+        clientState.current_round = nextState.current_round || activeRound;
+        clientState.selected_plan_id = selectedPlanId;
+        const livePlan = clientState.plans.find((plan)=>samePlanId(planIdValue(plan), selectedPlanId)) || selectedPlan;
+        const previousFeedback = (Array.isArray(clientState.feedback) ? clientState.feedback : [])
+          .find((item)=>samePlanId(item.content_plan_id, selectedPlanId) && String(item.feedback_stage || 'T+24') === 'T+24');
+        const feedback = {
+          id: previousFeedback?.id || Date.now(),
+          client_id: customerClientId(),
+          project_id: clientState.project?.id || current.project_id || 'customer-project',
+          cycle_id: clientState.current_cycle_id || 'cycle-1',
+          content_plan_id: selectedPlanId,
+          publish_link: record.publish_link || '',
+          feedback_stage: 'T+24',
+          views: playbackValue(record),
+          backend_views: playbackValue(record),
+          backend_play_count: playbackValue(record),
+          likes: toNonNegative(record.likes),
+          comments: toNonNegative(record.comments),
+          favorites: toNonNegative(record.favorites),
+          shares: toNonNegative(record.shares),
+          consultations: toNonNegative(record.consultations),
+          appointments: toNonNegative(record.appointments),
+          notes: record.notes || '',
+          created_at: previousFeedback?.created_at || record.created_at,
+          updated_at: record.updated_at,
+        };
+        livePlan.status = record.publish_link ? '已发布' : '已记录效果';
+        if (record.publish_link) livePlan.publish_link = record.publish_link;
+        clientState.feedback = [feedback, ...(Array.isArray(clientState.feedback) ? clientState.feedback : [])
+          .filter((item)=>!(samePlanId(item.content_plan_id, selectedPlanId) && String(item.feedback_stage || 'T+24') === 'T+24'))];
+        clientState.review = createLocalReview();
+        saveLocal();
+      }
+      scheduleCustomerTrialCloudSync(nextState);
+    };
+
     try {
+      // Persist first so a slow advice request cannot make the save button appear unresponsive.
+      persistEffectState();
+      trackCustomerEvent('effect_recorded', {source:'customer_public', round_number:activeRound}, `effect-${recordId}`);
+      setCustomerMessage('#customerEffectMessage', '发布数据已保存，正在生成本条优化建议...');
       const dailyAdvice = await requestCustomerDailyAdvice(nextState, record);
-      record = {...record, daily_advice: dailyAdvice};
-      nextState = {...nextState, records: [record, ...records], updated_at: localTimestamp()};
+      record = {...record, daily_advice: dailyAdvice, updated_at: localTimestamp()};
+      nextState = {...nextState, records: [record, ...otherRecords], updated_at: localTimestamp()};
+      persistEffectState();
     } catch (error) {
       const fallbackAdvice = buildCustomerNextAdvice(nextState, record);
       const fallbackNextRound = buildCustomerNextRoundPlan(nextState, record, fallbackAdvice);
       record = {
         ...record,
+        updated_at: localTimestamp(),
         daily_advice: {
           advice: fallbackAdvice,
           next_round: fallbackNextRound,
@@ -4946,40 +5024,16 @@ function initCustomerTrial(){
           copy_model: { requested_model: 'Claude Opus', actual_model: 'rule_template', provider: 'local', fallback: true, failure_reason: error.message || 'request_failed' },
         },
       };
-      nextState = {...nextState, records: [record, ...records], updated_at: localTimestamp()};
+      nextState = {...nextState, records: [record, ...otherRecords], updated_at: localTimestamp()};
+      persistEffectState();
+    } finally {
+      delete form.dataset.saving;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
+      }
     }
-    saveCustomerTrialState(nextState);
-    trackCustomerEvent('effect_recorded', {source:'customer_public', round_number:customerActiveRound(nextState)}, `effect-${customerRecordKey(record)}`);
-    if (clientState.plans?.length) {
-      const livePlan = clientState.plans.find((plan)=>samePlanId(planIdValue(plan), selectedPlanId)) || selectedPlan;
-      const feedback = {
-        id: Date.now(),
-        client_id: customerClientId(),
-        project_id: clientState.project?.id || current.project_id || 'customer-project',
-        cycle_id: clientState.current_cycle_id || 'cycle-1',
-        content_plan_id: selectedPlanId,
-        publish_link: record.publish_link || '',
-        feedback_stage: 'T+24',
-        views: playbackValue(record),
-        backend_views: playbackValue(record),
-        backend_play_count: playbackValue(record),
-        likes: toNonNegative(record.likes),
-        comments: toNonNegative(record.comments),
-        favorites: toNonNegative(record.favorites),
-        shares: toNonNegative(record.shares),
-        consultations: toNonNegative(record.consultations),
-        appointments: toNonNegative(record.appointments),
-        notes: record.notes || '',
-        created_at: record.created_at,
-      };
-      livePlan.status = record.publish_link ? '已发布' : '已记录效果';
-      if (record.publish_link) livePlan.publish_link = record.publish_link;
-      clientState.feedback = [feedback, ...clientState.feedback.filter((item)=>!(samePlanId(item.content_plan_id, selectedPlanId) && String(item.feedback_stage || 'T+24') === 'T+24'))];
-      clientState.review = createLocalReview();
-      saveLocal();
-    }
-    scheduleCustomerTrialCloudSync(nextState);
-    e.target.reset();
+    form.reset();
     $$('[data-customer-observation-tags] .customer-choice-chip').forEach((button)=>{
       button.classList.remove('is-selected');
       button.setAttribute('aria-pressed', 'false');
