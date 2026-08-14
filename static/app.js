@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.145';
-const VERSION_LABEL = 'v1.6.145 · 三平台账号起步设置版';
+const APP_VERSION = '1.6.146';
+const VERSION_LABEL = 'v1.6.146 · 项目恢复与旧文案修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -444,7 +444,42 @@ function hasRestorableState(state = {}){
   const hasCycle = Boolean(state.current_cycle_id);
   return Boolean(state.diagnosis && (plans.length || hasProject || hasCycle));
 }
+const LEGACY_CUSTOMER_TOPIC_MIGRATIONS = {
+  '做内容总卡壳？这思路太顺了': '企业内容不知道发什么？先从3类素材开始',
+  '线上做内容不用蹲在电脑前': '老板没时间做内容？先排一周选题',
+  '内容发了没效果怎么办': '内容发了没咨询，先检查这3点',
+};
+const LEGACY_CUSTOMER_ANGLE_MIGRATIONS = {
+  '从日常卡壳场景讲内容怎么找方向': '用客户问题、真实案例和服务过程找到选题',
+  '讲网页端随时能用的内容工具逻辑': '展示如何用一份周计划减少临时想题',
+  '从发布后数据反推内容调整方向': '从曝光、互动和咨询判断下一条该怎么改',
+};
+function migrateLegacyCustomerPlanCopy(plan = {}){
+  if (!plan || typeof plan !== 'object') return plan;
+  const originalTopic = String(plan.topic || '').trim();
+  const originalAngle = String(plan.angle || '').trim();
+  const nextTopic = LEGACY_CUSTOMER_TOPIC_MIGRATIONS[originalTopic] || originalTopic;
+  const nextAngle = LEGACY_CUSTOMER_ANGLE_MIGRATIONS[originalAngle] || originalAngle;
+  if (nextTopic === originalTopic && nextAngle === originalAngle) return plan;
+  return {
+    ...plan,
+    topic: nextTopic,
+    ...(String(plan.title || '').trim() === originalTopic ? {title: nextTopic} : {}),
+    angle: nextAngle,
+    ...(String(plan.content_brief || '').trim() === originalAngle ? {content_brief: nextAngle} : {}),
+  };
+}
+function migrateLegacyCustomerStateCopy(state = {}){
+  if (!state || typeof state !== 'object') return state;
+  const migratePlans = (plans) => (Array.isArray(plans) ? plans.map(migrateLegacyCustomerPlanCopy) : plans);
+  const plans = migratePlans(state.plans);
+  const contentRounds = Array.isArray(state.content_rounds)
+    ? state.content_rounds.map((round) => ({...round, plans: migratePlans(round?.plans)}))
+    : state.content_rounds;
+  return {...state, plans, content_rounds};
+}
 const normalizeState = (state = {}) => {
+  state = migrateLegacyCustomerStateCopy(state);
   const assessment = state.assessment || null;
   const project = state.project || (assessment ? makeProject(assessment) : null);
   const current_cycle_id = state.current_cycle_id || 'cycle-1';
@@ -485,14 +520,15 @@ const normalizeState = (state = {}) => {
 };
 const WINDOW_STORAGE_PREFIX = '__enterpriseMarketingMvpStorage__';
 const HASH_STORAGE_PREFIX = 'mvpstate=';
-const storageArea = () => {
+const storageAreas = () => {
+  const areas = [];
   for (const name of ['localStorage', 'sessionStorage']) {
     try {
       const area = window?.[name];
-      if (area) return area;
+      if (area) areas.push(area);
     } catch {}
   }
-  return null;
+  return areas;
 };
 const readWindowStore = () => {
   try {
@@ -518,47 +554,60 @@ const writeWindowStore = (store) => {
     return false;
   }
 };
-const writeHashStore = (store) => {
-  try {
-    const hash = `${HASH_STORAGE_PREFIX}${encodeURIComponent(JSON.stringify(store))}`;
-    if (typeof history !== 'undefined' && history?.replaceState) {
-      history.replaceState(null, '', `${location.pathname}${location.search}#${hash}`);
-    } else {
-      location.hash = hash;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-};
 const readFallbackStore = () => {
   const windowStore = readWindowStore();
   return Object.keys(windowStore).length ? windowStore : readHashStore();
 };
 const writeFallbackStore = (store) => {
-  const wroteWindow = writeWindowStore(store);
-  const wroteHash = writeHashStore(store);
-  return wroteWindow || wroteHash;
+  return writeWindowStore(store);
+};
+const clearLegacyStateHash = () => {
+  try {
+    const raw = String(location?.hash || '').replace(/^#/, '');
+    if (!raw.startsWith(HASH_STORAGE_PREFIX)) return;
+    const legacyStore = readHashStore();
+    if (Object.keys(legacyStore).length) writeWindowStore(legacyStore);
+    if (typeof history !== 'undefined' && history?.replaceState) {
+      history.replaceState(null, '', `${location.pathname}${location.search}`);
+    }
+  } catch {}
 };
 const safeStorage = {
   get length(){
-    const area = storageArea();
-    if (area) { try { return area.length; } catch {} }
-    return Object.keys(readFallbackStore()).length;
+    const keys = new Set(Object.keys(readFallbackStore()));
+    storageAreas().forEach((area) => {
+      try {
+        for (let index = 0; index < area.length; index += 1) {
+          const key = area.key(index);
+          if (key) keys.add(key);
+        }
+      } catch {}
+    });
+    return keys.size;
   },
   key(index){
-    const area = storageArea();
-    if (area) { try { return area.key(index); } catch {} }
-    return Object.keys(readFallbackStore())[index] || null;
+    const keys = new Set(Object.keys(readFallbackStore()));
+    storageAreas().forEach((area) => {
+      try {
+        for (let cursor = 0; cursor < area.length; cursor += 1) {
+          const key = area.key(cursor);
+          if (key) keys.add(key);
+        }
+      } catch {}
+    });
+    return Array.from(keys)[index] || null;
   },
   getItem(key){
-    const area = storageArea();
-    if (area) { try { return area.getItem(key); } catch {} }
+    for (const area of storageAreas()) {
+      try {
+        const value = area.getItem(key);
+        if (value !== null) return value;
+      } catch {}
+    }
     return readFallbackStore()[key] || null;
   },
   setItem(key, value){
-    const area = storageArea();
-    if (area) {
+    for (const area of storageAreas()) {
       try {
         area.setItem(key, value);
         return true;
@@ -569,13 +618,9 @@ const safeStorage = {
     return writeFallbackStore(store);
   },
   removeItem(key){
-    const area = storageArea();
-    if (area) {
-      try {
-        area.removeItem(key);
-        return true;
-      } catch {}
-    }
+    storageAreas().forEach((area) => {
+      try { area.removeItem(key); } catch {}
+    });
     const store = readFallbackStore();
     delete store[key];
     return writeFallbackStore(store);
@@ -1074,11 +1119,12 @@ function customerStateProjectName(saved = {}){
   return cleanDisplayName(assessment.company_name || assessment.industry || saved.project_name || '上次项目');
 }
 
+let customerResumeDecisionMade = false;
 function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
   const banner = $('#customerResumeBanner');
   if (!banner) return;
   const hasSaved = Boolean(saved?.assessment || saved?.draft_assessment || saved?.diagnosis || (Array.isArray(saved?.plans) && saved.plans.length));
-  const shouldShow = hasSaved && !dedicatedCustomerKey();
+  const shouldShow = hasSaved && !dedicatedCustomerKey() && !customerResumeDecisionMade;
   banner.hidden = !shouldShow;
   if (!shouldShow) return;
   const name = customerStateProjectName(saved);
@@ -1117,6 +1163,8 @@ function resetCustomerTrialForm(){
 }
 
 function startBlankCustomerProject(){
+  customerResumeDecisionMade = true;
+  clearLegacyStateHash();
   const currentId = customerClientId();
   resetCustomerBrandImageRuntime();
   safeStorage.removeItem(customerTrialStorageKey(currentId));
@@ -1134,6 +1182,34 @@ function startBlankCustomerProject(){
   setCustomerFormCollapsed(false);
   setCustomerStep('intake', {state: {}, focus: true});
   toast('已切换到空白项目，可以给新客户重新填写。');
+}
+
+function continueCustomerSavedProject(){
+  const saved = loadCustomerTrialState({allowDedicatedFallback: true});
+  customerResumeDecisionMade = true;
+  clearLegacyStateHash();
+  renderCustomerResumeBanner({});
+  if (customerHasGeneratedState(saved)) {
+    clientState = buildVersionedProjectState(
+      {assessment: saved.assessment, diagnosis: saved.diagnosis, plans: saved.plans || []},
+      saved.assessment,
+      'customer_public',
+      {...clientState, account_visuals: saved.account_visuals || {}},
+      '继续本浏览器项目'
+    );
+    renderCustomerGeneratedState(saved, {step: customerDefaultStep(saved), focus: true});
+    renderCustomerRecordSummary(saved);
+    renderCustomerNextAdvice(saved);
+    renderCustomerEffects(saved);
+    scheduleCustomerTrialCloudSync(saved);
+    toast(`已继续：${customerStateProjectName(saved)}`);
+    return;
+  }
+  fillCustomerFormFromAssessment(saved.draft_assessment || saved.assessment || {});
+  clearCustomerGeneratedView();
+  setCustomerFormCollapsed(false);
+  setCustomerStep('intake', {state: saved, focus: true});
+  toast('已恢复上次填写内容，可以继续完成。');
 }
 
 function setCustomerFormCollapsed(collapsed){
@@ -3716,7 +3792,7 @@ function loadCustomerTrialState(options = {}){
     const state = JSON.parse(safeStorage.getItem(customerTrialStorageKey(client_id)) || '{}');
     if (state.client_id && String(state.client_id) !== String(client_id)) return {};
     if (!dedicatedCustomerKey() && !options.allowDedicatedFallback && isDedicatedCustomerState(state)) return {};
-    return state;
+    return migrateLegacyCustomerStateCopy(state);
   } catch {
     return {};
   }
@@ -4573,6 +4649,7 @@ function initCustomerTrial(){
   renderCustomerEffects();
   const sharedProjectLink = Boolean(customerShareTokenFromUrl());
   const savedCustomerState = sharedProjectLink ? {} : loadCustomerTrialState();
+  clearLegacyStateHash();
   renderCustomerResumeBanner(savedCustomerState);
   if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
     clientState = buildVersionedProjectState(
@@ -4610,9 +4687,7 @@ function initCustomerTrial(){
     renderCustomerNextAdvice(cloudState);
     renderCustomerEffects(cloudState);
   });
-  $('#customerResumeContinue')?.addEventListener('click', () => {
-    setCustomerStep(customerDefaultStep(loadCustomerTrialState()), {focus: true});
-  });
+  $('#customerResumeContinue')?.addEventListener('click', continueCustomerSavedProject);
   $('#customerStartBlank')?.addEventListener('click', startBlankCustomerProject);
   $('#copyCustomerSuggestion')?.addEventListener('click', copyCustomerSuggestion);
   $('#saveCustomerLinkBtn')?.addEventListener('click', saveCustomerLink);
