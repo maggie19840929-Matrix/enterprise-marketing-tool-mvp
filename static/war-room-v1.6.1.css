@@ -3620,6 +3620,22 @@ body.customer-mode .fp-matrix-lockup-footer .fp-matrix-wordmark{
   width:72px;
   margin-bottom:4px;
 }
+body.internal-mode .internal-access-card input,
+body.internal-mode .internal-access-card input:focus,
+body.internal-mode .internal-access-card input:-webkit-autofill,
+body.internal-mode .internal-access-card input:-webkit-autofill:focus{
+  border:1px solid rgba(255,255,255,.22)!important;
+  background:#0d0f12!important;
+  color:#f7f8f8!important;
+  caret-color:#f7f8f8!important;
+  -webkit-text-fill-color:#f7f8f8!important;
+  -webkit-box-shadow:0 0 0 1000px #0d0f12 inset!important;
+  box-shadow:0 0 0 1000px #0d0f12 inset!important;
+}
+body.internal-mode .internal-access-card input:focus{
+  border-color:#63b89a!important;
+  outline:3px solid rgba(99,184,154,.18)!important;
+}
 @media(min-width:981px){
   body.customer-mode .customer-product-hero .customer-hero-copy{
     width:min(100%,880px)!important;
