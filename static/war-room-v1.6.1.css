@@ -3978,6 +3978,59 @@ body.internal-mode .generation-primary-form label,
 body.internal-mode .generation-asset-form label{
   color:var(--war-text)!important;
 }
+body.internal-mode .generation-workbench input,
+body.internal-mode .generation-workbench select,
+body.internal-mode .generation-workbench textarea{
+  border:1px solid rgba(255,255,255,.14)!important;
+  background:#0d0f12!important;
+  color:#f7f8f8!important;
+  -webkit-text-fill-color:#f7f8f8!important;
+  box-shadow:none!important;
+  color-scheme:dark!important;
+}
+body.internal-mode .generation-workbench input:focus,
+body.internal-mode .generation-workbench select:focus,
+body.internal-mode .generation-workbench textarea:focus{
+  outline:none!important;
+  border-color:#8f93ff!important;
+  background:#0d0f12!important;
+  color:#fff!important;
+  -webkit-text-fill-color:#fff!important;
+  box-shadow:0 0 0 3px rgba(143,147,255,.16)!important;
+}
+body.internal-mode .generation-workbench input::placeholder,
+body.internal-mode .generation-workbench textarea::placeholder{
+  color:#777f8c!important;
+  -webkit-text-fill-color:#777f8c!important;
+  opacity:1!important;
+}
+body.internal-mode .generation-workbench select option{
+  background:#111318!important;
+  color:#f7f8f8!important;
+}
+body.internal-mode .generation-workbench input:-webkit-autofill,
+body.internal-mode .generation-workbench input:-webkit-autofill:hover,
+body.internal-mode .generation-workbench input:-webkit-autofill:focus{
+  -webkit-box-shadow:0 0 0 1000px #0d0f12 inset!important;
+  -webkit-text-fill-color:#f7f8f8!important;
+  caret-color:#f7f8f8!important;
+}
+body.internal-mode .generation-plan-bridge{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(260px,.55fr)!important;
+  gap:12px!important;
+  align-items:end!important;
+  padding:13px!important;
+  border:1px solid rgba(143,147,255,.22)!important;
+  border-radius:14px!important;
+  background:rgba(94,106,210,.07)!important;
+}
+body.internal-mode .generation-plan-bridge p{
+  margin:0 0 2px!important;
+  color:var(--war-muted)!important;
+  font-size:13px!important;
+  line-height:1.55!important;
+}
 body.internal-mode .generation-prompt-field textarea{
   min-height:160px!important;
   line-height:1.65!important;
@@ -4114,6 +4167,10 @@ body.internal-mode .generation-technical-panel .generation-json{
   body.internal-mode .generation-advanced-grid,
   body.internal-mode .generation-asset-form{
     grid-template-columns:1fr!important;
+  }
+  body.internal-mode .generation-plan-bridge{
+    grid-template-columns:1fr!important;
+    align-items:start!important;
   }
   body.internal-mode .generation-task-section-head{
     display:grid!important;

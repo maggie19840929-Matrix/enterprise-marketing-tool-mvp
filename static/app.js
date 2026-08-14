@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.155';
-const VERSION_LABEL = 'v1.6.155 · 团队登录稳定版';
+const APP_VERSION = '1.6.156';
+const VERSION_LABEL = 'v1.6.156 · 生产工作台关联与表单可读性修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -7399,17 +7399,123 @@ const generationClientId = () =>
 const generationProjectId = () =>
   $('#generationTaskForm [name="project_id"]')?.value || $('#generationAssetForm [name="project_id"]')?.value || 'qa_project_generation';
 
-function syncGenerationProjectContext(){
-  if (!isInternalProfile()) return false;
+function generationActiveProjectContext(){
   const activeProject = (projectStore.projects || []).find((item)=>String(item.id) === String(projectStore.activeProjectId))
     || (projectStore.projects || [])[0]
     || null;
   const state = activeProject?.state || clientState || {};
-  if (!hasRestorableState(state)) return false;
+  return {
+    activeProject,
+    state,
+    plans: Array.isArray(state.plans) ? state.plans : [],
+  };
+}
+
+const generationPlanIdValue = (plan = {}) => String(plan?.id ?? plan?.content_plan_id ?? '').trim();
+
+function generationPromptForPlan(plan = {}, generationType = 'script'){
+  const ui = GENERATION_TYPE_UI[generationType] || GENERATION_TYPE_UI.script;
+  const topic = String(plan.topic || plan.title || '').trim();
+  const platform = String(plan.platform || '').trim();
+  const angle = String(plan.angle || plan.content_brief || '').trim();
+  const cta = String(plan.cta || '').trim();
+  return [
+    `请基于当前客户的内容计划生成${ui.contentType}。`,
+    topic ? `本条选题：${topic}` : '',
+    platform ? `发布平台：${platform}` : '',
+    angle ? `发布角度：${angle}` : '',
+    cta ? `行动引导：${cta}` : '',
+    '请严格使用当前项目的行业、目标客户、服务与客户痛点，不得串入其他行业。',
+    '输出可以直接交给运营继续编辑和发布，不要只给泛泛建议。',
+  ].filter(Boolean).join('\n');
+}
+
+function applyGenerationPlanSelection({forcePrompt = false} = {}){
+  const form = $('#generationTaskForm');
+  const select = $('#generationPlanSelect');
+  if (!form || !select) return false;
+  const {plans} = generationActiveProjectContext();
+  const selectedId = String(select.value || form.querySelector('[name="content_plan_record_id"]')?.value || '').trim();
+  const index = plans.findIndex((plan)=>samePlanId(generationPlanIdValue(plan), selectedId));
+  const plan = index >= 0 ? plans[index] : null;
+  const hint = $('#generationPlanSelectionHint');
+  if (!plan) {
+    if (hint) hint.textContent = plans.length ? '请选择客户计划中的一天，再继续创建内容。' : '当前项目还没有内容计划，请先在运营工作台生成本轮计划。';
+    return false;
+  }
+
+  const planId = generationPlanIdValue(plan);
+  const taskPlanInput = form.querySelector('[name="content_plan_record_id"]');
+  const assetPlanInput = $('#generationAssetForm [name="content_plan_record_id"]');
+  if (taskPlanInput) taskPlanInput.value = planId;
+  if (assetPlanInput) assetPlanInput.value = planId;
+
+  const platformSelect = form.querySelector('[name="platform"]');
+  const platform = String(plan.platform || '').trim();
+  if (platformSelect && platform) {
+    const exactOption = Array.from(platformSelect.options).find((option)=>option.value === platform || option.textContent.trim() === platform);
+    platformSelect.value = exactOption?.value || '其他';
+  }
+
+  const generationType = $('#generationTypeSelect')?.value || 'script';
+  const prompt = form.querySelector('[name="prompt"]');
+  const nextPrompt = generationPromptForPlan(plan, generationType);
+  const previousAutoPrompt = String(form.dataset.autoPlanPrompt || '');
+  const currentPrompt = String(prompt?.value || '').trim();
+  if (prompt && (forcePrompt || !currentPrompt || currentPrompt === previousAutoPrompt)) {
+    prompt.value = nextPrompt;
+  }
+  form.dataset.autoPlanPrompt = nextPrompt;
+
+  const coverText = form.querySelector('[name="cover_text"]');
+  const topic = String(plan.topic || plan.title || '').trim();
+  if (coverText && topic && (!coverText.value.trim() || coverText.dataset.autoPlanValue === coverText.value)) {
+    coverText.value = topic.slice(0, 20);
+    coverText.dataset.autoPlanValue = coverText.value;
+  }
+  if (hint) hint.textContent = `已关联第 ${index + 1} 天「${topic || '未命名选题'}」；平台和生成要求已自动带入，可继续调整。`;
+  return true;
+}
+
+function renderGenerationPlanSelector(){
+  const select = $('#generationPlanSelect');
+  const form = $('#generationTaskForm');
+  if (!select || !form) return;
+  const {plans} = generationActiveProjectContext();
+  const linkedId = String(form.querySelector('[name="content_plan_record_id"]')?.value || '').trim();
+  if (!plans.length) {
+    select.innerHTML = '<option value="">当前项目暂无内容计划</option>';
+    select.disabled = true;
+    applyGenerationPlanSelection();
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = plans.map((plan, index) => {
+    const planId = generationPlanIdValue(plan);
+    const topic = String(plan.topic || plan.title || '未命名选题').trim();
+    const platform = String(plan.platform || '未标注平台').trim();
+    return `<option value="${esc(planId)}">第 ${index + 1} 天｜${esc(platform)}｜${esc(topic)}</option>`;
+  }).join('');
+  const matched = plans.find((plan)=>samePlanId(generationPlanIdValue(plan), linkedId));
+  select.value = generationPlanIdValue(matched || plans[0]);
+  applyGenerationPlanSelection();
+}
+
+function syncGenerationProjectContext(){
+  if (!isInternalProfile()) return false;
+  const {activeProject, state, plans} = generationActiveProjectContext();
+  if (!hasRestorableState(state)) {
+    renderGenerationPlanSelector();
+    return false;
+  }
   const clientId = explicitCustomerClientId() || normalizeClientId(state.assessment?.client_id || state.client_id || activeProject?.client_id) || INTERNAL_CLIENT_ID;
   const projectId = String(activeProject?.id || state.project?.id || '').trim();
-  const plans = Array.isArray(state.plans) ? state.plans : [];
-  const planId = String(plans[0]?.id ?? plans[0]?.content_plan_id ?? '').trim();
+  const currentProjectId = String($('#generationTaskForm [name="project_id"]')?.value || '').trim();
+  const currentPlanId = String($('#generationTaskForm [name="content_plan_record_id"]')?.value || '').trim();
+  const currentPlan = currentProjectId === projectId
+    ? plans.find((plan)=>samePlanId(generationPlanIdValue(plan), currentPlanId))
+    : null;
+  const planId = generationPlanIdValue(currentPlan || plans[0]);
   const clientName = customerDisplayName(state.assessment || {}, state.project || activeProject || null);
   const projectName = String(activeProject?.name || state.project?.name || clientName || '').trim();
   if (!projectId || !planId) return false;
@@ -7428,6 +7534,7 @@ function syncGenerationProjectContext(){
   setValue('#generationAssetForm [name="project_name"]', projectName);
   setValue('#generationAssetForm [name="client_name"]', clientName);
   setValue('#generationAssetForm [name="content_plan_record_id"]', planId);
+  renderGenerationPlanSelector();
   return changed;
 }
 
@@ -7468,6 +7575,7 @@ function updateGenerationRequestedModel(){
       control.disabled = !active;
     });
   });
+  applyGenerationPlanSelection();
 }
 
 function generationOutputSpecFor(data = {}, form){
@@ -8166,6 +8274,7 @@ function initGenerationWorkbench(){
     return;
   }
   generationWorkbenchInitialized = true;
+  $('#generationPlanSelect')?.addEventListener('change', () => applyGenerationPlanSelection({forcePrompt: true}));
   $('#generationTypeSelect')?.addEventListener('change', updateGenerationRequestedModel);
   $('#generationAssetForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
