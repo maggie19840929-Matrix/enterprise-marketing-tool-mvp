@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.153';
-const VERSION_LABEL = 'v1.6.153 · 反馈保存即时响应版';
+const APP_VERSION = '1.6.154';
+const VERSION_LABEL = 'v1.6.154 · 回填页面聚焦版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';

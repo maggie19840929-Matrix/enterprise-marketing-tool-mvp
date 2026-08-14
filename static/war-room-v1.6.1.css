@@ -650,6 +650,7 @@ body.customer-mode.customer-step-record #customerRecordSummary,
 body.customer-mode.customer-step-record #customerNextAdvice,
 body.customer-mode.customer-step-record .customer-record-title,
 body.customer-mode.customer-step-record #customerEffectList{display:none!important}
+body.customer-mode.customer-step-record .customer-account-setup{display:none!important}
 body.customer-mode.customer-step-next #customerEffectForm{display:none!important}
 body.customer-mode.customer-step-next #customerRecordSummary,
 body.customer-mode.customer-step-next #customerNextAdvice{display:grid!important}
