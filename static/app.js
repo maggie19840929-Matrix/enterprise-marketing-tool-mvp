@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.150';
-const VERSION_LABEL = 'v1.6.150 · 私密链接恢复修复版';
+const APP_VERSION = '1.6.151';
+const VERSION_LABEL = 'v1.6.151 · 私密链接恢复诊断版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -3913,12 +3913,14 @@ async function restoreCustomerTrialFromCloud({force = false} = {}){
     saveCustomerTrialState(trialState);
     return trialState;
   } catch (error) {
-    console.error('[customer_project_restore_failed]', {
-      code: error?.code || '',
-      status: Number(error?.status || 0),
-      message: error?.message || 'unknown_restore_error',
-      source: shareToken ? 'share_link' : 'customer_state',
-    });
+    const restoreError = [
+      shareToken ? 'share_link' : 'customer_state',
+      error?.code || 'no_code',
+      Number(error?.status || 0),
+      error?.message || 'unknown_restore_error',
+    ].join('|');
+    document.body.dataset.customerRestoreError = restoreError;
+    console.error(`[customer_project_restore_failed] ${restoreError}`);
     return null;
   }
 }
