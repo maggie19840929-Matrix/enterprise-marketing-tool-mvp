@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.156';
-const VERSION_LABEL = 'v1.6.156 · 生产工作台关联与表单可读性修复版';
+const APP_VERSION = '1.6.157';
+const VERSION_LABEL = 'v1.6.157 · 团队访问稳定修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1789,8 +1789,10 @@ async function verifyInternalAccessToken(token = ''){
   } catch (error) {
     internalAuthVerified = false;
     saveInternalAccessToken('');
-    setInternalAccessLocked(true, error?.status === 401 ? '访问口令不正确，请重新输入。' : '暂时无法验证访问权限，请稍后重试。');
-    $('#internalAccessToken')?.focus();
+    const tokenInput = $('#internalAccessToken');
+    if (tokenInput && tokenInput.value === candidate) tokenInput.value = '';
+    setInternalAccessLocked(true, error?.status === 401 ? '旧口令已失效，请粘贴最新团队访问码。' : '暂时无法验证访问权限，请稍后重试。');
+    tokenInput?.focus();
     return false;
   } finally {
     internalAuthCheckInFlight = false;

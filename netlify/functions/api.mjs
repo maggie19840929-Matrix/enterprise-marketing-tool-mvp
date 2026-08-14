@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.156';
-const VERSION_LABEL = 'v1.6.156 · 生产工作台关联与表单可读性修复版';
+const APP_VERSION = '1.6.157';
+const VERSION_LABEL = 'v1.6.157 · 团队访问稳定修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
