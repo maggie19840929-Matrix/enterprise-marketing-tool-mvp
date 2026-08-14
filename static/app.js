@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.147';
-const VERSION_LABEL = 'v1.6.147 · 旧匿名项目找回版';
+const APP_VERSION = '1.6.148';
+const VERSION_LABEL = 'v1.6.148 · 当前项目仓恢复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -1130,13 +1130,12 @@ function dismissedCustomerResumeClientId(){
   catch { return ''; }
 }
 
-function customerResumeCandidateFromBrowser(currentClientId = customerClientId()){
-  const currentId = normalizeClientId(currentClientId);
+function customerResumeCandidateFromBrowser(){
   const dismissedId = dismissedCustomerResumeClientId();
   const candidates = [];
   const consider = ({client_id = '', state = {}, project_store = null, updated_at = '', source = ''} = {}) => {
     const clientId = normalizeClientId(client_id);
-    if (!clientId || clientId === currentId || clientId === INTERNAL_CLIENT_ID || clientId === dismissedId) return;
+    if (!clientId || clientId === INTERNAL_CLIENT_ID || clientId === dismissedId) return;
     if (/^(?:qa|probe|prod|draft|live)[-_]/i.test(clientId)) return;
     const migratedState = migrateLegacyCustomerStateCopy(state || {});
     const hasSaved = Boolean(
@@ -4727,7 +4726,7 @@ function initCustomerTrial(){
   const sharedProjectLink = Boolean(customerShareTokenFromUrl());
   const savedCustomerState = sharedProjectLink ? {} : loadCustomerTrialState();
   customerResumeCandidate = (!sharedProjectLink && !customerHasGeneratedState(savedCustomerState))
-    ? customerResumeCandidateFromBrowser(customerClientId())
+    ? customerResumeCandidateFromBrowser()
     : null;
   const resumableCustomerState = customerResumeCandidate?.state || savedCustomerState;
   clearLegacyStateHash();
