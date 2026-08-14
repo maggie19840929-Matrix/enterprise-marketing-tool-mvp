@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.146';
-const VERSION_LABEL = 'v1.6.146 · 项目恢复与旧文案修复版';
+const APP_VERSION = '1.6.147';
+const VERSION_LABEL = 'v1.6.147 · 旧匿名项目找回版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.146';
-const VERSION_LABEL = 'v1.6.146 · 项目恢复与旧文案修复版';
+const APP_VERSION = '1.6.147';
+const VERSION_LABEL = 'v1.6.147 · 旧匿名项目找回版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -10,6 +10,7 @@ const PROJECTS_KEY = 'enterpriseMarketingMvpProjects.v1';
 const DEMO_DISABLED_KEY = 'enterpriseMarketingMvpDemoDisabled.v1';
 const CUSTOMER_STORAGE_KEY = 'enterpriseMarketingCustomerTrial.v1';
 const CUSTOMER_SESSION_KEY = 'enterpriseMarketingCustomerSessionId.v1';
+const CUSTOMER_RESUME_DISMISSED_KEY = 'enterpriseMarketingCustomerResumeDismissed.v1';
 const ACCOUNT_RESTORE_PROJECT_KEY = 'enterpriseMarketingAccountRestoreProject.v1';
 const REFERRAL_CODE_STORAGE_KEY = 'fpReferralCode.v1';
 const CUSTOMER_ACCESS_TOKEN_STORAGE_PREFIX = 'enterpriseMarketingCustomerAccessToken.v1';
@@ -1122,6 +1123,70 @@ function customerStateProjectName(saved = {}){
 }
 
 let customerResumeDecisionMade = false;
+let customerResumeCandidate = null;
+
+function dismissedCustomerResumeClientId(){
+  try { return normalizeClientId(safeStorage.getItem(CUSTOMER_RESUME_DISMISSED_KEY) || ''); }
+  catch { return ''; }
+}
+
+function customerResumeCandidateFromBrowser(currentClientId = customerClientId()){
+  const currentId = normalizeClientId(currentClientId);
+  const dismissedId = dismissedCustomerResumeClientId();
+  const candidates = [];
+  const consider = ({client_id = '', state = {}, project_store = null, updated_at = '', source = ''} = {}) => {
+    const clientId = normalizeClientId(client_id);
+    if (!clientId || clientId === currentId || clientId === INTERNAL_CLIENT_ID || clientId === dismissedId) return;
+    if (/^(?:qa|probe|prod|draft|live)[-_]/i.test(clientId)) return;
+    const migratedState = migrateLegacyCustomerStateCopy(state || {});
+    const hasSaved = Boolean(
+      migratedState.assessment
+      || migratedState.draft_assessment
+      || migratedState.diagnosis
+      || (Array.isArray(migratedState.plans) && migratedState.plans.length)
+    );
+    if (!hasSaved) return;
+    candidates.push({
+      client_id: clientId,
+      state: migratedState,
+      project_store,
+      updated_at: updated_at || migratedState.updated_at || migratedState.saved_at || migratedState.project?.updated_at || '',
+      source,
+    });
+  };
+  for (let index = 0; index < safeStorage.length; index += 1) {
+    const key = safeStorage.key(index);
+    if (!key) continue;
+    try {
+      let match = key.match(/^enterpriseMarketingCustomerTrial\.([a-z0-9_-]+)\.v1$/i);
+      if (match) {
+        consider({client_id: match[1], state: JSON.parse(safeStorage.getItem(key) || 'null'), source: 'customer_trial'});
+        continue;
+      }
+      match = key.match(/^enterpriseMarketingMvpProjects\.([a-z0-9_-]+)\.v1$/i);
+      if (match) {
+        const store = JSON.parse(safeStorage.getItem(key) || 'null');
+        const projects = Array.isArray(store?.projects) ? store.projects : [];
+        const active = projects.find((item) => String(item?.id || '') === String(store?.activeProjectId || ''));
+        const project = active || [...projects].sort((a, b) => compareTimestampDesc(a?.updated_at, b?.updated_at))[0];
+        if (project?.state) consider({
+          client_id: match[1],
+          state: project.state,
+          project_store: store,
+          updated_at: project.updated_at,
+          source: 'project_store',
+        });
+        continue;
+      }
+      match = key.match(/^enterpriseMarketingMvpState\.([a-z0-9_-]+)\.v5$/i);
+      if (match) {
+        consider({client_id: match[1], state: JSON.parse(safeStorage.getItem(key) || 'null'), source: 'app_state'});
+      }
+    } catch {}
+  }
+  return candidates.sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at))[0] || null;
+}
+
 function renderCustomerResumeBanner(saved = loadCustomerTrialState()){
   const banner = $('#customerResumeBanner');
   if (!banner) return;
@@ -1168,6 +1233,10 @@ function startBlankCustomerProject(){
   customerResumeDecisionMade = true;
   clearLegacyStateHash();
   const currentId = customerClientId();
+  if (customerResumeCandidate?.client_id) {
+    safeStorage.setItem(CUSTOMER_RESUME_DISMISSED_KEY, customerResumeCandidate.client_id);
+  }
+  customerResumeCandidate = null;
   resetCustomerBrandImageRuntime();
   safeStorage.removeItem(customerTrialStorageKey(currentId));
   if (!explicitCustomerClientId()) {
@@ -1187,18 +1256,24 @@ function startBlankCustomerProject(){
 }
 
 function continueCustomerSavedProject(){
-  const saved = loadCustomerTrialState({allowDedicatedFallback: true});
+  let saved = loadCustomerTrialState({allowDedicatedFallback: true});
+  if (!customerHasGeneratedState(saved) && customerResumeCandidate?.state) {
+    const candidate = customerResumeCandidate;
+    safeStorage.setItem(CUSTOMER_SESSION_KEY, candidate.client_id);
+    try { window.localStorage?.setItem(CUSTOMER_SESSION_KEY, candidate.client_id); } catch {}
+    safeStorage.removeItem(CUSTOMER_RESUME_DISMISSED_KEY);
+    saved = migrateLegacyCustomerStateCopy(candidate.state);
+    safeStorage.setItem(customerTrialStorageKey(candidate.client_id), JSON.stringify(saved));
+    if (candidate.project_store) {
+      safeStorage.setItem(projectsStorageKey(candidate.client_id), JSON.stringify(candidate.project_store));
+    }
+    customerResumeCandidate = null;
+  }
   customerResumeDecisionMade = true;
   clearLegacyStateHash();
   renderCustomerResumeBanner({});
   if (customerHasGeneratedState(saved)) {
-    clientState = buildVersionedProjectState(
-      {assessment: saved.assessment, diagnosis: saved.diagnosis, plans: saved.plans || []},
-      saved.assessment,
-      'customer_public',
-      {...clientState, account_visuals: saved.account_visuals || {}},
-      '继续本浏览器项目'
-    );
+    clientState = normalizeState(saved);
     renderCustomerGeneratedState(saved, {step: customerDefaultStep(saved), focus: true});
     renderCustomerRecordSummary(saved);
     renderCustomerNextAdvice(saved);
@@ -4651,8 +4726,12 @@ function initCustomerTrial(){
   renderCustomerEffects();
   const sharedProjectLink = Boolean(customerShareTokenFromUrl());
   const savedCustomerState = sharedProjectLink ? {} : loadCustomerTrialState();
+  customerResumeCandidate = (!sharedProjectLink && !customerHasGeneratedState(savedCustomerState))
+    ? customerResumeCandidateFromBrowser(customerClientId())
+    : null;
+  const resumableCustomerState = customerResumeCandidate?.state || savedCustomerState;
   clearLegacyStateHash();
-  renderCustomerResumeBanner(savedCustomerState);
+  renderCustomerResumeBanner(resumableCustomerState);
   if (savedCustomerState.assessment && savedCustomerState.diagnosis) {
     clientState = buildVersionedProjectState(
       {assessment: savedCustomerState.assessment, diagnosis: savedCustomerState.diagnosis, plans: savedCustomerState.plans || []},
