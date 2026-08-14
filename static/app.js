@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.151';
-const VERSION_LABEL = 'v1.6.151 · 私密链接恢复诊断版';
+const APP_VERSION = '1.6.152';
+const VERSION_LABEL = 'v1.6.152 · 项目恢复稳定版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -477,7 +477,7 @@ function migrateLegacyCustomerStateCopy(state = {}){
   const contentRounds = Array.isArray(state.content_rounds)
     ? state.content_rounds.map((round) => ({...round, plans: migratePlans(round?.plans)}))
     : state.content_rounds;
-  return {...state, plans, content_rounds};
+  return {...state, plans, content_rounds: contentRounds};
 }
 const normalizeState = (state = {}) => {
   state = migrateLegacyCustomerStateCopy(state);
