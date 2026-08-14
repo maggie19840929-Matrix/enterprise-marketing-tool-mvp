@@ -555,8 +555,10 @@ const writeWindowStore = (store) => {
   }
 };
 const readFallbackStore = () => {
+  const hashStore = readHashStore();
+  if (Object.keys(hashStore).length) return hashStore;
   const windowStore = readWindowStore();
-  return Object.keys(windowStore).length ? windowStore : readHashStore();
+  return windowStore;
 };
 const writeFallbackStore = (store) => {
   return writeWindowStore(store);
