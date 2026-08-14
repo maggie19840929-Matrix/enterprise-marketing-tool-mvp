@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.144';
-const VERSION_LABEL = 'v1.6.144 · 账号起步设置排版修复版';
+const APP_VERSION = '1.6.145';
+const VERSION_LABEL = 'v1.6.145 · 三平台账号起步设置版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -1175,49 +1175,152 @@ const enrichPlanRow = ({ row, index, platform, assessment, diagnosis }) => {
   };
 };
 
-const accountSetupFor = (assessment, recommendations) => {
+const accountSetupPrimaryPlatform = (assessment = {}, recommendations = {}) => {
+  const supported = ['小红书', '抖音', '视频号'];
+  const chosen = platformsFor(assessment.current_channels);
+  const explicit = chosen.find((platform) => supported.includes(platform));
+  if (explicit) return explicit;
+  const recommended = ensureArray(recommendations.primary)
+    .map((item) => String(item?.platform || '').trim())
+    .find((platform) => supported.includes(platform));
+  return recommended || String(recommendations?.primary?.[0]?.platform || '小红书');
+};
+
+const accountSetupBusinessLabel = (assessment = {}) => {
+  const source = String(assessment.company_name || assessment.industry || '品牌').trim();
+  const firstClause = source.split(/[，,。；;：:\n]/u)[0].replace(/^(主营|业务是|我们是)/u, '').trim();
+  return Array.from(firstClause || '品牌').slice(0, 18).join('');
+};
+
+const accountSetupProfileFor = (assessment, recommendations, primary) => {
   const isMeta = isMetaMarketingAccount(assessment);
-  const primary = recommendations?.primary?.[0]?.platform || '小红书';
-  const isXiaohongshu = primary === '小红书';
-  const preference = assessment.account_preference || '';
-  const accountName = preference || (isMeta ? '获客罗盘' : `${assessment.company_name || assessment.industry || '品牌'}内容增长号`);
-  const positioning = isMeta
-    ? '企业内容增长 / 企业获客 / AI营销复盘'
-    : `${assessment.industry || '当前行业'}内容获客与客户信任建立`;
-  const bioLines = isMeta ? [
-    '📌 研究内容怎么真正带来客户',
-    '🤖 用AI做选题、复盘和增长实验',
-    '📈 不只追爆款，更看咨询和转化',
-  ] : [
-    `📌 专注${assessment.industry || '行业'}客户问题`,
-    `📈 分享案例、避坑和${assessment.offer || '服务方案'}`,
-    '💬 有需求先咨询具体情况',
-  ];
+  const preference = String(assessment.account_preference || '').trim();
+  const businessLabel = accountSetupBusinessLabel(assessment);
+  const audience = shortAudience(assessment.target_customer || '目标客户');
+  const offer = String(assessment.offer || '服务方案').trim();
+  const recommendation = ensureArray(recommendations?.primary).find((item) => item?.platform === primary);
+  const common = {
+    platform_profile: 'general',
+    account_name: preference || (isMeta ? '获客罗盘' : `${businessLabel}内容增长号`),
+    positioning: isMeta
+      ? '企业内容增长 / 企业获客 / AI营销复盘'
+      : `${businessLabel}内容获客与客户信任建立`,
+    bio_lines: isMeta ? [
+      '研究内容怎么真正带来客户',
+      '用AI做选题、复盘和增长实验',
+      '不只追曝光，更看咨询和转化',
+    ] : [
+      `专注${businessLabel}客户问题`,
+      `分享案例、避坑和${offer}`,
+      '有需求可从主页了解服务',
+    ],
+    homepage_keywords: isMeta ? ['内容获客', 'AI复盘', '企业增长', '咨询转化'] : [businessLabel, '客户问题', '真实案例', '服务入口'],
+    homepage_focus: '先让访客看懂你是谁、服务谁、能解决什么问题，再承接下一步咨询。',
+    avatar_direction: '用品牌或服务核心符号做简洁头像，不堆文字，不做廉价营销海报。',
+    background_direction: '使用横向品牌背景图，保留安全留白，核心信息不要贴边或堆叠联系方式。',
+    pinned_content_label: '主页重点内容',
+    pinned_content_directions: ['账号定位说明', '真实服务过程或案例证据', '客户下一步如何了解服务'],
+    pinning_rule: '优先从已经发布并验证过的内容中，保留定位、信任证据和服务入口三类信息。',
+  };
+
+  if (primary === '小红书') {
+    Object.assign(common, {
+      platform_profile: 'xiaohongshu',
+      account_name: preference || (isMeta ? '获客罗盘' : `${businessLabel}内容号`),
+      positioning: isMeta ? '企业内容获客 / AI复盘 / 增长实验' : `${businessLabel}经验、避坑与真实案例`,
+      bio_lines: isMeta ? [
+        '研究内容怎么真正带来客户',
+        '用AI做选题、复盘和增长实验',
+        '不只追爆款，更看咨询和转化',
+      ] : [
+        `专注${businessLabel}真实问题`,
+        `分享${offer}案例、清单和避坑`,
+        `服务${audience}，主页可了解详情`,
+      ],
+      homepage_keywords: isMeta ? ['内容获客', 'AI复盘', '企业增长', '咨询转化'] : [businessLabel, offer, '避坑清单', '真实案例'],
+      homepage_focus: '让昵称、简介和前几篇笔记同时覆盖业务关键词，承接平台搜索和收藏决策。',
+      avatar_direction: isMeta
+        ? '小红书账号头像使用内容卡片、决策指针和增长节点组成的简洁图标；不放文字，圆形裁切后仍清楚。'
+        : '小红书头像使用一个与业务相关的高识别符号，画面简洁、对比清楚；不堆文字，圆形裁切后仍清楚。',
+      background_direction: '小红书主页背景使用横向品牌视觉，核心图形放在右侧或上半区，避开头像、昵称和简介覆盖区域；少字、高对比，手机端缩小后仍能识别。',
+      pinned_content_label: '建议置顶的笔记',
+      pinned_content_directions: ['我是谁、能帮谁解决什么问题', '真实服务过程或案例证据', '客户咨询前最需要了解的事项'],
+      pinning_rule: '小红书只能置顶已经发布的笔记；先发布并验证内容，再选择最能说明定位、建立信任和承接咨询的笔记置顶。',
+    });
+  } else if (primary === '抖音') {
+    Object.assign(common, {
+      platform_profile: 'douyin',
+      account_name: preference || (isMeta ? '获客罗盘' : businessLabel),
+      positioning: isMeta ? '企业内容获客方法与真实复盘' : `${businessLabel}真实过程与客户问题解答`,
+      bio_lines: isMeta ? [
+        '帮助企业把内容变成获客实验',
+        '分享选题、发布与真实数据复盘',
+        '适合企业主、商家和门店负责人',
+      ] : [
+        `${businessLabel}｜服务${audience}`,
+        `分享真实过程、案例和${offer}`,
+        '想了解是否适合，可从主页咨询',
+      ],
+      homepage_keywords: isMeta ? ['企业获客', '短视频复盘', '内容策略', '咨询转化'] : [businessLabel, offer, '真实过程', '客户问答'],
+      homepage_focus: '让新访客在几秒内看懂业务、服务对象和可信证据，主页内容以短视频案例和过程画面为主。',
+      avatar_direction: isMeta
+        ? '抖音头像使用高对比的品牌核心符号，轮廓明确、视觉集中；不放小字，圆形裁切和信息流缩略状态下都清楚。'
+        : '抖音头像优先使用清晰品牌标识、固定负责人形象或核心服务符号；主体居中、对比强，圆形裁切后仍有辨识度。',
+      background_direction: '抖音主页背景使用高对比横向视觉，核心品牌图形与一句定位放在中上区域，避开头像、昵称和功能按钮；不放二维码、手机号或密集卖点。',
+      pinned_content_label: '建议置顶的视频',
+      pinned_content_directions: ['账号是谁、主要服务谁', '最能证明能力的真实案例或过程', '客户咨询前最关心的价格、流程或适合人群'],
+      pinning_rule: '只从已经发布的视频中选择置顶内容；优先保留一条定位视频、一条信任证据和一条咨询承接内容，不把三条都做成硬广。',
+    });
+  } else if (primary === '视频号') {
+    Object.assign(common, {
+      platform_profile: 'wechat_channels',
+      account_name: preference || (isMeta ? '获客罗盘' : businessLabel),
+      positioning: isMeta ? '企业内容增长判断与案例复盘' : `${businessLabel}专业分享与真实案例`,
+      bio_lines: isMeta ? [
+        '面向企业主和商家的内容增长方法',
+        '用真实发布数据持续调整策略',
+        '分享案例复盘与可执行判断',
+      ] : [
+        `${businessLabel}｜服务${audience}`,
+        `分享专业判断、真实案例和${offer}`,
+        '持续更新，方便微信内了解与转发',
+      ],
+      homepage_keywords: isMeta ? ['企业增长', '案例复盘', '内容判断', '微信生态'] : [businessLabel, offer, '专业判断', '真实案例'],
+      homepage_focus: '强化真实身份和专业可信度，让内容适合微信好友、群聊和朋友圈转发后继续建立信任。',
+      avatar_direction: isMeta
+        ? '视频号头像使用稳重清晰的品牌标识，保持与微信生态内其他品牌触点一致；不放小字，圆形裁切后仍清楚。'
+        : '视频号头像优先使用清晰品牌标识或固定负责人形象，气质真实可信，保持与公众号、企业微信等品牌触点一致。',
+      background_direction: '视频号主页背景保持稳重、可信和品牌一致，核心视觉放在中上区域并预留头像、昵称安全区；避免夸张促销元素和密集联系方式。',
+      pinned_content_label: '主页优先展示的视频',
+      pinned_content_directions: ['负责人或品牌定位说明', '专业案例、服务过程或客户常见问题', '适合微信转发保存的实用判断'],
+      pinning_rule: '主页优先保留已经发布且最能建立信任的内容，先说明身份与专业能力，再用案例和实用判断承接后续咨询。',
+    });
+  }
+
   return {
     module_version: APP_VERSION,
-    account_name: accountName,
-    positioning,
-    bio_lines: bioLines,
-    homepage_keywords: isMeta ? ['内容获客', 'AI复盘', '企业增长', '咨询转化'] : ['客户问题', '真实案例', '服务入口', '咨询转化'],
-    avatar_direction: isMeta
-      ? '小红书精致感图标：内容卡片 + 决策指针 + AI节点 + 增长箭头；头像不放文字。'
-      : '用品牌/服务核心符号做简洁头像，不堆文字，不做廉价营销海报。',
-    background_direction: isXiaohongshu
-      ? '使用横向品牌背景图，核心图形和短句避开头像、昵称覆盖区域；少字、高对比，手机端缩小后仍能识别。'
-      : '使用横向品牌背景图，保留安全留白，核心信息不要贴边或堆叠联系方式。',
-    pinned_note_directions: isXiaohongshu
-      ? ['我是谁、能帮谁解决什么问题', '真实服务过程或案例证据', '客户咨询前最需要了解的事项']
-      : ['账号定位说明', '真实服务过程或案例证据', '客户下一步如何了解服务'],
-    pinning_rule: isXiaohongshu
-      ? '小红书只能置顶已经发布的笔记；先发布并验证内容，再选择最能说明定位、建立信任和承接咨询的笔记置顶。'
-      : '置顶内容必须来自已发布内容，优先保留定位、信任证据和服务入口三类信息。',
+    ...common,
+    pinned_note_directions: common.pinned_content_directions,
     starting_platform: {
       platform: primary,
-      reason: recommendations?.primary?.[0]?.reason || '先选择一个主平台跑7天小样本，避免多平台分散。',
+      reason: recommendation?.reason || '优先按你明确选择的平台完成账号起步设置，再用一轮内容验证效果。',
       rule: platformStyleRulesFor(primary),
     },
     naming_warning: '对外称呼优先用老板、企业主、商家、门店老板、企业负责人，保持专业和尊重。',
     scope_note: '账号基础设置是发布前门禁：定位、简介、主页关键词、头像、背景图和起步主平台先确认，再开始发布。',
+  };
+};
+
+const accountSetupFor = (assessment, recommendations) => {
+  const supported = ['小红书', '抖音', '视频号'];
+  const primary = accountSetupPrimaryPlatform(assessment, recommendations);
+  const explicitlyChosen = [...new Set(platformsFor(assessment.current_channels).filter((platform) => supported.includes(platform)))];
+  const setupPlatforms = explicitlyChosen.length ? explicitlyChosen : [primary];
+  const platformSetups = setupPlatforms.map((platform) => accountSetupProfileFor(assessment, recommendations, platform));
+  const primarySetup = platformSetups.find((setup) => setup.starting_platform?.platform === primary) || platformSetups[0];
+  return {
+    ...primarySetup,
+    platform_setups: platformSetups,
   };
 };
 

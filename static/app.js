@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.144';
-const VERSION_LABEL = 'v1.6.144 · 账号起步设置排版修复版';
+const APP_VERSION = '1.6.145';
+const VERSION_LABEL = 'v1.6.145 · 三平台账号起步设置版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -2545,10 +2545,38 @@ function customerBrandImageCardHtml(imageType = '', saved = loadCustomerTrialSta
   </article>`;
 }
 
+function customerAccountSetupListHtml(setup = {}){
+  const bio = (Array.isArray(setup.bio_lines) ? setup.bio_lines : []).map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
+  const pinnedDirections = Array.isArray(setup.pinned_content_directions)
+    ? setup.pinned_content_directions
+    : Array.isArray(setup.pinned_note_directions) ? setup.pinned_note_directions : [];
+  const pinned = pinnedDirections.map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
+  const pinnedLabel = customerText(setup.pinned_content_label || '建议置顶的笔记');
+  return `<dl class="customer-account-setup-list">
+    <div><dt>账号名</dt><dd>${esc(customerText(setup.account_name))}</dd></div>
+    <div><dt>账号定位</dt><dd>${esc(customerText(setup.positioning))}</dd></div>
+    ${bio ? `<div><dt>简介建议</dt><dd><ul>${bio}</ul></dd></div>` : ''}
+    ${setup.homepage_focus ? `<div><dt>主页重点</dt><dd>${esc(customerText(setup.homepage_focus))}</dd></div>` : ''}
+    <div><dt>头像方向</dt><dd>${esc(customerText(setup.avatar_direction))}</dd></div>
+    <div><dt>背景图方向</dt><dd>${esc(customerText(setup.background_direction))}</dd></div>
+    ${pinned ? `<div><dt>${esc(pinnedLabel)}</dt><dd><ul>${pinned}</ul><small>${esc(customerText(setup.pinning_rule))}</small></dd></div>` : ''}
+  </dl>`;
+}
+
 function customerAccountSetupHtml(setup = {}){
   if (!setup || typeof setup !== 'object' || !setup.account_name) return '';
-  const bio = (Array.isArray(setup.bio_lines) ? setup.bio_lines : []).map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
-  const pinned = (Array.isArray(setup.pinned_note_directions) ? setup.pinned_note_directions : []).map((line)=>`<li>${esc(customerText(line))}</li>`).join('');
+  const platformSetups = Array.isArray(setup.platform_setups) && setup.platform_setups.length
+    ? setup.platform_setups.filter((item)=>item && typeof item === 'object' && item.account_name)
+    : [];
+  const setupContent = platformSetups.length > 1
+    ? `<div class="customer-account-platform-setups">
+        ${platformSetups.map((item,index)=>`<details class="customer-account-platform-setup"${index === 0 ? ' open' : ''}>
+          <summary><span>${esc(customerText(item.starting_platform?.platform || `平台 ${index + 1}`))}账号设置</span><small>${index === 0 ? '当前主设置' : '展开查看'}</small></summary>
+          ${customerAccountSetupListHtml(item)}
+        </details>`).join('')}
+      </div>`
+    : customerAccountSetupListHtml(platformSetups[0] || setup);
+  const visualPlatform = customerText(setup.starting_platform?.platform || '当前主平台');
   const saved = loadCustomerTrialState();
   return `<article class="customer-advice-block customer-account-setup">
     <span>准备</span>
@@ -2558,7 +2586,7 @@ function customerAccountSetupHtml(setup = {}){
       <section class="customer-brand-image-studio" aria-label="账号头像和主页背景图生成">
         <div class="customer-brand-image-studio-head">
           <strong>直接生成账号视觉</strong>
-          <small>系统会结合你的业务、客户和账号定位生成，不需要自己写提示词。</small>
+          <small>当前按${esc(visualPlatform)}账号规范生成；系统会结合业务、客户和账号定位，不需要自己写提示词。</small>
         </div>
         <div class="customer-brand-image-grid">
           ${customerBrandImageCardHtml('avatar', saved)}
@@ -2567,14 +2595,7 @@ function customerAccountSetupHtml(setup = {}){
       </section>
       <details>
         <summary>查看账号起步设置</summary>
-        <dl class="customer-account-setup-list">
-          <div><dt>账号名</dt><dd>${esc(customerText(setup.account_name))}</dd></div>
-          <div><dt>账号定位</dt><dd>${esc(customerText(setup.positioning))}</dd></div>
-          ${bio ? `<div><dt>简介建议</dt><dd><ul>${bio}</ul></dd></div>` : ''}
-          <div><dt>头像方向</dt><dd>${esc(customerText(setup.avatar_direction))}</dd></div>
-          <div><dt>背景图方向</dt><dd>${esc(customerText(setup.background_direction))}</dd></div>
-          ${pinned ? `<div><dt>建议置顶的笔记</dt><dd><ul>${pinned}</ul><small>${esc(customerText(setup.pinning_rule))}</small></dd></div>` : ''}
-        </dl>
+        ${setupContent}
       </details>
     </div>
   </article>`;
@@ -5931,18 +5952,27 @@ function renderFirstLinkGate(){
 
 function renderAccountSetup(setup){
   if (!setup) return '';
+  const profiles = Array.isArray(setup.platform_setups) && setup.platform_setups.length ? setup.platform_setups : [setup];
+  const profileHtml = profiles.map((item)=>{
+    const pinnedDirections = Array.isArray(item.pinned_content_directions) ? item.pinned_content_directions : (item.pinned_note_directions || []);
+    const pinnedLabel = item.pinned_content_label || '建议置顶的笔记';
+    return `<div class="account-setup-platform-group">
+      <p><strong>${esc(item.starting_platform?.platform || '起步平台')}账号设置</strong></p>
+      <p><strong>账号名：</strong>${esc(item.account_name || '')}</p>
+      <p><strong>定位：</strong>${esc(item.positioning || '')}</p>
+      <p><strong>简介：</strong><br>${(item.bio_lines || []).map(esc).join('<br>')}</p>
+      <p><strong>主页关键词：</strong>${esc((item.homepage_keywords || []).join(' / '))}</p>
+      ${item.homepage_focus ? `<p><strong>主页重点：</strong>${esc(item.homepage_focus)}</p>` : ''}
+      <p><strong>头像方向：</strong>${esc(item.avatar_direction || '')}</p>
+      <p><strong>背景图方向：</strong>${esc(item.background_direction || '')}</p>
+      <p><strong>${esc(pinnedLabel)}：</strong>${esc(pinnedDirections.join(' / '))}</p>
+      <p><strong>置顶/展示规则：</strong>${esc(item.pinning_rule || '')}</p>
+      <p><strong>平台表达规则：</strong>${esc(item.starting_platform?.rule || '')}</p>
+    </div>`;
+  }).join('');
   return `<div class="warning account-setup">
     <div class="small">账号冷启动配置 · 发布前门禁</div>
-    <p><strong>账号名：</strong>${esc(setup.account_name || '')}</p>
-    <p><strong>定位：</strong>${esc(setup.positioning || '')}</p>
-    <p><strong>简介：</strong><br>${(setup.bio_lines || []).map(esc).join('<br>')}</p>
-    <p><strong>主页关键词：</strong>${esc((setup.homepage_keywords || []).join(' / '))}</p>
-    <p><strong>头像方向：</strong>${esc(setup.avatar_direction || '')}</p>
-    <p><strong>背景图方向：</strong>${esc(setup.background_direction || '')}</p>
-    <p><strong>建议置顶的笔记：</strong>${esc((setup.pinned_note_directions || []).join(' / '))}</p>
-    <p><strong>置顶规则：</strong>${esc(setup.pinning_rule || '')}</p>
-    <p><strong>起步主平台：</strong>${esc(setup.starting_platform?.platform || '')}｜${esc(setup.starting_platform?.reason || '')}</p>
-    <p><strong>平台表达规则：</strong>${esc(setup.starting_platform?.rule || '')}</p>
+    ${profileHtml}
     <p><strong>称呼门禁：</strong>${esc(setup.naming_warning || '')}</p>
   </div>`;
 }
