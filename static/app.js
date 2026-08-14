@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.148';
-const VERSION_LABEL = 'v1.6.148 · 当前项目仓恢复版';
+const APP_VERSION = '1.6.150';
+const VERSION_LABEL = 'v1.6.150 · 私密链接恢复修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -3912,7 +3912,13 @@ async function restoreCustomerTrialFromCloud({force = false} = {}){
     };
     saveCustomerTrialState(trialState);
     return trialState;
-  } catch {
+  } catch (error) {
+    console.error('[customer_project_restore_failed]', {
+      code: error?.code || '',
+      status: Number(error?.status || 0),
+      message: error?.message || 'unknown_restore_error',
+      source: shareToken ? 'share_link' : 'customer_state',
+    });
     return null;
   }
 }
