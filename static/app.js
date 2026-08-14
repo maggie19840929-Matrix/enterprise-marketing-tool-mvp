@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.157';
-const VERSION_LABEL = 'v1.6.157 · 团队访问稳定修复版';
+const APP_VERSION = '1.6.158';
+const VERSION_LABEL = 'v1.6.158 · 生产项目选择修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -7392,6 +7392,7 @@ const GENERATION_OUTPUT_SPEC_FIELDS = [
   'image_style',
 ];
 let generationWorkbenchState = { assets: [], tasks: [], clientTasks: [] };
+let generationScopeState = { clientId: '', projectId: '', projects: [], loading: false, error: '' };
 let generationWorkbenchRefreshTimer = 0;
 let generationWorkbenchRefreshBusy = false;
 const GENERATION_WORKBENCH_REFRESH_MS = 5000;
@@ -7399,18 +7400,106 @@ const GENERATION_WORKBENCH_REFRESH_MS = 5000;
 const generationClientId = () =>
   normalizeClientId($('#generationTaskForm [name="client_id"]')?.value || $('#generationAssetForm [name="client_id"]')?.value || INTERNAL_CLIENT_ID) || INTERNAL_CLIENT_ID;
 const generationProjectId = () =>
-  $('#generationTaskForm [name="project_id"]')?.value || $('#generationAssetForm [name="project_id"]')?.value || 'qa_project_generation';
+  $('#generationTaskForm [name="project_id"]')?.value || $('#generationAssetForm [name="project_id"]')?.value || '';
+
+function clearGenerationScopeValues(){
+  [
+    '#generationTaskForm [name="project_id"]',
+    '#generationTaskForm [name="content_plan_record_id"]',
+    '#generationAssetForm [name="project_id"]',
+    '#generationAssetForm [name="content_plan_record_id"]',
+  ].forEach((selector) => {
+    const input = $(selector);
+    if (input) input.value = '';
+  });
+}
 
 function generationActiveProjectContext(){
-  const activeProject = (projectStore.projects || []).find((item)=>String(item.id) === String(projectStore.activeProjectId))
-    || (projectStore.projects || [])[0]
+  const scopedProject = (generationScopeState.projects || [])
+    .find((item)=>String(item.id) === String(generationScopeState.projectId));
+  const activeProject = scopedProject
+    || (!generationScopeState.clientId
+      ? ((projectStore.projects || []).find((item)=>String(item.id) === String(projectStore.activeProjectId)) || (projectStore.projects || [])[0])
+      : null)
     || null;
-  const state = activeProject?.state || clientState || {};
+  const state = activeProject?.state || (!generationScopeState.clientId ? clientState : {}) || {};
   return {
     activeProject,
     state,
     plans: Array.isArray(state.plans) ? state.plans : [],
   };
+}
+
+function renderGenerationScope(){
+  const customerSelect = $('#generationClientSelect');
+  const projectSelect = $('#generationProjectSelect');
+  const status = $('#generationScopeStatus');
+  const customers = benchmarkCustomerOptions();
+  if (customerSelect) {
+    customerSelect.disabled = generationScopeState.loading || !customers.length;
+    customerSelect.innerHTML = customers.length
+      ? `<option value="">选择客户</option>${customers.map((item) => `<option value="${esc(item.client_id)}" ${item.client_id === generationScopeState.clientId ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}`
+      : '<option value="">暂无可用客户</option>';
+  }
+  if (projectSelect) {
+    const projects = generationScopeState.projects || [];
+    projectSelect.disabled = generationScopeState.loading || !projects.length;
+    projectSelect.innerHTML = projects.length
+      ? `<option value="">选择项目</option>${projects.map((item) => `<option value="${esc(item.id)}" ${String(item.id) === String(generationScopeState.projectId) ? 'selected' : ''}>${esc(benchmarkProjectLabel(item))}</option>`).join('')}`
+      : `<option value="">${generationScopeState.clientId ? '该客户暂无项目' : '请先选择客户'}</option>`;
+  }
+  if (status) {
+    status.classList.toggle('error', Boolean(generationScopeState.error));
+    status.textContent = generationScopeState.loading
+      ? '正在读取客户项目...'
+      : (generationScopeState.error || (generationScopeState.projectId ? '客户与项目已关联，下面只显示该项目的内容计划。' : '先确认客户和项目，避免内容关联到错误项目。'));
+  }
+}
+
+async function loadGenerationClientProjects(clientId = '', {preferredProjectId = ''} = {}){
+  const safeClientId = String(clientId || '').trim();
+  generationScopeState = {clientId: safeClientId, projectId: '', projects: [], loading: Boolean(safeClientId), error: ''};
+  clearGenerationScopeValues();
+  renderGenerationScope();
+  renderGenerationPlanSelector();
+  if (!safeClientId) return false;
+  try {
+    const cloud = await api(`/api/state?client_id=${encodeURIComponent(safeClientId)}&mode=internal`);
+    const projects = Array.isArray(cloud.project_store?.projects) ? cloud.project_store.projects : [];
+    const preferred = projects.find((item)=>String(item.id) === String(preferredProjectId));
+    generationScopeState = {
+      clientId: safeClientId,
+      projectId: String(preferred?.id || projects[0]?.id || ''),
+      projects,
+      loading: false,
+      error: '',
+    };
+    renderGenerationScope();
+    syncGenerationProjectContext();
+    return Boolean(generationScopeState.projectId);
+  } catch (error) {
+    generationScopeState = {clientId: safeClientId, projectId: '', projects: [], loading: false, error: error.message || '客户项目读取失败'};
+    renderGenerationScope();
+    renderGenerationPlanSelector();
+    return false;
+  }
+}
+
+async function ensureGenerationScope(){
+  await refreshAllCustomers({force: true});
+  const customers = benchmarkCustomerOptions();
+  const localProject = (projectStore.projects || []).find((item)=>String(item.id) === String(projectStore.activeProjectId)) || (projectStore.projects || [])[0];
+  const localState = localProject?.state || clientState || {};
+  const localClientId = normalizeClientId(localState.assessment?.client_id || localState.client_id || localProject?.client_id);
+  const preferredClientId = generationScopeState.clientId || explicitCustomerClientId() || localClientId || customers[0]?.client_id || '';
+  const preferredProjectId = generationScopeState.projectId || localProject?.id || '';
+  if (!preferredClientId) {
+    generationScopeState = {clientId: '', projectId: '', projects: [], loading: false, error: allCustomersState.error || '暂无可选择的客户项目'};
+    renderGenerationScope();
+    renderGenerationPlanSelector();
+    return false;
+  }
+  return loadGenerationClientProjects(preferredClientId, {preferredProjectId});
 }
 
 const generationPlanIdValue = (plan = {}) => String(plan?.id ?? plan?.content_plan_id ?? '').trim();
@@ -7488,6 +7577,10 @@ function renderGenerationPlanSelector(){
   if (!plans.length) {
     select.innerHTML = '<option value="">当前项目暂无内容计划</option>';
     select.disabled = true;
+    const taskPlanInput = form.querySelector('[name="content_plan_record_id"]');
+    const assetPlanInput = $('#generationAssetForm [name="content_plan_record_id"]');
+    if (taskPlanInput) taskPlanInput.value = '';
+    if (assetPlanInput) assetPlanInput.value = '';
     applyGenerationPlanSelection();
     return;
   }
@@ -7506,12 +7599,13 @@ function renderGenerationPlanSelector(){
 function syncGenerationProjectContext(){
   if (!isInternalProfile()) return false;
   const {activeProject, state, plans} = generationActiveProjectContext();
-  if (!hasRestorableState(state)) {
+  const projectId = String(activeProject?.id || state.project?.id || '').trim();
+  if (!activeProject || !projectId) {
+    clearGenerationScopeValues();
     renderGenerationPlanSelector();
     return false;
   }
-  const clientId = explicitCustomerClientId() || normalizeClientId(state.assessment?.client_id || state.client_id || activeProject?.client_id) || INTERNAL_CLIENT_ID;
-  const projectId = String(activeProject?.id || state.project?.id || '').trim();
+  const clientId = generationScopeState.clientId || explicitCustomerClientId() || normalizeClientId(state.assessment?.client_id || state.client_id || activeProject?.client_id) || INTERNAL_CLIENT_ID;
   const currentProjectId = String($('#generationTaskForm [name="project_id"]')?.value || '').trim();
   const currentPlanId = String($('#generationTaskForm [name="content_plan_record_id"]')?.value || '').trim();
   const currentPlan = currentProjectId === projectId
@@ -7520,7 +7614,6 @@ function syncGenerationProjectContext(){
   const planId = generationPlanIdValue(currentPlan || plans[0]);
   const clientName = customerDisplayName(state.assessment || {}, state.project || activeProject || null);
   const projectName = String(activeProject?.name || state.project?.name || clientName || '').trim();
-  if (!projectId || !planId) return false;
   let changed = false;
   const setValue = (selector, value) => {
     const input = $(selector);
@@ -8003,12 +8096,20 @@ async function refreshGeneratingWorkbenchTasks(){
   }
 }
 
-async function loadGenerationWorkbench({scheduleRefresh = true} = {}){
+async function loadGenerationWorkbench({scheduleRefresh = true, ensureScope = true} = {}){
   if (!isGenerationWorkbenchRoute()) return;
+  if (ensureScope && !generationScopeState.projectId) await ensureGenerationScope();
   syncGenerationProjectContext();
   const profile = currentProfile();
   const clientId = generationClientId();
   const projectId = generationProjectId();
+  if (!generationScopeState.projectId || !projectId) {
+    generationWorkbenchState = {assets: [], tasks: [], clientTasks: []};
+    renderGenerationAssets();
+    renderGenerationTasks();
+    renderGenerationClientDelivery();
+    return;
+  }
   const query = `client_id=${encodeURIComponent(clientId)}&project_id=${encodeURIComponent(projectId)}`;
   const [assets, tasks, clientTasks] = await Promise.all([
     api(`/api/assets?${query}`),
@@ -8276,6 +8377,28 @@ function initGenerationWorkbench(){
     return;
   }
   generationWorkbenchInitialized = true;
+  $('#generationClientSelect')?.addEventListener('change', async (event) => {
+    try {
+      await loadGenerationClientProjects(event.target.value);
+      await loadGenerationWorkbench({ensureScope: false});
+    } catch (error) {
+      generationScopeState.error = error.message || '客户项目读取失败';
+      renderGenerationScope();
+    }
+  });
+  $('#generationProjectSelect')?.addEventListener('change', async (event) => {
+    generationScopeState.projectId = String(event.target.value || '');
+    generationScopeState.error = '';
+    clearGenerationScopeValues();
+    renderGenerationScope();
+    syncGenerationProjectContext();
+    try {
+      await loadGenerationWorkbench({ensureScope: false});
+    } catch (error) {
+      generationScopeState.error = error.message || '项目内容读取失败';
+      renderGenerationScope();
+    }
+  });
   $('#generationPlanSelect')?.addEventListener('change', () => applyGenerationPlanSelection({forcePrompt: true}));
   $('#generationTypeSelect')?.addEventListener('change', updateGenerationRequestedModel);
   $('#generationAssetForm')?.addEventListener('submit', async (e) => {

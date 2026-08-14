@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>获客罗盘｜FP Matrix 企业第一方增长智能</title>
-  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.157" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=1.6.157" />
-  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.157" />
+  <link rel="icon" href="/fp-matrix-favicon.svg?v=1.6.158" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.158" />
+  <link rel="stylesheet" href="/war-room-v1.6.1.css?v=1.6.158" />
 </head>
 <body class="customer-mode">
   <script>
@@ -25,7 +25,7 @@
     <nav class="customer-site-nav" aria-label="主导航">
       <a class="customer-site-brand" href="/" aria-label="FP Matrix 企业第一方增长智能首页">
         <span class="fp-matrix-lockup">
-          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.157" alt="" />
+          <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.158" alt="" />
           <span class="fp-matrix-type">
             <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
             <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -58,7 +58,7 @@
     <header class="customer-hero customer-product-hero">
       <div class="customer-hero-copy">
         <div class="customer-product-lockup" aria-label="获客罗盘 by FP Matrix">
-          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.157" alt="" />
+          <img class="customer-product-mark" src="/huoke-compass-mark.svg?v=1.6.158" alt="" />
           <span class="customer-product-type">
             <strong>获客<span>罗盘</span></strong>
             <small>by FP Matrix</small>
@@ -476,7 +476,7 @@
       <div class="customer-footer-primary">
         <div class="customer-footer-brand">
           <span class="fp-matrix-lockup fp-matrix-lockup-footer">
-            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.157" alt="" />
+            <img class="fp-matrix-elephant-mark" src="/fp-matrix-elephant.svg?v=1.6.158" alt="" />
             <span class="fp-matrix-type">
               <span class="fp-matrix-wordmark"><strong>FP</strong><em>MATRIX</em></span>
               <span class="fp-matrix-descriptor">企业第一方增长智能</span>
@@ -586,7 +586,7 @@
 
   <main id="internalAccessGate" class="internal-access-gate" hidden>
     <form id="internalAccessForm" class="internal-access-card" autocomplete="on">
-      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.157" alt="" />
+      <img class="fp-matrix-elephant-mark fp-matrix-elephant-mark-gate" src="/fp-matrix-elephant.svg?v=1.6.158" alt="" />
       <p>INTERNAL ACCESS</p>
       <h1>内部工作区</h1>
       <span>请输入团队内部访问口令。验证通过后才会加载客户与运营数据。</span>
@@ -808,6 +808,19 @@
           <span>先选客户计划中的某一天，再选成品类型，最后补充生成要求。</span>
         </div>
         <div class="generation-primary-fields">
+          <div class="generation-scope-bridge wide-field">
+            <label>选择客户
+              <select id="generationClientSelect">
+                <option value="">正在读取客户...</option>
+              </select>
+            </label>
+            <label>选择项目
+              <select id="generationProjectSelect" disabled>
+                <option value="">请先选择客户</option>
+              </select>
+            </label>
+            <p id="generationScopeStatus">先确认客户和项目，避免内容关联到错误项目。</p>
+          </div>
           <div class="generation-plan-bridge wide-field">
             <label>从客户内容计划选择
               <select id="generationPlanSelect" aria-describedby="generationPlanSelectionHint">
@@ -943,11 +956,11 @@
         </div>
 
         <details class="generation-advanced">
-          <summary>关联项目、参考素材与交付设置</summary>
+          <summary>参考素材与交付设置</summary>
           <div class="generation-advanced-grid">
-            <label>项目 ID *<input name="project_id" required value="qa_project_generation" /></label>
-            <label>客户 ID *<input name="client_id" required value="internal" /></label>
-            <label>内容计划记录 ID *<input name="content_plan_record_id" required value="qa_content_plan_001" /></label>
+            <input name="project_id" type="hidden" required value="" />
+            <input name="client_id" type="hidden" required value="" />
+            <input name="content_plan_record_id" type="hidden" required value="" />
             <input name="content_type" type="hidden" value="脚本" />
             <label>实际模型<input name="requested_model" id="generationRequestedModel" value="Kimi (kimi-k2.6)" readonly /></label>
             <label class="wide-field">选择参考素材<div id="generationAssetPicker" class="generation-picker empty">没有素材也可以直接生成。</div></label>
@@ -977,11 +990,11 @@
             <h3>登记或上传参考素材</h3>
             <span>图片和小文件可直接上传，大视频使用外链。</span>
           </div>
-          <label>项目 ID *<input name="project_id" required value="qa_project_generation" /></label>
-          <label>项目名称<input name="project_name" value="企业营销工具验收测试" /></label>
-          <label>客户 ID *<input name="client_id" required value="internal" /></label>
-          <label>客户名称<input name="client_name" value="QA测试客户" /></label>
-          <input name="content_plan_record_id" type="hidden" value="qa_content_plan_001" />
+          <input name="project_id" type="hidden" required value="" />
+          <input name="project_name" type="hidden" value="" />
+          <input name="client_id" type="hidden" required value="" />
+          <input name="client_name" type="hidden" value="" />
+          <input name="content_plan_record_id" type="hidden" value="" />
           <label>素材来源
             <select name="source">
               <option value="internal">内部</option>
@@ -1252,7 +1265,7 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/public-account-menu.js?v=1.6.157"></script>
-  <script src="/app.js?v=1.6.157"></script>
+  <script src="/public-account-menu.js?v=1.6.158"></script>
+  <script src="/app.js?v=1.6.158"></script>
 </body>
 </html>
