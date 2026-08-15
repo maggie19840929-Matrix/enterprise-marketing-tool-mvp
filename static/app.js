@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.171';
-const VERSION_LABEL = 'v1.6.171 · 图文素材包顺序加载版';
+const APP_VERSION = '1.6.172';
+const VERSION_LABEL = 'v1.6.172 · 图文素材包下载优化版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -8787,6 +8787,12 @@ async function generateMaterialPackBodyImages(){
 }
 
 async function generationAssetBlobForDownload(asset = {}){
+  const cachedUrl = generationMediaObjectUrls.get(String(asset.asset_id || ''));
+  if (cachedUrl) {
+    const cachedResponse = await fetch(cachedUrl);
+    if (!cachedResponse.ok) throw new Error(`素材缓存读取失败：HTTP ${cachedResponse.status}`);
+    return cachedResponse.blob();
+  }
   if (asset.storage_blob_key) {
     const clientId = generationClientId();
     const contentVersion = String(asset.sha256 || asset.updated_at || APP_VERSION || Date.now());
