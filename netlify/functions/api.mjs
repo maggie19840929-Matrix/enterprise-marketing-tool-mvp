@@ -6466,10 +6466,10 @@ const listAssets = async ({ clientId = 'anonymous', projectId = '' } = {}) => {
     .filter((asset) => asset.usage_scope === 'current_project_only' ? (!projectId || asset.project_id === projectId) : Boolean(asset.cross_project_authorization));
 };
 
-const assetContentResponse = async ({ clientId = '', assetId = '' } = {}) => {
+const readAssetContent = async ({ clientId = '', assetId = '' } = {}) => {
   const assets = await listAssets({ clientId });
   const asset = assets.find((item) => String(item.asset_id || '') === String(assetId || ''));
-  if (!asset || asset.status !== 'ok') return json({ error: '素材不存在或不可读取' }, 404, { internal: true });
+  if (!asset || asset.status !== 'ok') return { error: '素材不存在或不可读取', status: 404 };
   let bytes = null;
   let mimeType = asset.mime_type || 'application/octet-stream';
   if (asset.storage_blob_key) {
@@ -6482,13 +6482,31 @@ const assetContentResponse = async ({ clientId = '', assetId = '' } = {}) => {
       mimeType = inline.mime_type || mimeType;
     }
   }
-  if (!bytes) return json({ error: '素材文件暂时无法读取' }, 404, { internal: true });
-  return new Response(bytes, {
+  if (!bytes) return { error: '素材文件暂时无法读取', status: 404 };
+  return {
+    bytes,
+    mime_type: mimeType,
+    filename: String(asset.original_filename || asset.asset_id || 'asset').replace(/["\r\n]/g, ''),
+  };
+};
+
+const assetContentResponse = async ({ clientId = '', assetId = '', format = '' } = {}) => {
+  const content = await readAssetContent({ clientId, assetId });
+  if (content.error) return json({ error: content.error }, content.status || 404, { internal: true });
+  if (format === 'json') {
+    return json({
+      asset_id: assetId,
+      mime_type: content.mime_type,
+      filename: content.filename,
+      content_base64: Buffer.from(content.bytes).toString('base64'),
+    }, 200, { internal: true });
+  }
+  return new Response(content.bytes, {
     status: 200,
     headers: {
-      'content-type': mimeType,
+      'content-type': content.mime_type,
       'cache-control': 'private, max-age=3600',
-      'content-disposition': `inline; filename="${String(asset.original_filename || asset.asset_id || 'asset').replace(/["\r\n]/g, '')}"`,
+      'content-disposition': `inline; filename="${content.filename}"`,
     },
   });
 };
@@ -10114,6 +10132,7 @@ export default async (request, context = {}) => {
         return assetContentResponse({
           clientId: requestClientId,
           assetId: decodeURIComponent(assetContentMatch[1]),
+          format: url.searchParams.get('format') || '',
         });
       }
       if (path === '/assets') {

@@ -355,29 +355,6 @@ const api = async (url, opts={}) => {
   }
 };
 
-const apiBlob = async (url, { timeoutMs = 35000 } = {}) => {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const headers = {};
-    const token = String(isInternalProfile() ? readInternalAccessToken() : '').trim();
-    if (token) headers['x-internal-token'] = token;
-    const res = await fetch(url, {headers, signal: controller.signal});
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      const error = new Error(data.error || '成品素材读取失败');
-      error.status = res.status;
-      if (res.status === 401 && isInternalProfile()) handleInternalUnauthorized();
-      throw error;
-    }
-    return res.blob();
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('成品素材加载超时，请点击重试');
-    throw error;
-  } finally {
-    window.clearTimeout(timer);
-  }
-};
 const newCustomerEventId = (prefix = 'event') => {
   const uuid = globalThis.crypto?.randomUUID?.();
   return `${prefix}-${uuid || Date.now().toString(36)}`;
@@ -7914,7 +7891,10 @@ async function generationMediaUrlForAsset(asset = {}){
   if (!assetId || !asset.storage_blob_key) throw new Error('成品素材文件尚未就绪');
   if (generationMediaObjectUrls.has(assetId)) return generationMediaObjectUrls.get(assetId);
   const clientId = generationClientId();
-  const blob = await apiBlob(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}`, {timeoutMs: 45000});
+  const payload = await api(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&format=json`, {timeoutMs: 45000});
+  const binary = window.atob(String(payload.content_base64 || ''));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const blob = new Blob([bytes], {type: payload.mime_type || asset.mime_type || 'application/octet-stream'});
   const objectUrl = URL.createObjectURL(blob);
   generationMediaObjectUrls.set(assetId, objectUrl);
   return objectUrl;
