@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.168';
-const VERSION_LABEL = 'v1.6.168 · 图文素材包交付版';
+const APP_VERSION = '1.6.169';
+const VERSION_LABEL = 'v1.6.169 · 图文素材包可视交付版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -7640,6 +7640,22 @@ function generationMaterialPackStatusLabel(slot = {}){
   return '待生成';
 }
 
+function generationMaterialPackPreview(slot = {}){
+  if (!slot.ready || !slot.asset) return '';
+  const assetId = String(slot.asset.asset_id || '');
+  const directUrl = generationRenderableMediaUrl(slot.asset);
+  if (directUrl) {
+    return `<div class="generation-material-thumb"><img src="${esc(directUrl)}" alt="${esc(slot.label)}" /></div>`;
+  }
+  if (slot.asset.storage_blob_key && assetId) {
+    return `<div class="generation-material-thumb">
+      <span data-generation-media-placeholder="${esc(assetId)}">正在加载预览...</span>
+      <img data-generation-media-asset-id="${esc(assetId)}" alt="${esc(slot.label)}" hidden />
+    </div>`;
+  }
+  return '';
+}
+
 function renderGenerationMaterialPack(){
   const section = $('#generationMaterialPack');
   const body = $('#generationMaterialPackBody');
@@ -7670,6 +7686,7 @@ function renderGenerationMaterialPack(){
         <strong>${esc(slot.label)}</strong>
         <p>${esc(slot.purpose)}</p>
       </div>
+      ${generationMaterialPackPreview(slot)}
       <span class="generation-material-slot-status">${esc(generationMaterialPackStatusLabel(slot))}</span>
       ${slot.ready ? `<button type="button" data-pack-action="download-one" data-task-id="${esc(slot.task?.task_id || '')}">下载</button>` : ''}
     </article>
@@ -7691,6 +7708,7 @@ function renderGenerationMaterialPack(){
     <div class="generation-material-slots">${slotsMarkup}</div>
     <div class="generation-material-actions">${primaryAction}${downloadAction}</div>
   `;
+  hydrateGenerationOutputMedia().catch(() => {});
 }
 
 function generationMaterialPackProgressMessage(){
@@ -8081,7 +8099,8 @@ async function hydrateGenerationOutputMedia(){
   await Promise.allSettled(mediaNodes.map(async (node) => {
     const assetId = String(node.dataset.generationMediaAssetId || '');
     const asset = (generationWorkbenchState.assets || []).find((item) => String(item.asset_id || '') === assetId);
-    const placeholder = document.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
+    const placeholder = node.parentElement?.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`)
+      || document.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
     try {
       node.src = await generationMediaUrlForAsset(asset || {});
       if (node instanceof HTMLImageElement) await node.decode();
