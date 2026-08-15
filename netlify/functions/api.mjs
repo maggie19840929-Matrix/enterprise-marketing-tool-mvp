@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.175';
-const VERSION_LABEL = 'v1.6.175 · 小红书成稿质量门禁版';
+const APP_VERSION = '1.6.176';
+const VERSION_LABEL = 'v1.6.176 · 小红书发布包排版优化版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -7063,8 +7063,11 @@ const generationPlatformRulesFor = (platform = '') => {
     return [
       '小红书所有标题候选都不得超过20个字符，汉字、数字、标点和emoji均计入。',
       '标题必须语义完整、单独可读，不用留言关键词或评论区诱导换取资料。',
-      '如果生成图文笔记或文案成稿，必须按“标题：… / 正文 / 话题标签：…”输出，便于运营直接复制发布。',
-      '完整成稿末尾必须单独给出“话题标签”，提供6至8个带#号的相关标签；至少覆盖行业或业务、目标人群或使用场景、本篇核心主题，禁止堆无关热词。',
+      '图文笔记或文案成稿必须输出纯文本发布包，固定包含“标题：”“正文：”“发布时优先搜索词：”“系统补充标签：”“发布前检查：”五部分。',
+      '正文不得使用Markdown加粗、标题符号或代码符号；每段1至3句，段落之间空一行，并自然使用2至6个与语义有关的emoji，禁止逐句堆emoji。',
+      '“发布时优先搜索词”提供3至5个与本篇高度相关的搜索词，供发布者在编辑器里优先选择平台当时推荐的话题；不得虚构实时热度或浏览量。',
+      '“系统补充标签”只提供2至4个带#号的精准标签，覆盖业务、目标人群或场景及本篇主题，不堆宽泛或无关热词。',
+      '“发布前检查”必须提醒：仅当文字和图片确为原创时，按实际情况勾选原创声明；发布时用优先搜索词选择平台实时推荐且内容高度相关的话题。不得承诺勾选原创必然增加流量。',
       '封面与正文避免大面积联系方式、二维码、第三方水印或无授权品牌标识。',
       ...common,
     ];
@@ -7707,18 +7710,39 @@ const mergeContinuationText = (current = '', continuation = '') => {
 
 const xiaohongshuCopyQuality = (task = {}, text = '') => {
   if (task.platform !== '小红书' || task.generation_type !== 'copy') {
-    return { checked: false, passed: true, issues: [], title_length: 0, hashtag_count: 0, early_plan: false };
+    return { checked: false, passed: true, issues: [], title_length: 0, hashtag_count: 0, keyword_count: 0, emoji_count: 0, paragraph_count: 0, early_plan: false };
   }
   const value = String(text || '').trim();
-  const titleLine = value.split(/\r?\n/).map((line) => line.trim()).find((line) => /^(?:#{1,3}\s*)?(?:标题|笔记标题)[：:]/.test(line)) || '';
-  const title = titleLine.replace(/^(?:#{1,3}\s*)?(?:标题|笔记标题)[：:]\s*/, '').trim();
-  const hashtags = [...new Set(Array.from(value.matchAll(/#[\p{L}\p{N}_-]{2,24}/gu), (match) => match[0]))];
+  const sectionMatch = (label, nextLabels = []) => {
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedNext = nextLabels.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    const boundary = escapedNext ? `(?=\\n(?:${escapedNext})[：:]|$)` : '$';
+    return value.match(new RegExp(`(?:^|\\n)${escapedLabel}[：:]\\s*([\\s\\S]*?)${boundary}`, 'i'))?.[1]?.trim() || '';
+  };
+  const title = sectionMatch('标题', ['正文', '发布时优先搜索词', '系统补充标签', '发布前检查']);
+  const body = sectionMatch('正文', ['发布时优先搜索词', '系统补充标签', '发布前检查']);
+  const keywordText = sectionMatch('发布时优先搜索词', ['系统补充标签', '发布前检查']);
+  const tagText = sectionMatch('系统补充标签', ['发布前检查']);
+  const checklist = sectionMatch('发布前检查');
+  const keywords = [...new Set(keywordText.split(/[、,，|｜/\n]+/).map((item) => item.trim().replace(/^[-*+]\s*/, '')).filter(Boolean))];
+  const hashtags = [...new Set(Array.from(tagText.matchAll(/#[\p{L}\p{N}_-]{2,24}/gu), (match) => match[0]))];
+  const emojiCount = Array.from(body.matchAll(/\p{Extended_Pictographic}/gu)).length;
+  const paragraphs = body.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
   const sequence = Number(task.production_context?.plan?.sequence || 0);
   const earlyPlan = sequence >= 1 && sequence <= 3;
   const issues = [];
   if (!title) issues.push('missing_title');
   if (title && Array.from(title).length > 20) issues.push('title_over_20_chars');
-  if (hashtags.length < 6 || hashtags.length > 8) issues.push('invalid_hashtag_count');
+  if (!body) issues.push('missing_body');
+  if (/\*\*|`{1,3}|(?:^|\n)\s*#{1,6}\s+/m.test(value)) issues.push('markdown_artifacts');
+  if (body && paragraphs.length < 2) issues.push('missing_paragraph_spacing');
+  if (paragraphs.some((item) => Array.from(item).length > 180)) issues.push('paragraph_too_long');
+  if (emojiCount < 2 || emojiCount > 6) issues.push('invalid_emoji_count');
+  if (keywords.length < 3 || keywords.length > 5) issues.push('invalid_platform_keyword_count');
+  if (hashtags.length < 2 || hashtags.length > 4) issues.push('invalid_system_hashtag_count');
+  if (!/文字.*图片.*原创|文字和图片.*原创|文字、图片.*原创/.test(checklist) || !/平台实时推荐|平台当时推荐/.test(checklist)) {
+    issues.push('missing_publish_checklist');
+  }
   if (earlyPlan && /Free\s*版|免费版|付费版|套餐|价格|立即购买|点击购买|主页有演示|主页查看|主页咨询|私信咨询/i.test(value)) {
     issues.push('early_hard_sell');
   }
@@ -7728,6 +7752,9 @@ const xiaohongshuCopyQuality = (task = {}, text = '') => {
     issues,
     title_length: Array.from(title).length,
     hashtag_count: hashtags.length,
+    keyword_count: keywords.length,
+    emoji_count: emojiCount,
+    paragraph_count: paragraphs.length,
     early_plan: earlyPlan,
   };
 };
@@ -7899,7 +7926,12 @@ const submitKimiTextSingle = async ({ task, inputAssets = [] }, { timeoutMs = KI
           role: 'user',
           content: [
             `上一版未通过小红书发布质量检查：${quality.issues.join('、')}。请从头输出一份修正版，不要解释修改过程。`,
-            '第一行必须是“标题：具体标题”，标题不超过20个字符；随后输出正文；最后一行必须是“话题标签：”并给出6至8个相关#标签。',
+            '严格按以下纯文本结构输出，不得使用Markdown加粗、Markdown标题或代码符号：',
+            '标题：不超过20个字符的完整标题',
+            '正文：每段1至3句，段落之间空一行；自然使用2至6个与语义有关的emoji，不逐句堆叠。',
+            '发布时优先搜索词：给3至5个精准搜索词，用顿号分隔，供发布时选择平台实时推荐话题；不要编造热度。',
+            '系统补充标签：给2至4个精准#标签。',
+            '发布前检查：用两条方框提示，提醒仅在文字和图片确为原创时按实际情况勾选原创声明，并提醒用优先搜索词选择平台实时推荐且内容高度相关的话题。',
             quality.early_plan ? '当前属于本轮前3条的信任建立阶段：删除Free版、套餐、价格、购买、主页演示、立即咨询等硬销售内容，结尾改为保存、收藏或照着执行。' : '',
           ].filter(Boolean).join('\n'),
         },
@@ -7941,6 +7973,9 @@ const submitKimiTextSingle = async ({ task, inputAssets = [] }, { timeoutMs = KI
     quality_repair_attempted: qualityRepairAttempted,
     title_length: quality.title_length,
     hashtag_count: quality.hashtag_count,
+    keyword_count: quality.keyword_count,
+    emoji_count: quality.emoji_count,
+    paragraph_count: quality.paragraph_count,
     early_plan: quality.early_plan,
   };
   if (!completeness.complete) {

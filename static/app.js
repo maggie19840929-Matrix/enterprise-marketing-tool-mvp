@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.175';
-const VERSION_LABEL = 'v1.6.175 · 小红书成稿质量门禁版';
+const APP_VERSION = '1.6.176';
+const VERSION_LABEL = 'v1.6.176 · 小红书发布包排版优化版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -8070,6 +8070,29 @@ function generationOutputTextForTask(task = {}){
     .join('\n\n');
 }
 
+function xiaohongshuPublishPackage(task = {}, text = ''){
+  if (task.platform !== '小红书' || task.generation_type !== 'copy') return null;
+  const value = String(text || '').trim();
+  const labels = ['标题', '正文', '发布时优先搜索词', '系统补充标签', '发布前检查'];
+  const sections = {};
+  let active = '';
+  value.split(/\r?\n/).forEach((line) => {
+    const matched = labels.find((label) => line.trim().startsWith(`${label}：`) || line.trim().startsWith(`${label}:`));
+    if (matched) {
+      active = matched;
+      sections[active] = line.trim().replace(new RegExp(`^${matched}[：:]\\s*`), '');
+      return;
+    }
+    if (active) sections[active] = `${sections[active] || ''}\n${line}`.trimEnd();
+  });
+  const title = String(sections.标题 || '').trim();
+  const body = String(sections.正文 || '').trim();
+  const keywords = String(sections.发布时优先搜索词 || '').trim();
+  const tags = String(sections.系统补充标签 || '').trim();
+  const checklist = String(sections.发布前检查 || '').trim();
+  return title && body ? { title, body, keywords, tags, checklist } : null;
+}
+
 function generationOutputMediaForTask(task = {}){
   return generationOutputAssetsForTask(task).find((asset) => {
     const mime = String(asset.mime_type || '');
@@ -8188,6 +8211,7 @@ function renderGenerationCompleteness(task = {}){
 
 function renderGenerationOutput(task = {}){
   const text = generationOutputTextForTask(task);
+  const publishPackage = xiaohongshuPublishPackage(task, text);
   const media = generationOutputMediaForTask(task);
   const mediaUrl = generationRenderableMediaUrl(media);
   if (!text && !media) {
@@ -8235,9 +8259,16 @@ function renderGenerationOutput(task = {}){
           <span>生成成稿</span>
           <strong>${esc(text.length)} 字符 · ${esc(task.actual_model || task.requested_model || '模型输出')}</strong>
         </div>
-        <button type="button" data-gw-action="copy-output" data-task-id="${esc(task.task_id)}">复制成稿</button>
+        <div class="generation-output-actions">
+          ${publishPackage ? `
+            <button type="button" data-gw-action="copy-output-title" data-task-id="${esc(task.task_id)}">复制标题</button>
+            <button type="button" data-gw-action="copy-output-body" data-task-id="${esc(task.task_id)}">复制正文</button>
+            <button type="button" data-gw-action="copy-output-tags" data-task-id="${esc(task.task_id)}">复制系统标签</button>
+          ` : `<button type="button" data-gw-action="copy-output" data-task-id="${esc(task.task_id)}">复制成稿</button>`}
+        </div>
       </div>
       <pre>${esc(text)}</pre>
+      ${publishPackage ? '<p class="small">发布时先输入“优先搜索词”，选择平台实时推荐且与内容高度相关的话题，再补充系统标签。</p>' : ''}
       ${renderGenerationCompleteness(task)}
     </section>
   `;
@@ -8669,6 +8700,17 @@ async function copyGenerationTaskOutput(taskId){
   toast('成稿已复制，可以粘贴使用');
 }
 
+async function copyGenerationTaskOutputPart(taskId, part = ''){
+  const task = (generationWorkbenchState.tasks || []).find((item) => String(item.task_id) === String(taskId));
+  const publishPackage = xiaohongshuPublishPackage(task, generationOutputTextForTask(task));
+  if (!publishPackage) throw new Error('这条成稿还不是可分段复制的发布包');
+  const labels = { title: '标题', body: '正文', tags: '系统标签' };
+  const value = String(publishPackage[part] || '').trim();
+  if (!value) throw new Error(`这条任务还没有可复制的${labels[part] || '内容'}`);
+  if (!await copyGenerationText(value)) throw new Error('浏览器没有允许复制，请手动选择文字复制');
+  toast(`${labels[part] || '内容'}已复制，可以粘贴使用`);
+}
+
 async function copyGenerationTaskAssetLink(taskId){
   const task = (generationWorkbenchState.tasks || []).find((item) => String(item.task_id) === String(taskId));
   const asset = generationOutputMediaForTask(task);
@@ -8988,6 +9030,18 @@ function initGenerationWorkbench(){
     }
     if (button.dataset.gwAction === 'copy-output') {
       copyGenerationTaskOutput(button.dataset.taskId).catch((error)=>toast(error.message || '复制成稿失败'));
+      return;
+    }
+    if (button.dataset.gwAction === 'copy-output-title') {
+      copyGenerationTaskOutputPart(button.dataset.taskId, 'title').catch((error)=>toast(error.message || '复制标题失败'));
+      return;
+    }
+    if (button.dataset.gwAction === 'copy-output-body') {
+      copyGenerationTaskOutputPart(button.dataset.taskId, 'body').catch((error)=>toast(error.message || '复制正文失败'));
+      return;
+    }
+    if (button.dataset.gwAction === 'copy-output-tags') {
+      copyGenerationTaskOutputPart(button.dataset.taskId, 'tags').catch((error)=>toast(error.message || '复制标签失败'));
       return;
     }
     if (button.dataset.gwAction === 'copy-asset-link') {
