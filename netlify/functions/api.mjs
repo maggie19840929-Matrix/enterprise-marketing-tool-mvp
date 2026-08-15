@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.165';
-const VERSION_LABEL = 'v1.6.165 · 封面流式预览修复版';
+const APP_VERSION = '1.6.166';
+const VERSION_LABEL = 'v1.6.166 · 封面轻量交付修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -7551,20 +7551,29 @@ const submitOpenAIImage = async ({ task }, { timeoutMs = MODEL_TIMEOUT_MS } = {}
   if (!paidGenerationSafeToRun()) return mockAdapterResult({ task, provider: 'openai-image', reason: 'MOCK_SAFE_TO_RUN_REQUIRED', output });
   const base = String(OPENAI_BASE_URL || '').replace(/\/+$/, '');
   const model = task.requested_model && !/^GPT-Image/i.test(task.requested_model) ? task.requested_model : OPENAI_IMAGE_MODEL;
+  const outputFormat = 'jpeg';
   const data = await jsonFetch(`${base}/images/generations`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${openaiApiKey()}` },
-    body: JSON.stringify({ model, prompt, size: task.output_spec?.size || '1024x1024', n: 1 }),
+    body: JSON.stringify({
+      model,
+      prompt,
+      size: task.output_spec?.size || '1024x1024',
+      n: 1,
+      output_format: outputFormat,
+      output_compression: 80,
+    }),
   }, timeoutMs);
   const image = data?.data?.[0] || {};
-  const storageUrl = image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : '');
+  const imageMimeType = outputFormat === 'jpeg' ? 'image/jpeg' : `image/${outputFormat}`;
+  const storageUrl = image.url || (image.b64_json ? `data:${imageMimeType};base64,${image.b64_json}` : '');
   return {
     ok: true,
     provider: 'openai-image',
     actual_model: data?.model || model,
     fallback: false,
     fallback_reason: null,
-    output: { ...output, storage_url: storageUrl || output.storage_url, summary: 'OpenAI image generated' },
+    output: { ...output, storage_url: storageUrl || output.storage_url, mime_type: imageMimeType, summary: 'OpenAI image generated' },
     manifest: adapterManifest({ provider: 'openai-image', mode: 'real', requestedModel: model, actualModel: data?.model || model, output: { has_url: Boolean(storageUrl) } }),
   };
 };
