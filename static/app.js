@@ -318,6 +318,7 @@ const api = async (url, opts={}) => {
     timeoutMs = 35000,
     internalToken = '',
     suppressInternalUnauthorized = false,
+    sanitizeResponse = true,
     headers: requestedHeaders = {},
     ...fetchOptions
   } = opts;
@@ -346,7 +347,7 @@ const api = async (url, opts={}) => {
       }
       throw error;
     }
-    return sanitizeCustomerPayload(data);
+    return sanitizeResponse ? sanitizeCustomerPayload(data) : data;
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error('生成时间过长，请稍后重试');
     throw error;
@@ -7892,7 +7893,10 @@ async function generationMediaUrlForAsset(asset = {}){
   if (generationMediaObjectUrls.has(assetId)) return generationMediaObjectUrls.get(assetId);
   const clientId = generationClientId();
   const contentVersion = String(asset.sha256 || asset.updated_at || APP_VERSION || Date.now());
-  const payload = await api(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&format=json&v=${encodeURIComponent(contentVersion)}`, {timeoutMs: 45000});
+  const payload = await api(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&format=json&v=${encodeURIComponent(contentVersion)}`, {
+    timeoutMs: 45000,
+    sanitizeResponse: false,
+  });
   const binary = window.atob(String(payload.content_base64 || ''));
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   const blob = new Blob([bytes], {type: payload.mime_type || asset.mime_type || 'application/octet-stream'});
