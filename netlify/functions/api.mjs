@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.174';
-const VERSION_LABEL = 'v1.6.174 · 小红书内容节奏与标签修复版';
+const APP_VERSION = '1.6.175';
+const VERSION_LABEL = 'v1.6.175 · 小红书成稿质量门禁版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -7063,6 +7063,7 @@ const generationPlatformRulesFor = (platform = '') => {
     return [
       '小红书所有标题候选都不得超过20个字符，汉字、数字、标点和emoji均计入。',
       '标题必须语义完整、单独可读，不用留言关键词或评论区诱导换取资料。',
+      '如果生成图文笔记或文案成稿，必须按“标题：… / 正文 / 话题标签：…”输出，便于运营直接复制发布。',
       '完整成稿末尾必须单独给出“话题标签”，提供6至8个带#号的相关标签；至少覆盖行业或业务、目标人群或使用场景、本篇核心主题，禁止堆无关热词。',
       '封面与正文避免大面积联系方式、二维码、第三方水印或无授权品牌标识。',
       ...common,
@@ -7704,6 +7705,33 @@ const mergeContinuationText = (current = '', continuation = '') => {
   return `${base}\n${next}`;
 };
 
+const xiaohongshuCopyQuality = (task = {}, text = '') => {
+  if (task.platform !== '小红书' || task.generation_type !== 'copy') {
+    return { checked: false, passed: true, issues: [], title_length: 0, hashtag_count: 0, early_plan: false };
+  }
+  const value = String(text || '').trim();
+  const titleLine = value.split(/\r?\n/).map((line) => line.trim()).find((line) => /^(?:#{1,3}\s*)?(?:标题|笔记标题)[：:]/.test(line)) || '';
+  const title = titleLine.replace(/^(?:#{1,3}\s*)?(?:标题|笔记标题)[：:]\s*/, '').trim();
+  const hashtags = [...new Set(Array.from(value.matchAll(/#[\p{L}\p{N}_-]{2,24}/gu), (match) => match[0]))];
+  const sequence = Number(task.production_context?.plan?.sequence || 0);
+  const earlyPlan = sequence >= 1 && sequence <= 3;
+  const issues = [];
+  if (!title) issues.push('missing_title');
+  if (title && Array.from(title).length > 20) issues.push('title_over_20_chars');
+  if (hashtags.length < 6 || hashtags.length > 8) issues.push('invalid_hashtag_count');
+  if (earlyPlan && /Free\s*版|免费版|付费版|套餐|价格|立即购买|点击购买|主页有演示|主页查看|主页咨询|私信咨询/i.test(value)) {
+    issues.push('early_hard_sell');
+  }
+  return {
+    checked: true,
+    passed: issues.length === 0,
+    issues,
+    title_length: Array.from(title).length,
+    hashtag_count: hashtags.length,
+    early_plan: earlyPlan,
+  };
+};
+
 const callKimiText = async ({ messages = [], timeoutMs, retries = 0, maxTokens = KIMI_MAX_TOKENS } = {}) => {
   const base = String(KIMI_BASE_URL || '').replace(/\/+$/, '');
   let lastError = null;
@@ -7858,6 +7886,44 @@ const submitKimiTextSingle = async ({ task, inputAssets = [] }, { timeoutMs = KI
     }
   }
 
+  let quality = xiaohongshuCopyQuality(task, text);
+  let qualityRepairAttempted = false;
+  if (completeness.complete && !quality.passed) {
+    qualityRepairAttempted = true;
+    const repaired = await callKimiText({
+      messages: [
+        { role: 'system', content: kimiSystemPrompt },
+        { role: 'user', content: originalUserContent },
+        { role: 'assistant', content: text },
+        {
+          role: 'user',
+          content: [
+            `上一版未通过小红书发布质量检查：${quality.issues.join('、')}。请从头输出一份修正版，不要解释修改过程。`,
+            '第一行必须是“标题：具体标题”，标题不超过20个字符；随后输出正文；最后一行必须是“话题标签：”并给出6至8个相关#标签。',
+            quality.early_plan ? '当前属于本轮前3条的信任建立阶段：删除Free版、套餐、价格、购买、主页演示、立即咨询等硬销售内容，结尾改为保存、收藏或照着执行。' : '',
+          ].filter(Boolean).join('\n'),
+        },
+      ],
+      timeoutMs,
+      retries: 0,
+      maxTokens: KIMI_REGENERATION_MAX_TOKENS,
+    });
+    providerAttempts += repaired.attempts || 0;
+    if (repaired.ok) {
+      text = repaired.text;
+      actualModel = repaired.actual_model || actualModel;
+      usage = mergeModelUsage(usage, repaired.usage);
+      finishReasons.push(repaired.finish_reason || null);
+      completeness = textCompleteness({
+        text,
+        finishReason: repaired.finish_reason,
+        usage: repaired.usage,
+        maxTokens: KIMI_REGENERATION_MAX_TOKENS,
+      });
+      quality = xiaohongshuCopyQuality(task, text);
+    }
+  }
+
   const completenessEvidence = {
     completeness_checked: true,
     completeness_passed: completeness.complete,
@@ -7867,6 +7933,15 @@ const submitKimiTextSingle = async ({ task, inputAssets = [] }, { timeoutMs = KI
     regeneration_attempted: regenerationAttempted,
     provider_attempts: providerAttempts,
     finish_reasons: finishReasons,
+  };
+  const qualityEvidence = {
+    quality_checked: quality.checked,
+    quality_passed: quality.passed,
+    quality_issues: quality.issues,
+    quality_repair_attempted: qualityRepairAttempted,
+    title_length: quality.title_length,
+    hashtag_count: quality.hashtag_count,
+    early_plan: quality.early_plan,
   };
   if (!completeness.complete) {
     const reason = `kimi_incomplete_after_repair:${completeness.reasons.join(',') || 'unknown'}`;
@@ -7887,6 +7962,25 @@ const submitKimiTextSingle = async ({ task, inputAssets = [] }, { timeoutMs = KI
       }),
     };
   }
+  if (!quality.passed) {
+    const reason = `kimi_xiaohongshu_quality_gate_failed:${quality.issues.join(',') || 'unknown'}`;
+    return {
+      ok: false,
+      provider: 'kimi-text',
+      actual_model: actualModel,
+      fallback: true,
+      fallback_reason: reason,
+      error: '小红书成稿未通过标题、内容节奏或话题标签检查，请重新生成',
+      manifest: adapterManifest({
+        provider: 'kimi-text',
+        mode: 'failed',
+        reason,
+        requestedModel: KIMI_MODEL,
+        actualModel,
+        output: { chars: text.length, ...completenessEvidence, ...qualityEvidence },
+      }),
+    };
+  }
 
   return {
     ok: true,
@@ -7900,7 +7994,7 @@ const submitKimiTextSingle = async ({ task, inputAssets = [] }, { timeoutMs = KI
       mode: 'real',
       requestedModel: KIMI_MODEL,
       actualModel,
-      output: { chars: text.length, ...completenessEvidence },
+      output: { chars: text.length, ...completenessEvidence, ...qualityEvidence },
       extra: { usage },
     }),
   };
