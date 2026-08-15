@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.162';
-const VERSION_LABEL = 'v1.6.162 · 封面预览稳定修复版';
+const APP_VERSION = '1.6.163';
+const VERSION_LABEL = 'v1.6.163 · 封面二进制预览修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -350,6 +350,30 @@ const api = async (url, opts={}) => {
     return sanitizeResponse ? sanitizeCustomerPayload(data) : data;
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error('生成时间过长，请稍后重试');
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+
+const apiBlob = async (url, { timeoutMs = 60000 } = {}) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const headers = {};
+    const token = String(isInternalProfile() ? readInternalAccessToken() : '').trim();
+    if (token) headers['x-internal-token'] = token;
+    const res = await fetch(url, { headers, signal: controller.signal, cache: 'no-store' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const error = new Error(data.error || '成品素材读取失败');
+      error.status = res.status;
+      if (res.status === 401 && isInternalProfile()) handleInternalUnauthorized();
+      throw error;
+    }
+    return res.blob();
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('成品素材加载超时，请点击重试');
     throw error;
   } finally {
     window.clearTimeout(timer);
@@ -7893,20 +7917,7 @@ async function generationMediaUrlForAsset(asset = {}){
   if (generationMediaObjectUrls.has(assetId)) return generationMediaObjectUrls.get(assetId);
   const clientId = generationClientId();
   const contentVersion = String(asset.sha256 || asset.updated_at || APP_VERSION || Date.now());
-  const payload = await api(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&format=json&v=${encodeURIComponent(contentVersion)}`, {
-    timeoutMs: 45000,
-    sanitizeResponse: false,
-  });
-  const encoded = String(payload.content_base64 || '');
-  const mimeType = payload.mime_type || asset.mime_type || 'application/octet-stream';
-  if (String(mimeType).startsWith('image/')) {
-    const dataUrl = `data:${mimeType};base64,${encoded}`;
-    generationMediaObjectUrls.set(assetId, dataUrl);
-    return dataUrl;
-  }
-  const binary = window.atob(encoded);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  const blob = new Blob([bytes], {type: mimeType});
+  const blob = await apiBlob(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&v=${encodeURIComponent(contentVersion)}`, {timeoutMs: 60000});
   const objectUrl = URL.createObjectURL(blob);
   generationMediaObjectUrls.set(assetId, objectUrl);
   return objectUrl;
