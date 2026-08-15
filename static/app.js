@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.161';
-const VERSION_LABEL = 'v1.6.161 · 封面成品显示修复版';
+const APP_VERSION = '1.6.162';
+const VERSION_LABEL = 'v1.6.162 · 封面预览稳定修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -7897,9 +7897,16 @@ async function generationMediaUrlForAsset(asset = {}){
     timeoutMs: 45000,
     sanitizeResponse: false,
   });
-  const binary = window.atob(String(payload.content_base64 || ''));
+  const encoded = String(payload.content_base64 || '');
+  const mimeType = payload.mime_type || asset.mime_type || 'application/octet-stream';
+  if (String(mimeType).startsWith('image/')) {
+    const dataUrl = `data:${mimeType};base64,${encoded}`;
+    generationMediaObjectUrls.set(assetId, dataUrl);
+    return dataUrl;
+  }
+  const binary = window.atob(encoded);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  const blob = new Blob([bytes], {type: payload.mime_type || asset.mime_type || 'application/octet-stream'});
+  const blob = new Blob([bytes], {type: mimeType});
   const objectUrl = URL.createObjectURL(blob);
   generationMediaObjectUrls.set(assetId, objectUrl);
   return objectUrl;
