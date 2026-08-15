@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.166';
-const VERSION_LABEL = 'v1.6.166 · 封面轻量交付修复版';
+const APP_VERSION = '1.6.167';
+const VERSION_LABEL = 'v1.6.167 · 封面显示闭环修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -7933,7 +7933,7 @@ async function hydrateGenerationOutputMedia(){
       node.src = await generationMediaUrlForAsset(asset || {});
       if (node instanceof HTMLImageElement) await node.decode();
       node.hidden = false;
-      if (placeholder) placeholder.hidden = true;
+      if (placeholder) placeholder.remove();
     } catch (error) {
       if (placeholder) {
         placeholder.hidden = false;
