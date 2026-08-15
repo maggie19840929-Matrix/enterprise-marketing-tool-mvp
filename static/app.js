@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.170';
-const VERSION_LABEL = 'v1.6.170 · 图文素材包预览稳定版';
+const APP_VERSION = '1.6.171';
+const VERSION_LABEL = 'v1.6.171 · 图文素材包顺序加载版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -8126,20 +8126,26 @@ async function hydrateGenerationOutputMedia(){
   const assetIds = [...new Set($$('[data-generation-media-asset-id]')
     .map((node) => String(node.dataset.generationMediaAssetId || ''))
     .filter(Boolean))];
-  await Promise.allSettled(assetIds.map(async (assetId) => {
+  for (const assetId of assetIds) {
     const asset = (generationWorkbenchState.assets || []).find((item) => String(item.asset_id || '') === assetId);
     try {
-      const url = await generationMediaUrlForAsset(asset || {});
+      let url = '';
+      try {
+        url = await generationMediaUrlForAsset(asset || {});
+      } catch {
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        url = await generationMediaUrlForAsset(asset || {});
+      }
       await revealGenerationMedia(assetId, url);
     } catch (error) {
       generationMediaNodesForAsset(assetId).forEach((node) => {
         const placeholder = node.parentElement?.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
         if (!placeholder) return;
         placeholder.hidden = false;
-        placeholder.innerHTML = `<strong>成品已生成，但预览加载失败</strong><span>${esc(error.message || '请点击重试')}</span><button type="button" data-gw-action="reload-media" data-asset-id="${esc(assetId)}">重新加载封面</button>`;
+        placeholder.innerHTML = `<strong>成品已生成，但预览加载失败</strong><span>${esc(error.message || '请点击重试')}</span><button type="button" data-gw-action="reload-media" data-asset-id="${esc(assetId)}">重新加载图片</button>`;
       });
     }
-  }));
+  }
 }
 
 const GENERATION_COMPLETENESS_REASON_LABELS = {
