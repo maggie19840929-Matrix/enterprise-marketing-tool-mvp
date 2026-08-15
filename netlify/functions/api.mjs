@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.173';
-const VERSION_LABEL = 'v1.6.173 · Kimi 文案参数兼容修复版';
+const APP_VERSION = '1.6.174';
+const VERSION_LABEL = 'v1.6.174 · 小红书内容节奏与标签修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -7063,6 +7063,7 @@ const generationPlatformRulesFor = (platform = '') => {
     return [
       '小红书所有标题候选都不得超过20个字符，汉字、数字、标点和emoji均计入。',
       '标题必须语义完整、单独可读，不用留言关键词或评论区诱导换取资料。',
+      '完整成稿末尾必须单独给出“话题标签”，提供6至8个带#号的相关标签；至少覆盖行业或业务、目标人群或使用场景、本篇核心主题，禁止堆无关热词。',
       '封面与正文避免大面积联系方式、二维码、第三方水印或无授权品牌标识。',
       ...common,
     ];
@@ -7120,7 +7121,9 @@ const generationProjectContext = async ({ clientId = '', projectId = '', content
   if (!project || !projectState.assessment) return { ...empty, asset_briefs: assetBriefs };
   const assessment = projectState.assessment || {};
   const diagnosis = projectState.diagnosis || {};
-  const plan = ensureArray(projectState.plans).find((item) => samePlanRef(item?.id ?? item?.content_plan_id, contentPlanRecordId)) || {};
+  const plans = ensureArray(projectState.plans);
+  const planIndex = plans.findIndex((item) => samePlanRef(item?.id ?? item?.content_plan_id, contentPlanRecordId));
+  const plan = planIndex >= 0 ? plans[planIndex] : {};
   const feedbackRows = [...ensureArray(projectState.feedback?.length ? projectState.feedback : projectState.records)]
     .sort((a, b) => compareTimestampDesc(a?.created_at || a?.updated_at, b?.created_at || b?.updated_at));
   const latestFeedback = feedbackRows[0] || null;
@@ -7145,6 +7148,8 @@ const generationProjectContext = async ({ clientId = '', projectId = '', content
     },
     plan: {
       id: String(plan.id ?? plan.content_plan_id ?? contentPlanRecordId ?? ''),
+      sequence: planIndex >= 0 ? planIndex + 1 : 0,
+      total: plans.length,
       topic: compactGenerationText(plan.topic || plan.title, 180),
       angle: compactGenerationText(plan.angle || plan.content_hypothesis, 260),
       cta: compactGenerationText(plan.cta, 140),
@@ -7402,6 +7407,7 @@ const generationContextPrompt = (task = {}) => {
     ['客户顾虑', business.customer_pain],
     ['已有素材', business.available_assets],
     ['当前选题', plan.topic],
+    ['本轮位置', plan.sequence ? `第${plan.sequence}条 / 共${plan.total || 7}条` : ''],
     ['内容角度', plan.angle],
     ['内容简报', plan.content_brief],
     ['行动承接', plan.cta],
@@ -7419,10 +7425,23 @@ const generationContextPrompt = (task = {}) => {
     `- 素材${asset.order || ''}${asset.role ? `（${asset.role}）` : ''}：${asset.filename || asset.asset_id || '未命名'}${asset.brief ? `；内容说明：${asset.brief}` : ''}`
   );
   const ruleLines = ensureArray(context.platform_rules).map((rule) => `- ${rule}`);
+  const publishingStageLines = [];
+  const earlyXiaohongshuPlan = task.platform === '小红书'
+    && ['copy', 'script'].includes(task.generation_type)
+    && Number(plan.sequence || 0) >= 1
+    && Number(plan.sequence || 0) <= 3;
+  if (earlyXiaohongshuPlan) {
+    publishingStageLines.push(
+      `- 当前是本轮第${plan.sequence}条，属于信任建立阶段：正文应以问题共鸣、可执行方法或真实过程为主。`,
+      '- 品牌或工具名最多轻度出现一次；除非运营补充要求明确要求强转化，否则不得出现“Free版”“套餐”“价格”“购买”“主页有演示”“立即咨询”等硬销售表达。',
+      '- 结尾只使用保存、收藏、照着执行、对照检查等低压力行动，不要突然转成产品广告。',
+    );
+  }
   return [
     lines.length ? `系统已关联的真实业务上下文：\n${lines.join('\n')}` : '',
     assetLines.length ? `本批次已关联素材（按顺序理解画面和用途）：\n${assetLines.join('\n')}` : '',
     ruleLines.length ? `发布前必须遵守的平台规则：\n${ruleLines.join('\n')}` : '',
+    publishingStageLines.length ? `本轮发布节奏：\n${publishingStageLines.join('\n')}` : '',
     '生成要求：只服务当前客户、当前选题和当前平台；不得套用其他行业案例。用户补充要求与业务上下文冲突时，以业务上下文和平台规则为准。',
   ].filter(Boolean).join('\n\n');
 };
