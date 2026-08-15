@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.172';
-const VERSION_LABEL = 'v1.6.172 · 图文素材包下载优化版';
+const APP_VERSION = '1.6.173';
+const VERSION_LABEL = 'v1.6.173 · Kimi 文案参数兼容修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -37,6 +37,7 @@ const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/p
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4-plus';
 const KIMI_BASE_URL = process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1';
 const KIMI_MODEL = process.env.KIMI_MODEL || 'kimi-k2.6';
+const KIMI_TEMPERATURE = /^kimi-k2\.6(?:$|[-:])/i.test(KIMI_MODEL) ? 0.6 : 1;
 const KIMI_TIMEOUT_MS = Math.min(Math.max(Number(process.env.KIMI_TIMEOUT_MS || 24000), 1000), 26000);
 const KIMI_BG_TIMEOUT_MS = Math.min(Math.max(Number(process.env.KIMI_BG_TIMEOUT_MS || 120000), 10000), 600000);
 const KIMI_MAX_RETRIES = Math.min(Math.max(Number(process.env.KIMI_MAX_RETRIES || 4), 0), 8);
@@ -7698,7 +7699,7 @@ const callKimiText = async ({ messages = [], timeoutMs, retries = 0, maxTokens =
           model: KIMI_MODEL,
           messages,
           thinking: { type: 'disabled' },
-          temperature: 1,
+          temperature: KIMI_TEMPERATURE,
           max_tokens: maxTokens,
         }),
       }, timeoutMs);
