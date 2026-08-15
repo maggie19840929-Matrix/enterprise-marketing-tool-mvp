@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.169';
-const VERSION_LABEL = 'v1.6.169 · 图文素材包可视交付版';
+const APP_VERSION = '1.6.170';
+const VERSION_LABEL = 'v1.6.170 · 图文素材包预览稳定版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -7441,6 +7441,7 @@ let generationWorkbenchRefreshTimer = 0;
 let generationWorkbenchRefreshBusy = false;
 let generationMaterialPackBusy = false;
 const generationMediaObjectUrls = new Map();
+const generationMediaLoadPromises = new Map();
 const GENERATION_WORKBENCH_REFRESH_MS = 5000;
 const GENERATION_MATERIAL_PACK_PURPOSE = 'content_material_pack';
 const GENERATION_MATERIAL_PACK_SLOTS = [
@@ -7644,8 +7645,9 @@ function generationMaterialPackPreview(slot = {}){
   if (!slot.ready || !slot.asset) return '';
   const assetId = String(slot.asset.asset_id || '');
   const directUrl = generationRenderableMediaUrl(slot.asset);
-  if (directUrl) {
-    return `<div class="generation-material-thumb"><img src="${esc(directUrl)}" alt="${esc(slot.label)}" /></div>`;
+  const cachedUrl = assetId ? generationMediaObjectUrls.get(assetId) : '';
+  if (directUrl || cachedUrl) {
+    return `<div class="generation-material-thumb"><img src="${esc(directUrl || cachedUrl)}" alt="${esc(slot.label)}" /></div>`;
   }
   if (slot.asset.storage_blob_key && assetId) {
     return `<div class="generation-material-thumb">
@@ -8086,31 +8088,56 @@ async function generationMediaUrlForAsset(asset = {}){
   const assetId = String(asset.asset_id || '').trim();
   if (!assetId || !asset.storage_blob_key) throw new Error('成品素材文件尚未就绪');
   if (generationMediaObjectUrls.has(assetId)) return generationMediaObjectUrls.get(assetId);
-  const clientId = generationClientId();
-  const contentVersion = String(asset.sha256 || asset.updated_at || APP_VERSION || Date.now());
-  const blob = await apiBlob(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&v=${encodeURIComponent(contentVersion)}`, {timeoutMs: 60000});
-  const objectUrl = URL.createObjectURL(blob);
-  generationMediaObjectUrls.set(assetId, objectUrl);
-  return objectUrl;
+  if (generationMediaLoadPromises.has(assetId)) return generationMediaLoadPromises.get(assetId);
+  const loadPromise = (async () => {
+    const clientId = generationClientId();
+    const contentVersion = String(asset.sha256 || asset.updated_at || APP_VERSION || Date.now());
+    const blob = await apiBlob(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&v=${encodeURIComponent(contentVersion)}`, {timeoutMs: 60000});
+    const objectUrl = URL.createObjectURL(blob);
+    generationMediaObjectUrls.set(assetId, objectUrl);
+    return objectUrl;
+  })();
+  generationMediaLoadPromises.set(assetId, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    if (generationMediaLoadPromises.get(assetId) === loadPromise) generationMediaLoadPromises.delete(assetId);
+  }
+}
+
+function generationMediaNodesForAsset(assetId = ''){
+  const selector = `[data-generation-media-asset-id="${CSS.escape(String(assetId || ''))}"]`;
+  return $$(selector);
+}
+
+async function revealGenerationMedia(assetId = '', url = ''){
+  const nodes = generationMediaNodesForAsset(assetId);
+  await Promise.allSettled(nodes.map(async (node) => {
+    node.src = url;
+    if (node instanceof HTMLImageElement) await node.decode();
+    if (!node.isConnected) return;
+    node.hidden = false;
+    const placeholder = node.parentElement?.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
+    if (placeholder) placeholder.remove();
+  }));
 }
 
 async function hydrateGenerationOutputMedia(){
-  const mediaNodes = $$('[data-generation-media-asset-id]');
-  await Promise.allSettled(mediaNodes.map(async (node) => {
-    const assetId = String(node.dataset.generationMediaAssetId || '');
+  const assetIds = [...new Set($$('[data-generation-media-asset-id]')
+    .map((node) => String(node.dataset.generationMediaAssetId || ''))
+    .filter(Boolean))];
+  await Promise.allSettled(assetIds.map(async (assetId) => {
     const asset = (generationWorkbenchState.assets || []).find((item) => String(item.asset_id || '') === assetId);
-    const placeholder = node.parentElement?.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`)
-      || document.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
     try {
-      node.src = await generationMediaUrlForAsset(asset || {});
-      if (node instanceof HTMLImageElement) await node.decode();
-      node.hidden = false;
-      if (placeholder) placeholder.remove();
+      const url = await generationMediaUrlForAsset(asset || {});
+      await revealGenerationMedia(assetId, url);
     } catch (error) {
-      if (placeholder) {
+      generationMediaNodesForAsset(assetId).forEach((node) => {
+        const placeholder = node.parentElement?.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
+        if (!placeholder) return;
         placeholder.hidden = false;
         placeholder.innerHTML = `<strong>成品已生成，但预览加载失败</strong><span>${esc(error.message || '请点击重试')}</span><button type="button" data-gw-action="reload-media" data-asset-id="${esc(assetId)}">重新加载封面</button>`;
-      }
+      });
     }
   }));
 }
