@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.159';
-const VERSION_LABEL = 'v1.6.159 · 客户记录与素材入口修复版';
+const APP_VERSION = '1.6.160';
+const VERSION_LABEL = 'v1.6.160 · 封面预览与素材存储修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -4096,6 +4096,8 @@ const writeCloudState = async (payload = {}, clientId = clientIdFrom(payload)) =
 };
 
 const collectionKey = (kind, clientId = 'anonymous') => `${kind}/${normalizeClientId(clientId) || 'anonymous'}`;
+const assetContentKey = (clientId = 'anonymous', assetId = '') =>
+  `asset-files/${normalizeClientId(clientId) || 'anonymous'}/${String(assetId || '').trim()}`;
 const COLLECTION_FIELDS = Object.freeze({
   assets: 'assets',
   tasks: 'tasks',
@@ -6383,6 +6385,27 @@ const assetHashBuffer = (payload = {}) => {
   return null;
 };
 
+const inlineAssetData = (value = '') => {
+  const match = String(value || '').match(/^data:([^;,]+);base64,([\s\S]+)$/i);
+  if (!match) return null;
+  try {
+    return { mime_type: match[1] || 'application/octet-stream', buffer: Buffer.from(match[2], 'base64') };
+  } catch {
+    return null;
+  }
+};
+
+const persistInlineAssetContent = async ({ clientId = '', assetId = '', storageUrl = '', mimeType = '' } = {}) => {
+  const inline = inlineAssetData(storageUrl);
+  if (!inline) return { storage_url: storageUrl, storage_blob_key: '', mime_type: mimeType };
+  const store = await cloudStore();
+  if (!store) return { storage_url: storageUrl, storage_blob_key: '', mime_type: mimeType || inline.mime_type };
+  const key = assetContentKey(clientId, assetId);
+  const bytes = inline.buffer.buffer.slice(inline.buffer.byteOffset, inline.buffer.byteOffset + inline.buffer.byteLength);
+  await store.set(key, bytes, { metadata: { content_type: mimeType || inline.mime_type } });
+  return { storage_url: '', storage_blob_key: key, mime_type: mimeType || inline.mime_type, byte_length: inline.buffer.byteLength };
+};
+
 const normalizeUsageScope = (value = '') =>
   value === 'cross_project_authorized' ? 'cross_project_authorized' : 'current_project_only';
 
@@ -6395,17 +6418,25 @@ const createAsset = async (payload = {}) => {
   const providedHash = String(payload.sha256 || '').trim().toLowerCase();
   if (providedHash && computedHash && providedHash !== computedHash) throw new Error('素材 sha256 校验失败');
   const usage_scope = normalizeUsageScope(payload.usage_scope);
+  const asset_id = payload.asset_id || makeId('asset');
+  const persistedContent = await persistInlineAssetContent({
+    clientId: client_id,
+    assetId: asset_id,
+    storageUrl: payload.storage_url || '',
+    mimeType: payload.mime_type || payload.type || '',
+  });
   const asset = {
-    asset_id: payload.asset_id || makeId('asset'),
+    asset_id,
     project_id: String(payload.project_id || ''),
     project_name: payload.project_name || '',
     client_id,
     client_name: payload.client_name || '',
     original_filename: payload.original_filename || payload.filename || '未命名素材',
     file_path: payload.file_path || '',
-    storage_url: payload.storage_url || (buffer ? `blob://asset/${computedHash}` : ''),
-    mime_type: payload.mime_type || payload.type || 'application/octet-stream',
-    file_size: Number(payload.file_size || buffer?.length || 0),
+    storage_url: persistedContent.storage_url || (buffer && !persistedContent.storage_blob_key ? `blob://asset/${computedHash}` : ''),
+    storage_blob_key: persistedContent.storage_blob_key || payload.storage_blob_key || '',
+    mime_type: persistedContent.mime_type || payload.mime_type || payload.type || 'application/octet-stream',
+    file_size: Number(persistedContent.byte_length || payload.file_size || buffer?.length || 0),
     sha256: computedHash || providedHash,
     duration: payload.duration || '',
     resolution: payload.resolution || '',
@@ -6433,6 +6464,33 @@ const listAssets = async ({ clientId = 'anonymous', projectId = '' } = {}) => {
   return ensureArray(current.assets)
     .filter((asset) => !projectId || asset.project_id === projectId || (asset.usage_scope === 'cross_project_authorized' && asset.cross_project_authorization))
     .filter((asset) => asset.usage_scope === 'current_project_only' ? (!projectId || asset.project_id === projectId) : Boolean(asset.cross_project_authorization));
+};
+
+const assetContentResponse = async ({ clientId = '', assetId = '' } = {}) => {
+  const assets = await listAssets({ clientId });
+  const asset = assets.find((item) => String(item.asset_id || '') === String(assetId || ''));
+  if (!asset || asset.status !== 'ok') return json({ error: '素材不存在或不可读取' }, 404, { internal: true });
+  let bytes = null;
+  let mimeType = asset.mime_type || 'application/octet-stream';
+  if (asset.storage_blob_key) {
+    const store = await cloudStore();
+    bytes = store ? await store.get(asset.storage_blob_key, { type: 'arrayBuffer' }).catch(() => null) : null;
+  } else {
+    const inline = inlineAssetData(asset.storage_url);
+    if (inline) {
+      bytes = inline.buffer.buffer.slice(inline.buffer.byteOffset, inline.buffer.byteOffset + inline.buffer.byteLength);
+      mimeType = inline.mime_type || mimeType;
+    }
+  }
+  if (!bytes) return json({ error: '素材文件暂时无法读取' }, 404, { internal: true });
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'content-type': mimeType,
+      'cache-control': 'private, max-age=3600',
+      'content-disposition': `inline; filename="${String(asset.original_filename || asset.asset_id || 'asset').replace(/["\r\n]/g, '')}"`,
+    },
+  });
 };
 
 const requestedModelForGeneration = (generationType = '') => {
@@ -10049,6 +10107,14 @@ export default async (request, context = {}) => {
           return json({ error: '账号图片任务不存在' }, 404);
         }
         return json({ image: await customerBrandImageTaskView({ clientId: requestClientId, task, includeOutput: true }) });
+      }
+      const assetContentMatch = path.match(/^\/assets\/([^/]+)\/content$/);
+      if (assetContentMatch) {
+        if (!internalAuthorized) return unauthorized();
+        return assetContentResponse({
+          clientId: requestClientId,
+          assetId: decodeURIComponent(assetContentMatch[1]),
+        });
       }
       if (path === '/assets') {
         if (!internalAuthorized) return unauthorized();

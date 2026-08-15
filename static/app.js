@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.159';
-const VERSION_LABEL = 'v1.6.159 · 客户记录与素材入口修复版';
+const APP_VERSION = '1.6.160';
+const VERSION_LABEL = 'v1.6.160 · 封面预览与素材存储修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -349,6 +349,30 @@ const api = async (url, opts={}) => {
     return sanitizeCustomerPayload(data);
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error('生成时间过长，请稍后重试');
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+
+const apiBlob = async (url, { timeoutMs = 35000 } = {}) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const headers = {};
+    const token = String(isInternalProfile() ? readInternalAccessToken() : '').trim();
+    if (token) headers['x-internal-token'] = token;
+    const res = await fetch(url, {headers, signal: controller.signal});
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const error = new Error(data.error || '成品素材读取失败');
+      error.status = res.status;
+      if (res.status === 401 && isInternalProfile()) handleInternalUnauthorized();
+      throw error;
+    }
+    return res.blob();
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('成品素材加载超时，请点击重试');
     throw error;
   } finally {
     window.clearTimeout(timer);
@@ -7413,6 +7437,7 @@ let generationWorkbenchState = { assets: [], tasks: [], clientTasks: [] };
 let generationScopeState = { clientId: '', projectId: '', projects: [], loading: false, error: '' };
 let generationWorkbenchRefreshTimer = 0;
 let generationWorkbenchRefreshBusy = false;
+const generationMediaObjectUrls = new Map();
 const GENERATION_WORKBENCH_REFRESH_MS = 5000;
 
 const generationClientId = () =>
@@ -7882,6 +7907,38 @@ function generationRenderableMediaUrl(asset = {}){
   return /^(?:https?:|blob:|data:(?:image|video)\/)/i.test(url) ? url : '';
 }
 
+async function generationMediaUrlForAsset(asset = {}){
+  const directUrl = generationRenderableMediaUrl(asset);
+  if (directUrl) return directUrl;
+  const assetId = String(asset.asset_id || '').trim();
+  if (!assetId || !asset.storage_blob_key) throw new Error('成品素材文件尚未就绪');
+  if (generationMediaObjectUrls.has(assetId)) return generationMediaObjectUrls.get(assetId);
+  const clientId = generationClientId();
+  const blob = await apiBlob(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}`, {timeoutMs: 45000});
+  const objectUrl = URL.createObjectURL(blob);
+  generationMediaObjectUrls.set(assetId, objectUrl);
+  return objectUrl;
+}
+
+async function hydrateGenerationOutputMedia(){
+  const mediaNodes = $$('[data-generation-media-asset-id]');
+  await Promise.allSettled(mediaNodes.map(async (node) => {
+    const assetId = String(node.dataset.generationMediaAssetId || '');
+    const asset = (generationWorkbenchState.assets || []).find((item) => String(item.asset_id || '') === assetId);
+    const placeholder = document.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
+    try {
+      node.src = await generationMediaUrlForAsset(asset || {});
+      node.hidden = false;
+      if (placeholder) placeholder.hidden = true;
+    } catch (error) {
+      if (placeholder) {
+        placeholder.hidden = false;
+        placeholder.innerHTML = `<strong>成品已生成，但预览加载失败</strong><span>${esc(error.message || '请点击重试')}</span><button type="button" data-gw-action="reload-media" data-asset-id="${esc(assetId)}">重新加载封面</button>`;
+      }
+    }
+  }));
+}
+
 const GENERATION_COMPLETENESS_REASON_LABELS = {
   provider_token_limit: '模型达到输出上限',
   token_budget_exhausted: '输出预算已用尽',
@@ -7924,17 +7981,31 @@ function renderGenerationOutput(task = {}){
   const text = generationOutputTextForTask(task);
   const media = generationOutputMediaForTask(task);
   const mediaUrl = generationRenderableMediaUrl(media);
-  if (!text && !media) return '';
+  if (!text && !media) {
+    return (task.output_asset_ids || []).length
+      ? `<section class="generation-output-preview generation-media-preview">
+          <div class="generation-output-placeholder">
+            <strong>成品已经生成</strong>
+            <span>正在读取预览文件；任务记录不会丢失。</span>
+          </div>
+        </section>`
+      : '';
+  }
   if (media) {
     const isVideo = String(media.mime_type || '').startsWith('video/');
     const mediaMarkup = mediaUrl
       ? (isVideo
         ? `<video class="generation-output-media" src="${esc(mediaUrl)}" controls preload="metadata"></video>`
         : `<img class="generation-output-media" src="${esc(mediaUrl)}" alt="${esc(media.original_filename || '生成图片')}" />`)
-      : `<div class="generation-output-placeholder">
-          <strong>${isVideo ? '视频任务已生成' : '图片任务已生成'}</strong>
-          <span>${String(media.storage_url || '').startsWith('mock://') ? '当前是模型适配器的模拟产物，接入真实模型后会在这里显示成品。' : '成品地址暂时不可直接预览，请查看技术信息。'}</span>
-        </div>`;
+      : (media.storage_blob_key
+        ? `<div class="generation-output-placeholder" data-generation-media-placeholder="${esc(media.asset_id)}"><strong>${isVideo ? '正在加载视频' : '正在加载封面'}</strong><span>成品已经生成，正在读取预览文件。</span></div>
+          ${isVideo
+            ? `<video class="generation-output-media" data-generation-media-asset-id="${esc(media.asset_id)}" controls preload="metadata" hidden></video>`
+            : `<img class="generation-output-media" data-generation-media-asset-id="${esc(media.asset_id)}" alt="${esc(media.original_filename || '生成图片')}" hidden />`}`
+        : `<div class="generation-output-placeholder">
+            <strong>${isVideo ? '视频任务已生成' : '图片任务已生成'}</strong>
+            <span>${String(media.storage_url || '').startsWith('mock://') ? '当前是模型适配器的模拟产物，接入真实模型后会在这里显示成品。' : '成品文件暂时无法读取，请重新生成。'}</span>
+          </div>`);
     return `
       <section class="generation-output-preview generation-media-preview">
         <div class="generation-output-head">
@@ -7942,7 +8013,7 @@ function renderGenerationOutput(task = {}){
             <span>生成成品</span>
             <strong>${esc(media.resolution || task.output_spec?.size || '尺寸未标注')}${media.duration ? ` · ${esc(media.duration)}` : ''}</strong>
           </div>
-          ${mediaUrl ? `<button type="button" data-gw-action="copy-asset-link" data-task-id="${esc(task.task_id)}">复制成品链接</button>` : ''}
+          ${mediaUrl ? `<button type="button" data-gw-action="copy-asset-link" data-task-id="${esc(task.task_id)}">复制成品链接</button>` : (media.storage_blob_key ? `<button type="button" data-gw-action="download-asset" data-task-id="${esc(task.task_id)}">下载成品</button>` : '')}
         </div>
         ${mediaMarkup}
       </section>
@@ -8045,6 +8116,7 @@ function renderGenerationTasks(){
         <div class="generation-task-history-list">${historyTasks.map(renderGenerationTaskCard).join('')}</div>
       </details>
     ` : '');
+  hydrateGenerationOutputMedia().catch(() => {});
 }
 
 function renderGenerationClientDelivery(){
@@ -8083,13 +8155,14 @@ function scheduleGenerationWorkbenchRefresh(){
       Date.parse(b.updated_at || b.created_at || '') - Date.parse(a.updated_at || a.created_at || '')
     )[0];
     const latestSucceeded = latestTask && ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(latestTask.status);
+    const latestOutputReady = latestSucceeded && generationOutputAssetsForTask(latestTask).length > 0;
     const latestFailed = latestTask && (latestTask.status === 'failed' || String(latestTask.status || '').startsWith('blocked_'));
-    updateGenerationAutoStatus(latestSucceeded ? '最新成稿已更新，可以直接查看和复制。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。');
+    updateGenerationAutoStatus(latestOutputReady ? '最新成品已更新，可以直接查看或下载。' : latestSucceeded ? '成品已生成，正在加载预览文件。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。');
     const taskMessage = $('#generationTaskMessage');
     if (taskMessage?.textContent.includes('后台生成')) {
       setGenerationMessage(
         '#generationTaskMessage',
-        latestSucceeded ? '成稿已完成，请在下方查看、复制并验收。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。',
+        latestOutputReady ? '成品已完成，请在下方查看、下载并验收。' : latestSucceeded ? '成品已生成，预览文件正在加载，请稍候。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。',
         latestFailed ? 'error' : 'success'
       );
     }
@@ -8140,19 +8213,26 @@ async function loadGenerationWorkbench({scheduleRefresh = true, ensureScope = tr
     return;
   }
   const query = `client_id=${encodeURIComponent(clientId)}&project_id=${encodeURIComponent(projectId)}`;
-  const [assets, tasks, clientTasks] = await Promise.all([
-    api(`/api/assets?${query}`),
+  const [tasks, clientTasks] = await Promise.all([
     api(`/api/generation-tasks?${query}&view=${profileDeliveryView(profile)}`),
     api(`/api/generation-tasks?${query}&view=client`),
   ]);
   generationWorkbenchState = {
-    assets: profileSanitizePayload(assets.assets || [], profile),
+    assets: [],
     tasks: profileSanitizePayload(tasks.tasks || [], profile),
     clientTasks: sanitizeCustomerPayload(clientTasks.tasks || []),
   };
-  renderGenerationAssets();
   renderGenerationTasks();
   renderGenerationClientDelivery();
+  try {
+    const assets = await api(`/api/assets?${query}`, {timeoutMs: 60000});
+    generationWorkbenchState.assets = profileSanitizePayload(assets.assets || [], profile);
+    renderGenerationAssets();
+    renderGenerationTasks();
+  } catch (error) {
+    renderGenerationAssets();
+    updateGenerationAutoStatus(`任务已读取，但成品预览加载失败：${error.message || '请稍后重试'}`);
+  }
   if (scheduleRefresh) scheduleGenerationWorkbenchRefresh();
 }
 
@@ -8384,6 +8464,27 @@ async function copyGenerationTaskAssetLink(taskId){
   toast('成品链接已复制');
 }
 
+async function downloadGenerationTaskAsset(taskId){
+  const task = (generationWorkbenchState.tasks || []).find((item) => String(item.task_id) === String(taskId));
+  const asset = generationOutputMediaForTask(task);
+  if (!asset) throw new Error('这条任务还没有可下载的成品');
+  const url = await generationMediaUrlForAsset(asset);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = asset.original_filename || `${task.generation_type || 'generation'}-${task.task_id || 'asset'}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  toast('成品下载已开始');
+}
+
+async function reloadGenerationMedia(assetId){
+  const oldUrl = generationMediaObjectUrls.get(String(assetId || ''));
+  if (oldUrl) URL.revokeObjectURL(oldUrl);
+  generationMediaObjectUrls.delete(String(assetId || ''));
+  await hydrateGenerationOutputMedia();
+}
+
 async function showGenerationFeishuPayload(){
   const task = (generationWorkbenchState.tasks || [])[0];
   const box = $('#generationFeishuPayload');
@@ -8454,14 +8555,22 @@ function initGenerationWorkbench(){
     }
   });
   $('#generationTaskList')?.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-gw-action][data-task-id]');
+    const button = event.target.closest('[data-gw-action]');
     if (!button) return;
+    if (button.dataset.gwAction === 'reload-media') {
+      reloadGenerationMedia(button.dataset.assetId).catch((error)=>toast(error.message || '重新加载成品失败'));
+      return;
+    }
     if (button.dataset.gwAction === 'copy-output') {
       copyGenerationTaskOutput(button.dataset.taskId).catch((error)=>toast(error.message || '复制成稿失败'));
       return;
     }
     if (button.dataset.gwAction === 'copy-asset-link') {
       copyGenerationTaskAssetLink(button.dataset.taskId).catch((error)=>toast(error.message || '复制成品链接失败'));
+      return;
+    }
+    if (button.dataset.gwAction === 'download-asset') {
+      downloadGenerationTaskAsset(button.dataset.taskId).catch((error)=>toast(error.message || '下载成品失败'));
       return;
     }
     if (button.dataset.gwAction === 'check-progress') {
