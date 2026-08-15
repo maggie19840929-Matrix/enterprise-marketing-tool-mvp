@@ -6505,7 +6505,7 @@ const assetContentResponse = async ({ clientId = '', assetId = '', format = '' }
       status: 200,
       headers: {
         'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'private, max-age=3600',
+        'cache-control': 'private, no-store',
       },
     });
   }
@@ -6513,7 +6513,7 @@ const assetContentResponse = async ({ clientId = '', assetId = '', format = '' }
     status: 200,
     headers: {
       'content-type': content.mime_type,
-      'cache-control': 'private, max-age=3600',
+      'cache-control': 'private, no-store',
       'content-disposition': `inline; filename="${content.filename}"`,
     },
   });

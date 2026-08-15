@@ -7891,7 +7891,8 @@ async function generationMediaUrlForAsset(asset = {}){
   if (!assetId || !asset.storage_blob_key) throw new Error('成品素材文件尚未就绪');
   if (generationMediaObjectUrls.has(assetId)) return generationMediaObjectUrls.get(assetId);
   const clientId = generationClientId();
-  const payload = await api(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&format=json`, {timeoutMs: 45000});
+  const contentVersion = String(asset.sha256 || asset.updated_at || APP_VERSION || Date.now());
+  const payload = await api(`/api/assets/${encodeURIComponent(assetId)}/content?client_id=${encodeURIComponent(clientId)}&format=json&v=${encodeURIComponent(contentVersion)}`, {timeoutMs: 45000});
   const binary = window.atob(String(payload.content_base64 || ''));
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   const blob = new Blob([bytes], {type: payload.mime_type || asset.mime_type || 'application/octet-stream'});
