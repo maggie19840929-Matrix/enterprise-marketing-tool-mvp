@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.163';
-const VERSION_LABEL = 'v1.6.163 · 封面二进制预览修复版';
+const APP_VERSION = '1.6.164';
+const VERSION_LABEL = 'v1.6.164 · 封面直读稳定修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -6467,13 +6467,27 @@ const listAssets = async ({ clientId = 'anonymous', projectId = '' } = {}) => {
 };
 
 const readAssetContent = async ({ clientId = '', assetId = '' } = {}) => {
+  const directKey = assetContentKey(clientId, assetId);
+  const directStore = directKey ? await cloudStore() : null;
+  if (directStore) {
+    const direct = await directStore.getWithMetadata(directKey, { type: 'arrayBuffer' }).catch(() => null);
+    if (direct?.data) {
+      const mimeType = String(direct.metadata?.content_type || 'image/png');
+      const extension = mimeType === 'image/jpeg' ? 'jpg' : (mimeType === 'image/webp' ? 'webp' : (mimeType.startsWith('image/') ? 'png' : 'bin'));
+      return {
+        bytes: direct.data,
+        mime_type: mimeType,
+        filename: `${String(assetId || 'asset').replace(/[^a-zA-Z0-9._-]/g, '_')}.${extension}`,
+      };
+    }
+  }
   const assets = await listAssets({ clientId });
   const asset = assets.find((item) => String(item.asset_id || '') === String(assetId || ''));
   if (!asset || asset.status !== 'ok') return { error: '素材不存在或不可读取', status: 404 };
   let bytes = null;
   let mimeType = asset.mime_type || 'application/octet-stream';
   if (asset.storage_blob_key) {
-    const store = await cloudStore();
+    const store = directStore || await cloudStore();
     bytes = store ? await store.get(asset.storage_blob_key, { type: 'arrayBuffer' }).catch(() => null) : null;
   } else {
     const inline = inlineAssetData(asset.storage_url);
