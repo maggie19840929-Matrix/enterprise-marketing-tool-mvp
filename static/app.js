@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.167';
-const VERSION_LABEL = 'v1.6.167 · 封面显示闭环修复版';
+const APP_VERSION = '1.6.168';
+const VERSION_LABEL = 'v1.6.168 · 图文素材包交付版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -7439,8 +7439,16 @@ let generationWorkbenchState = { assets: [], tasks: [], clientTasks: [] };
 let generationScopeState = { clientId: '', projectId: '', projects: [], loading: false, error: '' };
 let generationWorkbenchRefreshTimer = 0;
 let generationWorkbenchRefreshBusy = false;
+let generationMaterialPackBusy = false;
 const generationMediaObjectUrls = new Map();
 const GENERATION_WORKBENCH_REFRESH_MS = 5000;
+const GENERATION_MATERIAL_PACK_PURPOSE = 'content_material_pack';
+const GENERATION_MATERIAL_PACK_SLOTS = [
+  {key: 'cover', role: 'cover', order: 1, label: '封面', purpose: '吸引目标客户点开内容'},
+  {key: 'body_1', role: 'body_1', order: 2, label: '问题共鸣图', purpose: '把客户正在经历的问题讲清楚'},
+  {key: 'body_2', role: 'body_2', order: 3, label: '核心方法图', purpose: '把本条内容的核心方法变得一眼可懂'},
+  {key: 'body_3', role: 'body_3', order: 4, label: '行动总结图', purpose: '帮助读者保存、理解并采取下一步行动'},
+];
 
 const generationClientId = () =>
   normalizeClientId($('#generationTaskForm [name="client_id"]')?.value || $('#generationAssetForm [name="client_id"]')?.value || INTERNAL_CLIENT_ID) || INTERNAL_CLIENT_ID;
@@ -7553,6 +7561,148 @@ async function ensureGenerationScope(){
 
 const generationPlanIdValue = (plan = {}) => String(plan?.id ?? plan?.content_plan_id ?? '').trim();
 
+function generationSelectedPlanContext(){
+  const {activeProject, state, plans} = generationActiveProjectContext();
+  const selectedId = String($('#generationPlanSelect')?.value || $('#generationTaskForm [name="content_plan_record_id"]')?.value || '').trim();
+  const planIndex = plans.findIndex((plan)=>samePlanId(generationPlanIdValue(plan), selectedId));
+  const plan = planIndex >= 0 ? plans[planIndex] : null;
+  return {activeProject, state, plans, plan, planIndex, planId: generationPlanIdValue(plan)};
+}
+
+function generationMaterialPackVisualStyle(){
+  const customerLabel = String($('#generationClientSelect')?.selectedOptions?.[0]?.textContent || '');
+  const projectLabel = String($('#generationProjectSelect')?.selectedOptions?.[0]?.textContent || '');
+  if (/获客罗盘|FP\s*Matrix/i.test(`${customerLabel} ${projectLabel}`)) {
+    return '与本篇封面保持同一视觉系列：白色或浅灰底，品牌蓝为主色，少量明黄色强调，清晰中文排版，固定左上角品牌标识位置，专业、克制、有留白；不得切换成暖橙、粉色或另一套版式。';
+  }
+  return '与本篇已经生成的封面保持同一主色、字体层级、留白方式和版式语言；整套图片像同一位设计师一次完成，不得每张随机换色或换风格。';
+}
+
+function generationMaterialPackSlotBriefs(plan = {}){
+  const topic = String(plan.topic || plan.title || '本条内容').trim();
+  const angle = String(plan.angle || plan.content_brief || '讲清核心方法').trim();
+  const cta = String(plan.cta || '保存这份方法并按步骤执行').trim();
+  if (/一周|7天|七天|选题/.test(topic)) {
+    return {
+      body_1: {headline: '每次临时想题，才最耗时间', usage: '问题场景', direction: '呈现企业主临发布前临时找选题、资料散乱、时间被反复打断的真实场景。'},
+      body_2: {headline: '先排一周，再按天执行', usage: '步骤示意', direction: '用清晰的一周内容日历展示提前规划选题后，按天执行会更轻松。'},
+      body_3: {headline: '一次规划｜按天发布｜看数据再调整', usage: '行动清单', direction: '用三步清单总结规划、发布、记录效果和继续优化的循环。'},
+    };
+  }
+  return {
+    body_1: {headline: topic.slice(0, 18), usage: '问题场景', direction: `围绕“${topic}”呈现目标客户正在经历的具体问题，不要只做抽象装饰。`},
+    body_2: {headline: '把核心方法讲清楚', usage: '步骤示意', direction: `把“${angle}”整理成清晰、可执行的 3 个步骤。`},
+    body_3: {headline: '看完以后怎么做', usage: '行动清单', direction: `把“${cta}”转成自然、不强迫的总结清单。`},
+  };
+}
+
+function generationLatestTask(tasks = []){
+  return [...tasks].sort((a, b) => Date.parse(b.updated_at || b.created_at || '') - Date.parse(a.updated_at || a.created_at || ''))[0] || null;
+}
+
+function generationTaskForMaterialSlot(slot = {}, planId = ''){
+  const tasks = (generationWorkbenchState.tasks || [])
+    .filter((task)=>samePlanId(task.content_plan_record_id, planId));
+  if (slot.role === 'cover') {
+    return generationLatestTask(tasks.filter((task)=>task.asset_role === 'cover' || task.generation_type === 'cover'));
+  }
+  return generationLatestTask(tasks.filter((task)=>task.asset_role === slot.role));
+}
+
+function generationTaskHasOutput(task = {}){
+  if (!task || typeof task !== 'object') return false;
+  return Boolean((task.output_asset_ids || []).length && ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(String(task.status || '')));
+}
+
+function generationMaterialPackState(){
+  const context = generationSelectedPlanContext();
+  const slots = GENERATION_MATERIAL_PACK_SLOTS.map((slot) => {
+    const task = context.planId ? generationTaskForMaterialSlot(slot, context.planId) : null;
+    const asset = task ? generationOutputMediaForTask(task) : null;
+    const ready = generationTaskHasOutput(task);
+    const running = ['submitted', 'asset_checking', 'queued', 'generating'].includes(String(task?.status || ''));
+    const failed = Boolean(task && (task.status === 'failed' || String(task.status || '').startsWith('blocked_') || task.status === 'qa_failed'));
+    return {...slot, task, asset, ready, running, failed};
+  });
+  return {
+    ...context,
+    slots,
+    completed: slots.filter((slot)=>slot.ready).length,
+    running: slots.filter((slot)=>slot.running).length,
+    readyEntries: slots.filter((slot)=>slot.ready && slot.asset),
+  };
+}
+
+function generationMaterialPackStatusLabel(slot = {}){
+  if (slot.ready) return '已完成';
+  if (slot.running) return '正在生成';
+  if (slot.failed) return '需要重试';
+  return '待生成';
+}
+
+function renderGenerationMaterialPack(){
+  const section = $('#generationMaterialPack');
+  const body = $('#generationMaterialPackBody');
+  const progress = $('#generationMaterialPackProgress');
+  if (!section || !body || !progress) return;
+  const pack = generationMaterialPackState();
+  const platform = String(pack.plan?.platform || $('#generationTaskForm [name="platform"]')?.value || '');
+  if (!pack.plan) {
+    progress.textContent = '等待选择内容计划';
+    body.classList.add('empty');
+    body.innerHTML = '选择小红书内容计划后，系统会在这里给出完整配图建议。';
+    return;
+  }
+  if (!platform.includes('小红书')) {
+    progress.textContent = '当前计划不是小红书图文';
+    body.classList.add('empty');
+    body.innerHTML = '图片素材包只在小红书图文计划中建议；短视频计划请使用脚本和视频生成。';
+    return;
+  }
+  body.classList.remove('empty');
+  progress.textContent = `已完成 ${pack.completed}/4${pack.running ? ` · ${pack.running} 张生成中` : ''}`;
+  const missingBody = pack.slots.filter((slot)=>slot.role !== 'cover' && !slot.ready && !slot.running);
+  const coverReady = pack.slots[0]?.ready;
+  const slotsMarkup = pack.slots.map((slot) => `
+    <article class="generation-material-slot ${slot.ready ? 'is-ready' : slot.running ? 'is-running' : slot.failed ? 'is-failed' : ''}">
+      <span class="generation-material-slot-order">${esc(slot.order)}</span>
+      <div>
+        <strong>${esc(slot.label)}</strong>
+        <p>${esc(slot.purpose)}</p>
+      </div>
+      <span class="generation-material-slot-status">${esc(generationMaterialPackStatusLabel(slot))}</span>
+      ${slot.ready ? `<button type="button" data-pack-action="download-one" data-task-id="${esc(slot.task?.task_id || '')}">下载</button>` : ''}
+    </article>
+  `).join('');
+  const primaryAction = coverReady
+    ? (missingBody.length
+      ? `<button type="button" class="generation-material-primary" data-pack-action="generate-body" ${generationMaterialPackBusy ? 'disabled' : ''}>${generationMaterialPackBusy ? '正在提交正文图...' : `生成${missingBody.length}张正文配图`}</button>`
+      : (pack.running ? '<button type="button" class="generation-material-primary" disabled>正文配图生成中</button>' : '<span class="generation-material-complete">本条素材包已经完整</span>'))
+    : '<button type="button" class="generation-material-primary" data-pack-action="focus-cover">先生成封面</button>';
+  const downloadAction = pack.readyEntries.length
+    ? `<button type="button" class="secondary" data-pack-action="download-all">${pack.completed === 4 ? '下载全部素材' : `下载已完成素材（${pack.readyEntries.length}）`}</button>`
+    : '';
+  body.innerHTML = `
+    <div class="generation-material-summary">
+      <div><strong>系统建议 4 张</strong><span>封面 1 张 + 正文配图 3 张</span></div>
+      <div class="generation-material-meter"><i style="width:${esc((pack.completed / 4) * 100)}%"></i></div>
+      <p>同一篇内容使用统一色系和版式。当前封面会作为后续正文图的视觉基线。</p>
+    </div>
+    <div class="generation-material-slots">${slotsMarkup}</div>
+    <div class="generation-material-actions">${primaryAction}${downloadAction}</div>
+  `;
+}
+
+function generationMaterialPackProgressMessage(){
+  const pack = generationMaterialPackState();
+  const platform = String(pack.plan?.platform || '');
+  if (!pack.plan || !platform.includes('小红书')) return '';
+  if (pack.completed === 4) return '本条图文素材包已完成 4/4，可以单张下载或下载全部素材。';
+  if (pack.running) return `本条素材包已完成 ${pack.completed}/4，另有 ${pack.running} 张正在生成。`;
+  if (pack.completed > 0) return `本条素材包已完成 ${pack.completed}/4，请继续补齐正文配图。`;
+  return '当前图文素材包尚未开始，请先生成封面。';
+}
+
 function generationPromptForPlan(plan = {}, generationType = 'script'){
   const ui = GENERATION_TYPE_UI[generationType] || GENERATION_TYPE_UI.script;
   const topic = String(plan.topic || plan.title || '').trim();
@@ -7615,12 +7765,15 @@ function applyGenerationPlanSelection({forcePrompt = false} = {}){
     coverText.value = topic.slice(0, 20);
     coverText.dataset.autoPlanValue = coverText.value;
   }
+  const imageStyle = form.querySelector('[name="image_style"]');
+  if (imageStyle && !imageStyle.value.trim()) imageStyle.value = generationMaterialPackVisualStyle();
   if (hint) hint.textContent = `已关联第 ${index + 1} 天「${topic || '未命名选题'}」；平台和生成要求已自动带入，可继续调整。`;
   if (assetContext) {
     const customer = $('#generationClientSelect')?.selectedOptions?.[0]?.textContent || '当前客户';
     const project = $('#generationProjectSelect')?.selectedOptions?.[0]?.textContent || '当前项目';
     assetContext.textContent = `素材将保存到：${customer} / ${project} / 第 ${index + 1} 天。`;
   }
+  renderGenerationMaterialPack();
   return true;
 }
 
@@ -8109,6 +8262,7 @@ function renderGenerationTasks(){
   list.classList.toggle('empty', !tasks.length);
   if (!tasks.length) {
     list.innerHTML = '暂无生成任务。';
+    renderGenerationMaterialPack();
     return;
   }
   const primaryTasks = tasks.slice(0, 1);
@@ -8121,6 +8275,7 @@ function renderGenerationTasks(){
       </details>
     ` : '');
   hydrateGenerationOutputMedia().catch(() => {});
+  renderGenerationMaterialPack();
 }
 
 function renderGenerationClientDelivery(){
@@ -8161,12 +8316,13 @@ function scheduleGenerationWorkbenchRefresh(){
     const latestSucceeded = latestTask && ['generated', 'qa_pending', 'client_ready', 'delivered'].includes(latestTask.status);
     const latestOutputReady = latestSucceeded && generationOutputAssetsForTask(latestTask).length > 0;
     const latestFailed = latestTask && (latestTask.status === 'failed' || String(latestTask.status || '').startsWith('blocked_'));
-    updateGenerationAutoStatus(latestOutputReady ? '最新成品已更新，可以直接查看或下载。' : latestSucceeded ? '成品已生成，正在加载预览文件。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。');
+    const packMessage = generationMaterialPackProgressMessage();
+    updateGenerationAutoStatus(packMessage || (latestOutputReady ? '最新成品已更新，可以直接查看或下载。' : latestSucceeded ? '成品已生成，正在加载预览文件。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。'));
     const taskMessage = $('#generationTaskMessage');
     if (taskMessage?.textContent.includes('后台生成')) {
       setGenerationMessage(
         '#generationTaskMessage',
-        latestOutputReady ? '成品已完成，请在下方查看、下载并验收。' : latestSucceeded ? '成品已生成，预览文件正在加载，请稍候。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。',
+        latestOutputReady ? (packMessage || '成品已完成，请在下方查看、下载并验收。') : latestSucceeded ? '成品已生成，预览文件正在加载，请稍候。' : latestFailed ? generationFriendlyError(latestTask) : '任务状态已更新。',
         latestFailed ? 'error' : 'success'
       );
     }
@@ -8214,6 +8370,7 @@ async function loadGenerationWorkbench({scheduleRefresh = true, ensureScope = tr
     renderGenerationAssets();
     renderGenerationTasks();
     renderGenerationClientDelivery();
+    renderGenerationMaterialPack();
     return;
   }
   const query = `client_id=${encodeURIComponent(clientId)}&project_id=${encodeURIComponent(projectId)}`;
@@ -8233,6 +8390,7 @@ async function loadGenerationWorkbench({scheduleRefresh = true, ensureScope = tr
     generationWorkbenchState.assets = profileSanitizePayload(assets.assets || [], profile);
     renderGenerationAssets();
     renderGenerationTasks();
+    renderGenerationMaterialPack();
   } catch (error) {
     renderGenerationAssets();
     updateGenerationAutoStatus(`任务已读取，但成品预览加载失败：${error.message || '请稍后重试'}`);
@@ -8482,6 +8640,211 @@ async function downloadGenerationTaskAsset(taskId){
   toast('成品下载已开始');
 }
 
+function generationMaterialPackPrompt(slot = {}, plan = {}, brief = {}){
+  const topic = String(plan.topic || plan.title || '本条内容').trim();
+  const platform = String(plan.platform || '小红书').trim();
+  return [
+    `生成${platform}图文笔记的第 ${slot.order}/4 张图片：${slot.label}。这是一张正文配图，不是封面。`,
+    `本条选题：${topic}`,
+    `本图任务：${brief.direction || slot.purpose}`,
+    brief.headline ? `图片中的核心中文短句必须准确写为：“${brief.headline}”。除必要短标签外不要添加大段文字。` : '',
+    `整套视觉要求：${generationMaterialPackVisualStyle()}`,
+    '构图要适合手机竖屏阅读，信息层级清楚，四周保留安全边距。不得出现乱码、错别字、二维码、电话号码、第三方水印或无授权品牌标识。',
+    '必须与当前客户、当前选题一致，不得串入其他行业，也不得重复制作封面。',
+  ].filter(Boolean).join('\n');
+}
+
+async function generateMaterialPackBodyImages(){
+  if (generationMaterialPackBusy) return;
+  const pack = generationMaterialPackState();
+  if (!pack.plan || !pack.planId) throw new Error('请先选择一条小红书内容计划');
+  const coverSlot = pack.slots.find((slot)=>slot.role === 'cover');
+  if (!coverSlot?.ready) throw new Error('请先生成封面，再生成正文配图');
+  const missingSlots = pack.slots.filter((slot)=>slot.role !== 'cover' && !slot.ready && !slot.running);
+  if (!missingSlots.length) {
+    toast(pack.running ? '正文配图正在生成，请稍候' : '正文配图已经全部完成');
+    return;
+  }
+  generationMaterialPackBusy = true;
+  renderGenerationMaterialPack();
+  const form = $('#generationTaskForm');
+  const briefs = generationMaterialPackSlotBriefs(pack.plan);
+  const clientId = generationClientId();
+  const projectId = generationProjectId();
+  const coverAssetIds = coverSlot.task?.output_asset_ids || [];
+  const platform = String(pack.plan.platform || form?.querySelector('[name="platform"]')?.value || '小红书');
+  const customerLabel = String($('#generationClientSelect')?.selectedOptions?.[0]?.textContent || '');
+  try {
+    const createdTasks = [];
+    for (const slot of missingSlots) {
+      const brief = briefs[slot.role] || {};
+      setGenerationMessage('#generationTaskMessage', `正在创建${slot.label}任务...`);
+      const result = await api('/api/generation-tasks', {
+        method: 'POST',
+        body: JSON.stringify({
+          client_id: clientId,
+          client_name: customerLabel,
+          project_id: projectId,
+          content_plan_record_id: pack.planId,
+          platform,
+          content_type: '图文',
+          generation_type: 'image',
+          requested_model: generationModelFor('image'),
+          provider: 'openai-image',
+          purpose: GENERATION_MATERIAL_PACK_PURPOSE,
+          image_type: 'body',
+          asset_role: slot.role,
+          idempotency_key: `material-pack-v1:${projectId}:${pack.planId}:${slot.role}`.slice(0, 160),
+          prompt: generationMaterialPackPrompt(slot, pack.plan, brief),
+          input_asset_ids: coverAssetIds,
+          output_spec: {
+            size: '1024x1536',
+            usage: brief.usage || slot.label,
+            style: generationMaterialPackVisualStyle(),
+            client_visible: true,
+          },
+        }),
+      });
+      if (result.task?.task_id) createdTasks.push(result.task);
+    }
+    const submissions = await Promise.allSettled(createdTasks.map((task) => {
+      if (generationTaskHasOutput(task) || ['generating', 'queued', 'submitted'].includes(String(task.status || ''))) return task;
+      return api(`/api/generation-tasks/${encodeURIComponent(task.task_id)}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({client_id: clientId}),
+      });
+    }));
+    const failedCount = submissions.filter((result) => {
+      if (result.status === 'rejected') return true;
+      const submittedTask = result.value?.task || result.value || {};
+      return submittedTask.status === 'failed' || String(submittedTask.status || '').startsWith('blocked_');
+    }).length;
+    setGenerationMessage(
+      '#generationTaskMessage',
+      failedCount
+        ? `${createdTasks.length - failedCount} 张正文配图已进入生成，${failedCount} 张提交失败，可稍后补齐。`
+        : `${createdTasks.length} 张正文配图已进入后台生成，页面会自动更新。`,
+      failedCount ? 'error' : 'success'
+    );
+    await loadGenerationWorkbench({scheduleRefresh: false, ensureScope: false});
+    scheduleGenerationWorkbenchRefresh();
+  } finally {
+    generationMaterialPackBusy = false;
+    renderGenerationMaterialPack();
+  }
+}
+
+async function generationAssetBlobForDownload(asset = {}){
+  if (asset.storage_blob_key) {
+    const clientId = generationClientId();
+    const contentVersion = String(asset.sha256 || asset.updated_at || APP_VERSION || Date.now());
+    return apiBlob(`/api/assets/${encodeURIComponent(asset.asset_id)}/content?client_id=${encodeURIComponent(clientId)}&v=${encodeURIComponent(contentVersion)}`, {timeoutMs: 60000});
+  }
+  const url = generationRenderableMediaUrl(asset);
+  if (!url) throw new Error(`素材 ${asset.original_filename || asset.asset_id || ''} 暂时无法下载`);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`素材下载失败：HTTP ${response.status}`);
+  return response.blob();
+}
+
+function generationZipCrc32(bytes){
+  const table = generationZipCrc32.table || (generationZipCrc32.table = Array.from({length: 256}, (_, index) => {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+    return value >>> 0;
+  }));
+  let crc = 0xffffffff;
+  bytes.forEach((byte) => { crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8); });
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function generationStoredZip(files = []){
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  files.forEach((file) => {
+    const name = encoder.encode(file.name);
+    const data = file.bytes;
+    const crc = generationZipCrc32(data);
+    const local = new Uint8Array(30 + name.length);
+    const localView = new DataView(local.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0x0800, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint32(14, crc, true);
+    localView.setUint32(18, data.length, true);
+    localView.setUint32(22, data.length, true);
+    localView.setUint16(26, name.length, true);
+    local.set(name, 30);
+    localParts.push(local, data);
+
+    const central = new Uint8Array(46 + name.length);
+    const centralView = new DataView(central.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0x0800, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint32(16, crc, true);
+    centralView.setUint32(20, data.length, true);
+    centralView.setUint32(24, data.length, true);
+    centralView.setUint16(28, name.length, true);
+    centralView.setUint32(42, offset, true);
+    central.set(name, 46);
+    centralParts.push(central);
+    offset += local.length + data.length;
+  });
+  const centralSize = centralParts.reduce((sum, part)=>sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, files.length, true);
+  endView.setUint16(10, files.length, true);
+  endView.setUint32(12, centralSize, true);
+  endView.setUint32(16, offset, true);
+  return new Blob([...localParts, ...centralParts, end], {type: 'application/zip'});
+}
+
+function generationSafeFilename(value = ''){
+  return String(value || '').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 48) || '内容素材';
+}
+
+async function downloadGenerationMaterialPack(){
+  const pack = generationMaterialPackState();
+  if (!pack.readyEntries.length) throw new Error('当前还没有可下载的图片');
+  setGenerationMessage('#generationTaskMessage', `正在整理 ${pack.readyEntries.length} 张图片...`);
+  const files = [];
+  for (const entry of pack.readyEntries) {
+    const blob = await generationAssetBlobForDownload(entry.asset);
+    const extension = /png/i.test(blob.type || entry.asset.mime_type) ? 'png' : /webp/i.test(blob.type || entry.asset.mime_type) ? 'webp' : 'jpg';
+    files.push({
+      name: `第${pack.planIndex + 1}天-${String(entry.order).padStart(2, '0')}-${generationSafeFilename(entry.label)}.${extension}`,
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+    });
+  }
+  const zip = generationStoredZip(files);
+  const url = URL.createObjectURL(zip);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `第${pack.planIndex + 1}天-${generationSafeFilename(pack.plan?.topic || pack.plan?.title)}-图文素材包.zip`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url), 30000);
+  setGenerationMessage('#generationTaskMessage', `已整理 ${files.length} 张图片，素材包下载已开始。`);
+}
+
+function focusGenerationCoverForm(){
+  const type = $('#generationTypeSelect');
+  if (!type) return;
+  type.value = 'cover';
+  type.dispatchEvent(new Event('change', {bubbles: true}));
+  $('#generationTaskForm')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  window.setTimeout(()=>$('#generationTaskForm [name="cover_text"]')?.focus(), 350);
+}
+
 async function reloadGenerationMedia(assetId){
   const oldUrl = generationMediaObjectUrls.get(String(assetId || ''));
   if (oldUrl) URL.revokeObjectURL(oldUrl);
@@ -8582,6 +8945,25 @@ function initGenerationWorkbench(){
       return;
     }
     runGenerationTaskAction(button.dataset.gwAction, button.dataset.taskId).catch((error)=>toast(error.message || '任务操作失败'));
+  });
+  $('#generationMaterialPack')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-pack-action]');
+    if (!button) return;
+    if (button.dataset.packAction === 'focus-cover') {
+      focusGenerationCoverForm();
+      return;
+    }
+    if (button.dataset.packAction === 'generate-body') {
+      generateMaterialPackBodyImages().catch((error)=>setGenerationMessage('#generationTaskMessage', error.message || '正文配图生成失败', 'error'));
+      return;
+    }
+    if (button.dataset.packAction === 'download-one') {
+      downloadGenerationTaskAsset(button.dataset.taskId).catch((error)=>toast(error.message || '下载成品失败'));
+      return;
+    }
+    if (button.dataset.packAction === 'download-all') {
+      downloadGenerationMaterialPack().catch((error)=>setGenerationMessage('#generationTaskMessage', error.message || '素材包下载失败', 'error'));
+    }
   });
   $('#refreshGenerationWorkbench')?.addEventListener('click', () => loadGenerationWorkbench().catch((error)=>toast(error.message)));
   $('#generationFeishuSync')?.addEventListener('click', () => showGenerationFeishuPayload().catch((error)=>toast(error.message)));
