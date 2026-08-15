@@ -6494,12 +6494,20 @@ const assetContentResponse = async ({ clientId = '', assetId = '', format = '' }
   const content = await readAssetContent({ clientId, assetId });
   if (content.error) return json({ error: content.error }, content.status || 404, { internal: true });
   if (format === 'json') {
-    return json({
+    // Binary payloads must bypass customer text sanitization: replacing a
+    // coincidental forbidden substring inside base64 corrupts the image.
+    return new Response(JSON.stringify({
       asset_id: assetId,
       mime_type: content.mime_type,
       filename: content.filename,
       content_base64: Buffer.from(content.bytes).toString('base64'),
-    }, 200, { internal: true });
+    }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'private, max-age=3600',
+      },
+    });
   }
   return new Response(content.bytes, {
     status: 200,

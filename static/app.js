@@ -7908,6 +7908,7 @@ async function hydrateGenerationOutputMedia(){
     const placeholder = document.querySelector(`[data-generation-media-placeholder="${CSS.escape(assetId)}"]`);
     try {
       node.src = await generationMediaUrlForAsset(asset || {});
+      if (node instanceof HTMLImageElement) await node.decode();
       node.hidden = false;
       if (placeholder) placeholder.hidden = true;
     } catch (error) {
