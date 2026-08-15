@@ -19,8 +19,8 @@ const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
 
-const APP_VERSION = '1.6.164';
-const VERSION_LABEL = 'v1.6.164 · 封面直读稳定修复版';
+const APP_VERSION = '1.6.165';
+const VERSION_LABEL = 'v1.6.165 · 封面流式预览修复版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -6505,6 +6505,23 @@ const readAssetContent = async ({ clientId = '', assetId = '' } = {}) => {
 };
 
 const assetContentResponse = async ({ clientId = '', assetId = '', format = '' } = {}) => {
+  if (format !== 'json') {
+    const directKey = assetContentKey(clientId, assetId);
+    const directStore = directKey ? await cloudStore() : null;
+    const direct = directStore
+      ? await directStore.getWithMetadata(directKey, { type: 'stream' }).catch(() => null)
+      : null;
+    if (direct?.data) {
+      return new Response(direct.data, {
+        status: 200,
+        headers: {
+          'content-type': String(direct.metadata?.content_type || 'application/octet-stream'),
+          'cache-control': 'private, no-store',
+          'content-disposition': `inline; filename="${String(assetId || 'asset').replace(/[^a-zA-Z0-9._-]/g, '_')}"`,
+        },
+      });
+    }
+  }
   const content = await readAssetContent({ clientId, assetId });
   if (content.error) return json({ error: content.error }, content.status || 404, { internal: true });
   if (format === 'json') {
