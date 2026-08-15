@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const APP_VERSION = '1.6.158';
-const VERSION_LABEL = 'v1.6.158 · 生产项目选择修复版';
+const APP_VERSION = '1.6.159';
+const VERSION_LABEL = 'v1.6.159 · 客户记录与素材入口修复版';
 window.APP_VERSION = APP_VERSION;
 window.VERSION_LABEL = VERSION_LABEL;
 const STORAGE_KEY = 'enterpriseMarketingMvpState.v5';
@@ -6939,6 +6939,24 @@ const benchmarkCustomerOptions = () => (allCustomersState.customers || []).flatM
   })).filter((item) => item.client_id);
 });
 
+const generationCustomerOptions = () => (allCustomersState.customers || []).map((customer) => {
+  const records = Array.isArray(customer.records) ? customer.records : [];
+  const primaryId = customerPrimaryClientId(customer);
+  const selectedRecord = records.find((record) => (
+    String(record.client_id || '') === String(primaryId)
+    && Number(record.project_count || 0) > 0
+  ))
+    || records.find((record) => Number(record.project_count || 0) > 0)
+    || records.find((record) => String(record.client_id || '') === String(primaryId))
+    || records[0]
+    || null;
+  return {
+    client_id: String(selectedRecord?.client_id || primaryId || ''),
+    label: customerListDisplayName(customer),
+    record_count: Number(customer.record_count || records.length || 1),
+  };
+}).filter((item) => item.client_id);
+
 const benchmarkProjectAssessment = (project = {}) => project.state?.assessment || {};
 const benchmarkProjectLabel = (project = {}) => cleanDisplayName(
   project.name || project.state?.project?.name || benchmarkProjectAssessment(project).company_name || benchmarkProjectAssessment(project).industry || project.id
@@ -7434,7 +7452,7 @@ function renderGenerationScope(){
   const customerSelect = $('#generationClientSelect');
   const projectSelect = $('#generationProjectSelect');
   const status = $('#generationScopeStatus');
-  const customers = benchmarkCustomerOptions();
+  const customers = generationCustomerOptions();
   if (customerSelect) {
     customerSelect.disabled = generationScopeState.loading || !customers.length;
     customerSelect.innerHTML = customers.length
@@ -7449,10 +7467,14 @@ function renderGenerationScope(){
       : `<option value="">${generationScopeState.clientId ? '该客户暂无项目' : '请先选择客户'}</option>`;
   }
   if (status) {
+    const selectedCustomer = customers.find((item) => item.client_id === generationScopeState.clientId);
+    const groupedRecordHint = selectedCustomer?.record_count > 1
+      ? '同名历史记录已收起，当前使用最近更新且包含项目的记录。'
+      : '';
     status.classList.toggle('error', Boolean(generationScopeState.error));
     status.textContent = generationScopeState.loading
       ? '正在读取客户项目...'
-      : (generationScopeState.error || (generationScopeState.projectId ? '客户与项目已关联，下面只显示该项目的内容计划。' : '先确认客户和项目，避免内容关联到错误项目。'));
+      : (generationScopeState.error || groupedRecordHint || (generationScopeState.projectId ? '客户与项目已关联，下面只显示该项目的内容计划。' : '先确认客户和项目，避免内容关联到错误项目。'));
   }
 }
 
@@ -7487,7 +7509,7 @@ async function loadGenerationClientProjects(clientId = '', {preferredProjectId =
 
 async function ensureGenerationScope(){
   await refreshAllCustomers({force: true});
-  const customers = benchmarkCustomerOptions();
+  const customers = generationCustomerOptions();
   const localProject = (projectStore.projects || []).find((item)=>String(item.id) === String(projectStore.activeProjectId)) || (projectStore.projects || [])[0];
   const localState = localProject?.state || clientState || {};
   const localClientId = normalizeClientId(localState.assessment?.client_id || localState.client_id || localProject?.client_id);
@@ -7530,8 +7552,10 @@ function applyGenerationPlanSelection({forcePrompt = false} = {}){
   const index = plans.findIndex((plan)=>samePlanId(generationPlanIdValue(plan), selectedId));
   const plan = index >= 0 ? plans[index] : null;
   const hint = $('#generationPlanSelectionHint');
+  const assetContext = $('#generationAssetContext');
   if (!plan) {
     if (hint) hint.textContent = plans.length ? '请选择客户计划中的一天，再继续创建内容。' : '当前项目还没有内容计划，请先在运营工作台生成本轮计划。';
+    if (assetContext) assetContext.textContent = '先选择客户、项目和内容计划，上传的素材会自动关联到当前选择。';
     return false;
   }
 
@@ -7565,6 +7589,11 @@ function applyGenerationPlanSelection({forcePrompt = false} = {}){
     coverText.dataset.autoPlanValue = coverText.value;
   }
   if (hint) hint.textContent = `已关联第 ${index + 1} 天「${topic || '未命名选题'}」；平台和生成要求已自动带入，可继续调整。`;
+  if (assetContext) {
+    const customer = $('#generationClientSelect')?.selectedOptions?.[0]?.textContent || '当前客户';
+    const project = $('#generationProjectSelect')?.selectedOptions?.[0]?.textContent || '当前项目';
+    assetContext.textContent = `素材将保存到：${customer} / ${project} / 第 ${index + 1} 天。`;
+  }
   return true;
 }
 
@@ -8400,6 +8429,13 @@ function initGenerationWorkbench(){
     }
   });
   $('#generationPlanSelect')?.addEventListener('change', () => applyGenerationPlanSelection({forcePrompt: true}));
+  $('#generationOpenAssetUpload')?.addEventListener('click', () => {
+    const panel = $('#generationAssetPanel');
+    if (!panel) return;
+    panel.open = true;
+    panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+    window.setTimeout(() => panel.querySelector('[name="asset_file"]')?.focus(), 350);
+  });
   $('#generationTypeSelect')?.addEventListener('change', updateGenerationRequestedModel);
   $('#generationAssetForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
