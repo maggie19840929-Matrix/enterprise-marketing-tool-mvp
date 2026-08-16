@@ -8,6 +8,18 @@ import {
   normalizeBenchmarkProfileInput,
   parseBenchmarkModelJson,
 } from './benchmark-insights.mjs';
+import {
+  MODEL_OBSERVABILITY_VERSION,
+  MODEL_ROUTING_VERSION,
+  buildModelRuns,
+  buildQualityResult,
+  buildRouteDecision,
+  modelCostTrackingEnabled,
+  modelRoutingMode,
+  modelRunLedgerEnabled,
+  shouldObserveModelTask,
+  summarizeModelObservability,
+} from './lib/model-routing.mjs';
 
 let state;
 let memoryCloudState = null;
@@ -18,9 +30,10 @@ const memoryPlanJobStates = new Map();
 const memoryCommercialEvents = new Map();
 const memoryDeliveryCollectionStates = new Map();
 const memoryBenchmarkCollectionStates = new Map();
+const memoryModelObservabilityStates = new Map();
 
-const APP_VERSION = '1.6.176';
-const VERSION_LABEL = 'v1.6.176 · 小红书发布包排版优化版';
+const APP_VERSION = '1.6.177';
+const VERSION_LABEL = 'v1.6.177 · AI运营调度观测地基版';
 const GENERATION_WORKBENCH_VERSION = 'generation-workbench-v1';
 const BENCHMARK_INSIGHTS_VERSION = 'benchmark-insights-p0';
 const DELIVERY_COLLABORATION_VERSION = '1.6.122';
@@ -174,6 +187,13 @@ const CUSTOMER_HIDDEN_MODEL_FIELDS = new Set([
   'debug',
   'strategy_quality_context',
   'strategy_quality',
+  'route_decision',
+  'model_run',
+  'quality_result',
+  'route_policy_version',
+  'routing_mode',
+  'reason_codes',
+  'estimated_cost_cny',
 ]);
 const stripCustomerModelMetadata = (value) => {
   if (Array.isArray(value)) return value.map(stripCustomerModelMetadata);
@@ -4114,6 +4134,9 @@ const COLLECTION_FIELDS = Object.freeze({
   'benchmark-contents': 'contents',
   'benchmark-insights': 'insights',
   'benchmark-jobs': 'jobs',
+  'routing/v1': 'decisions',
+  'model-runs/v1': 'runs',
+  'quality/v1': 'results',
 });
 const DELIVERY_COLLECTION_KINDS = new Set([
   'delivery-projects',
@@ -4124,12 +4147,14 @@ const DELIVERY_COLLECTION_KINDS = new Set([
   'weekly-reports',
   'delivery-feishu-bindings',
 ]);
+const MODEL_OBSERVABILITY_COLLECTION_KINDS = new Set(['routing/v1', 'model-runs/v1', 'quality/v1']);
 const collectionField = (kind) => COLLECTION_FIELDS[kind] || 'tasks';
 const memoryCollectionMap = (kind) => {
   if (kind === 'assets') return memoryAssetStates;
   if (kind === 'plan-jobs') return memoryPlanJobStates;
   if (DELIVERY_COLLECTION_KINDS.has(kind)) return memoryDeliveryCollectionStates;
   if (String(kind).startsWith('benchmark-')) return memoryBenchmarkCollectionStates;
+  if (MODEL_OBSERVABILITY_COLLECTION_KINDS.has(kind)) return memoryModelObservabilityStates;
   return memoryGenerationTaskStates;
 };
 const sha256Hex = (value) => createHash('sha256').update(value).digest('hex');
@@ -4172,6 +4197,86 @@ const upsertCollectionItem = async (kind, clientId, item, idField, currentState 
   const items = ensureArray(current[field]).filter((entry) => String(entry[idField] || '') !== id);
   items.unshift(item);
   return writeCloudCollection(kind, clientId, items);
+};
+
+const observeCollectionItem = async (kind, clientId, item, idField) => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId || !item?.[idField] || !modelRunLedgerEnabled()) return null;
+  try {
+    const current = await readCloudCollection(kind, safeClientId);
+    const field = collectionField(kind);
+    const id = String(item[idField]);
+    const items = [item, ...ensureArray(current[field]).filter((entry) => String(entry[idField] || '') !== id)].slice(0, 2000);
+    await writeCloudCollection(kind, safeClientId, items);
+    return item;
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'model_observability_write_failed',
+      kind,
+      client_id: safeClientId,
+      reason: String(error?.message || 'unknown').slice(0, 120),
+    }));
+    return null;
+  }
+};
+
+const observeRouteDecision = async (input = {}) => {
+  const taskId = String(input.taskId || '').trim();
+  if (!shouldObserveModelTask(taskId)) return null;
+  const decision = buildRouteDecision(input);
+  try {
+    const current = await readCloudCollection('routing/v1', input.clientId);
+    const existing = ensureArray(current.decisions).find((item) => item.route_id === decision.route_id);
+    if (existing) return existing;
+  } catch {
+    // The normal best-effort write path below owns warning/logging behavior.
+  }
+  return observeCollectionItem('routing/v1', input.clientId, decision, 'route_id');
+};
+
+const observeModelResult = async ({ clientId = '', projectId = '', taskId = '', route = '', purpose = '', generationType = '', meta = {}, status = '', finishReason = '' } = {}) => {
+  if (!shouldObserveModelTask(taskId)) return [];
+  const runs = buildModelRuns({ clientId, projectId, taskId, route, purpose, generationType, meta, status, finishReason });
+  await Promise.all(runs.map((run) => observeCollectionItem('model-runs/v1', clientId, run, 'run_id')));
+  return runs;
+};
+
+const observeQualityResult = async (input = {}) => {
+  const taskId = String(input.taskId || '').trim();
+  if (!shouldObserveModelTask(taskId)) return null;
+  const quality = buildQualityResult(input);
+  return observeCollectionItem('quality/v1', input.clientId, quality, 'quality_id');
+};
+
+const modelObservabilitySnapshot = async ({ clientId = '', projectId = '', taskId = '', limit = 200 } = {}) => {
+  const safeClientId = normalizeClientId(clientId);
+  if (!safeClientId) throw new Error('模型观测查询需要 client_id');
+  const [decisionState, runState, qualityState] = await Promise.all([
+    readCloudCollection('routing/v1', safeClientId),
+    readCloudCollection('model-runs/v1', safeClientId),
+    readCloudCollection('quality/v1', safeClientId),
+  ]);
+  const matches = (item = {}) => (!projectId || String(item.project_id || '') === String(projectId))
+    && (!taskId || String(item.task_id || '') === String(taskId));
+  const newest = (items = []) => ensureArray(items)
+    .filter(matches)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    .slice(0, Math.min(500, Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : 200)));
+  const decisions = newest(decisionState.decisions);
+  const runs = newest(runState.runs);
+  const qualityResults = newest(qualityState.results);
+  return {
+    readonly: true,
+    module_version: MODEL_OBSERVABILITY_VERSION,
+    route_policy_version: MODEL_ROUTING_VERSION,
+    client_id: safeClientId,
+    project_id: projectId || null,
+    task_id: taskId || null,
+    summary: summarizeModelObservability({ decisions, runs, qualityResults }),
+    decisions,
+    runs,
+    quality_results: qualityResults,
+  };
 };
 
 const benchmarkClientId = (value = '') => {
@@ -4379,6 +4484,16 @@ const processBenchmarkJob = async (clientIdValue = '', jobId = '') => {
     if (!profiles.length || !contents.length) throw new Error('benchmark_sources_missing');
     const projectSnapshot = benchmarkProjectSnapshot(project);
     const prompt = buildBenchmarkInsightPrompt({ projectSnapshot, profiles, contents });
+    await observeRouteDecision({
+      clientId,
+      projectId: running.project_id,
+      taskId: running.job_id,
+      route: '/api/benchmark-jobs',
+      purpose: 'benchmark_insight',
+      generationType: 'benchmark',
+      requestedModel: arkModel() || 'rule_template',
+      provider: arkModel() ? 'volcengine_ark' : 'local',
+    });
     const call = await callArkChatCompletion({
       messages: [
         { role: 'system', content: prompt.system },
@@ -4389,6 +4504,16 @@ const processBenchmarkJob = async (clientIdValue = '', jobId = '') => {
       purpose: 'benchmark_insight',
       route: '/api/benchmark-jobs',
       responseFormat: { type: 'json_object' },
+    });
+    await observeModelResult({
+      clientId,
+      projectId: running.project_id,
+      taskId: running.job_id,
+      route: '/api/benchmark-jobs',
+      purpose: 'benchmark_insight',
+      generationType: 'benchmark',
+      meta: normalizeModelMeta(call),
+      status: call.ok ? 'succeeded' : 'failed',
     });
     if (!call.ok) {
       running = {
@@ -6293,6 +6418,31 @@ const completeGenerationMetering = async ({ reservation = {}, clientId = '', job
       commercial_usage: reservation.commercial_usage || null,
     },
   });
+  const observedRuns = await observeModelResult({
+    clientId: safeClientId,
+    projectId: String(result?.assessment?.project_id || result?.diagnosis?.project_id || ''),
+    taskId: stableId,
+    route: `/api/${reservation.route || 'plan-jobs'}`,
+    purpose: reservation.route === 'customer-growth-advice' ? 'customer_growth_advice' : 'initial_7_day_plan',
+    generationType: reservation.route === 'customer-growth-advice' ? 'review' : 'plan',
+    meta,
+    status: outcome === 'completed' ? (meta.fallback ? 'failed' : 'succeeded') : outcome,
+  });
+  if (outcome === 'completed' && reservation.route === 'customer-growth-advice') {
+    const planCount = ensureArray(result?.plans || result?.next_7_day_plan || result?.next_plan_days).length;
+    const passed = reservation.route === 'customer-growth-advice' ? planCount === 7 : planCount === 7;
+    await observeQualityResult({
+      clientId: safeClientId,
+      projectId: String(result?.assessment?.project_id || result?.diagnosis?.project_id || ''),
+      taskId: stableId,
+      runId: observedRuns.at(-1)?.run_id || '',
+      passed,
+      scores: { publish_readiness: passed ? 100 : 0 },
+      issueCodes: passed ? [] : ['incomplete_seven_day_plan'],
+      action: passed ? 'deliver' : 'manual_review',
+      source: 'plan_structure_gate',
+    });
+  }
 };
 const recordInternalProviderUsage = async ({ task = {}, submitted = {} } = {}) => {
   const clientId = normalizeClientId(task.client_id) || INTERNAL_CLIENT_ID;
@@ -6304,6 +6454,9 @@ const recordInternalProviderUsage = async ({ task = {}, submitted = {} } = {}) =
     actual_model: submitted.actual_model || task.actual_model || 'rule_template',
     fallback: Boolean(submitted.fallback || !submitted.ok),
     fallback_reason: submitted.fallback_reason || submitted.error || null,
+    latency_ms: Number(submitted.latency_ms || submitted.manifest?.latency_ms || 0),
+    usage: submitted.usage || submitted.manifest?.usage || submitted.manifest?.extra?.usage || null,
+    provider_attempt_count: Number(submitted.provider_attempt_count || submitted.manifest?.output?.provider_attempts || 1),
   });
   await commercialBlobSet(`${COMMERCIAL_METERING_PREFIX}/provider/${clientHash}/${date}/${meteringHash('internal-task', task.task_id || randomUUID())}`, {
     task_id_hash: meteringHash('task', task.task_id || ''),
@@ -6315,6 +6468,37 @@ const recordInternalProviderUsage = async ({ task = {}, submitted = {} } = {}) =
     source: 'internal_generation_task',
     created_at: nowIso(),
   });
+  const observedRuns = await observeModelResult({
+    clientId,
+    projectId: task.project_id,
+    taskId: task.task_id,
+    route: '/api/generation-tasks',
+    purpose: task.purpose || 'internal_generation_task',
+    generationType: task.generation_type,
+    meta,
+    status: submitted.ok && !meta.fallback ? 'succeeded' : 'failed',
+    finishReason: submitted.manifest?.output?.finish_reasons?.at?.(-1) || '',
+  });
+  const qualityEvidence = submitted.manifest?.output || {};
+  if (qualityEvidence.quality_checked || qualityEvidence.completeness_checked) {
+    const qualityPassed = qualityEvidence.quality_checked
+      ? Boolean(qualityEvidence.quality_passed)
+      : Boolean(qualityEvidence.completeness_passed);
+    await observeQualityResult({
+      clientId,
+      projectId: task.project_id,
+      taskId: task.task_id,
+      runId: observedRuns.at(-1)?.run_id || '',
+      passed: qualityPassed,
+      scores: {
+        publish_readiness: qualityPassed ? 100 : 0,
+        platform_fit: qualityEvidence.quality_checked ? (qualityPassed ? 100 : 0) : null,
+      },
+      issueCodes: qualityEvidence.quality_issues || qualityEvidence.final_incomplete_reasons || [],
+      action: qualityPassed ? 'manual_review' : 'repair_same_model',
+      source: 'adapter_quality_gate',
+    });
+  }
 };
 const funnelSummary = async ({ from = '', to = '' } = {}) => {
   const keys = await commercialBlobKeys(`${COMMERCIAL_ANALYTICS_PREFIX}/`);
@@ -7291,6 +7475,17 @@ const createGenerationTask = async (payload = {}) => {
     status_events: [statusEvent(payload.status || 'draft', '任务创建')],
   };
   await upsertCollectionItem('tasks', client_id, task, 'task_id');
+  await observeRouteDecision({
+    clientId: client_id,
+    projectId: task.project_id,
+    taskId: task.task_id,
+    route: '/api/generation-tasks',
+    purpose: task.purpose || 'internal_generation_task',
+    generationType: task.generation_type,
+    requestedModel: task.requested_model,
+    provider: task.provider,
+    createdAt: task.created_at,
+  });
   return task;
 };
 
@@ -8522,7 +8717,25 @@ const qaGenerationTask = async (clientId, taskId, payload = {}) => {
     qa_evidence_urls: ensureArray(payload.qa_evidence_urls),
   };
   task = withStatus({ ...task, qa }, qaStatus === 'passed' ? 'client_ready' : 'qa_failed', qaStatus === 'passed' ? 'QA passed' : 'QA failed');
-  return saveTask(task);
+  const saved = await saveTask(task);
+  await observeQualityResult({
+    clientId: task.client_id,
+    projectId: task.project_id,
+    taskId: task.task_id,
+    runId: '',
+    passed: qaStatus === 'passed',
+    scores: {
+      visual_check: qa.visual_check ? 100 : null,
+      content_check: qa.content_check ? 100 : null,
+      brand_check: qa.brand_check ? 100 : null,
+      platform_fit: qa.platform_fit_check ? 100 : null,
+      client_visibility: qa.client_visibility_check ? 100 : null,
+    },
+    issueCodes: qaStatus === 'passed' ? [] : [qa.rejection_reason || 'internal_qa_failed'],
+    action: qaStatus === 'passed' ? 'deliver' : 'manual_review',
+    source: 'internal_qa',
+  });
+  return saved;
 };
 
 const deliverGenerationTask = async (clientId, taskId) => {
@@ -9850,7 +10063,7 @@ const resolvePersonalizationForRequest = async (payload = {}, clientId = '') => 
   };
 };
 
-const generateAssessmentResult = async ({ payload = {}, clientId = '', internalAuthorized = false, forceRules = false, fallbackReason = 'async_fallback', generationVariant = '' } = {}) => {
+const generateAssessmentResult = async ({ payload = {}, clientId = '', internalAuthorized = false, forceRules = false, fallbackReason = 'async_fallback', generationVariant = '', taskId = '' } = {}) => {
   const enabled = payload.personalized_recommendation_enabled !== false;
   const trustedPayload = modelPayloadForRequest(applyPersonalizationPolicy(payload, enabled), internalAuthorized);
   const assessment_id = createAssessment(trustedPayload, clientId);
@@ -9873,6 +10086,38 @@ const generateAssessmentResult = async ({ payload = {}, clientId = '', internalA
     : await generateOpusPlanRows(assessment, diagnosis);
   const plans = createContentPlan(diagnosis.id, generated.rows, generated.meta);
   const generation_meta = normalizeModelMeta(generated.meta);
+  const observationTaskId = String(taskId || `assessment_${assessment_id}`);
+  await observeRouteDecision({
+    clientId: assessment.client_id || clientId,
+    projectId: String(payload.project_id || payload.current_project_id || ''),
+    taskId: observationTaskId,
+    route: internalAuthorized ? '/api/assessments' : '/api/plan-jobs',
+    purpose: 'initial_7_day_plan',
+    generationType: 'plan',
+    requestedModel: generation_meta.requested_model || arkPlanModel() || 'rule_template',
+    provider: arkPlanModel() ? 'volcengine_ark' : 'local',
+  });
+  const observedRuns = await observeModelResult({
+    clientId: assessment.client_id || clientId,
+    projectId: String(payload.project_id || payload.current_project_id || ''),
+    taskId: observationTaskId,
+    route: internalAuthorized ? '/api/assessments' : '/api/plan-jobs',
+    purpose: 'initial_7_day_plan',
+    generationType: 'plan',
+    meta: generation_meta,
+    status: generation_meta.fallback ? 'failed' : 'succeeded',
+  });
+  await observeQualityResult({
+    clientId: assessment.client_id || clientId,
+    projectId: String(payload.project_id || payload.current_project_id || ''),
+    taskId: observationTaskId,
+    runId: observedRuns.at(-1)?.run_id || '',
+    passed: plans.length === 7,
+    scores: { publish_readiness: plans.length === 7 ? 100 : 0 },
+    issueCodes: plans.length === 7 ? [] : ['incomplete_seven_day_plan'],
+    action: plans.length === 7 ? 'deliver' : 'manual_review',
+    source: 'plan_structure_gate',
+  });
   return {
     assessment_id,
     assessment,
@@ -9934,6 +10179,17 @@ const createPlanJob = async (payload = {}, reservation = {}, { accountId = '' } 
     completed_at: '',
   };
   await upsertCollectionItem('plan-jobs', client_id, job, 'job_id', existing);
+  await observeRouteDecision({
+    clientId: client_id,
+    projectId: String(payload.project_id || payload.current_project_id || ''),
+    taskId: job.job_id,
+    route: '/api/plan-jobs',
+    purpose: 'initial_7_day_plan',
+    generationType: 'plan',
+    requestedModel: arkPlanModel() || 'rule_template',
+    provider: arkPlanModel() ? 'volcengine_ark' : 'local',
+    createdAt,
+  });
   // Netlify Blobs 写读传播存在延迟：写入后短重试读回，避免下游轮询在任务刚创建时
   // 因不可见而返回 404；确认失败也不抛错（任务已写入，由查询/处理路径的重试兜底）。
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -9989,7 +10245,7 @@ const processPlanJob = async (clientId = '', jobId = '') => {
   };
   await savePlanJob(job);
   try {
-    const result = await generateAssessmentResult({ payload: job.assessment_payload, clientId: job.client_id, generationVariant: job.generation_variant || job.job_id });
+    const result = await generateAssessmentResult({ payload: job.assessment_payload, clientId: job.client_id, generationVariant: job.generation_variant || job.job_id, taskId: job.job_id });
     const latest = await getPlanJob(clientId, jobId);
     if (latest?.status === 'completed') return latest;
     const completed = await savePlanJob({
@@ -10075,9 +10331,10 @@ export default async (request, context = {}) => {
         version_label: VERSION_LABEL,
         module: 'generation-workbench',
         module_version: GENERATION_WORKBENCH_VERSION,
+        model_observability_version: MODEL_OBSERVABILITY_VERSION,
         benchmark_module_version: BENCHMARK_INSIGHTS_VERSION,
         delivery_module_version: DELIVERY_COLLABORATION_VERSION,
-        features: ['assets', 'generation_tasks', 'generation_business_context_v1', 'generation_asset_auto_link', 'generation_multimodal_assets', 'generation_idempotency', 'customer_account_visual_generation', 'qa', 'client_delivery', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
+        features: ['assets', 'generation_tasks', 'generation_business_context_v1', 'generation_asset_auto_link', 'generation_multimodal_assets', 'generation_idempotency', 'customer_account_visual_generation', 'qa', 'client_delivery', 'model_routing_observe_v1', 'model_run_ledger_v1', 'quality_result_ledger_v1', 'benchmark_insights_p0', 'benchmark_evidence_review', 'benchmark_test_plan', 'feishu_inbound_v1', 'feishu_bitable_pull_v1', 'feishu_bitable_push_v1', 'feishu_webhook', 'async_video_polling', 'customer_plan_jobs', 'shadow_rate_limit', 'funnel_tracking', 'personalization_settings', 'account_identity_p1a', 'account_project_recovery', 'commercial_entitlements_p2', 'commercial_usage_reservations', 'referral_rewards_v1', 'billing_orders_p1', 'manual_payment_activation', 'payment_infrastructure_p1', 'delivery_collaboration_p0', 'delivery_profiles', 'delivery_cycles', 'collaboration_tasks', 'weekly_report_foundation', 'feishu_delivery_bindings'],
         // 仅报布尔"是否配置",绝不泄露任何密钥值；用于确认 env 是否生效
         providers: {
           safe_to_run: paidGenerationSafeToRun(),
@@ -10091,6 +10348,12 @@ export default async (request, context = {}) => {
           anthropic: Boolean(anthropicApiKey()),
           glm: Boolean(glmApiKey()),
           script_provider: providerForGeneration('script'),
+        },
+        model_routing: {
+          mode: modelRoutingMode(),
+          policy_version: MODEL_ROUTING_VERSION,
+          ledger_enabled: modelRunLedgerEnabled(),
+          cost_tracking_enabled: modelCostTrackingEnabled(),
         },
         account_auth: {
           enabled: accountAuthConfigured(),
@@ -10256,6 +10519,17 @@ export default async (request, context = {}) => {
         return json(await funnelSummary({
           from: String(url.searchParams.get('from') || '').slice(0, 10),
           to: String(url.searchParams.get('to') || '').slice(0, 10),
+        }), 200, { internal: true });
+      }
+      if (path === '/internal/model-observability') {
+        if (!internalAuthorized) return unauthorized();
+        const clientId = normalizeClientId(url.searchParams.get('client_id') || '');
+        if (!clientId) return json({ error: '模型观测查询需要 client_id' }, 400, { internal: true });
+        return json(await modelObservabilitySnapshot({
+          clientId,
+          projectId: String(url.searchParams.get('project_id') || ''),
+          taskId: String(url.searchParams.get('task_id') || ''),
+          limit: Number(url.searchParams.get('limit') || 200),
         }), 200, { internal: true });
       }
       if (path === '/feishu/status') {
@@ -10717,6 +10991,16 @@ export default async (request, context = {}) => {
         return rateLimitedResponse(reservation);
       }
       try {
+        await observeRouteDecision({
+          clientId,
+          projectId: String(personalization.payload.project_id || personalization.payload.current_project_id || ''),
+          taskId: requestId,
+          route: '/api/customer-growth-advice',
+          purpose: 'customer_growth_advice',
+          generationType: 'review',
+          requestedModel: arkModel() || 'rule_template',
+          provider: arkModel() ? 'volcengine_ark' : 'local',
+        });
         const trustedPayload = modelPayloadForRequest(personalization.payload, internalAuthorized);
         const result = await createCustomerGrowthAdvice(trustedPayload);
         await completeGenerationMetering({ reservation, clientId, jobId: requestId, result, outcome: 'completed' });

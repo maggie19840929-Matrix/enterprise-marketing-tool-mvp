@@ -457,6 +457,38 @@ CUSTOMER_PUBLIC_MODEL=
 
 如果未配置 `ARK_API_KEY` 或 `ARK_MODEL`，接口不会报错，内部令牌请求会明确返回 `provider: "local"`、`actual_model: "rule_template"`、`fallback` 和具体 `fallback_reason`，用于验收区分真实模型调用和规则兜底。匿名客户响应会移除这些模型与供应商元数据，前端仍可正常渲染规则兜底结果。
 
+### AI 运营调度观测地基（v1.6.177 P0）
+
+P0 只记录当前生产模型路由，不改变任何模型选择、客户输出或套餐扣减。计划、复盘、文案、图片和视频任务会把路由决策、模型调用与质量结果写入同一个 Netlify Blobs store 下的独立命名空间：
+
+- `routing/v1/<client_id>`：当前固定路由及 reason code；
+- `model-runs/v1/<client_id>`：供应商尝试、延迟、fallback、usage 与可选成本估算；
+- `quality/v1/<client_id>`：自动门禁和人工 QA 结果。
+
+只读查询接口仅接受 `INTERNAL_ACCESS_TOKEN`：
+
+```bash
+curl "https://sales-improve.netlify.app/api/internal/model-observability?client_id=<client_id>" \
+  -H "Authorization: Bearer $INTERNAL_ACCESS_TOKEN"
+```
+
+环境变量：
+
+```bash
+MODEL_ROUTING_MODE=observe          # P0 固定为 observe；off 可关闭全部观测写入
+MODEL_RUN_LEDGER_ENABLED=true       # false 时停止写模型调用账本
+MODEL_COST_TRACKING_ENABLED=true    # 无价格配置时 estimated_cost_cny 返回 null
+MODEL_ROUTING_SAMPLE_RATE=100       # 0-100，按 task_id 稳定采样
+
+# 可选：按 provider 名转换后的前缀配置每百万 Token 人民币价格
+VOLCENGINE_ARK_INPUT_CNY_PER_MILLION_TOKENS=
+VOLCENGINE_ARK_OUTPUT_CNY_PER_MILLION_TOKENS=
+KIMI_TEXT_INPUT_CNY_PER_MILLION_TOKENS=
+KIMI_TEXT_OUTPUT_CNY_PER_MILLION_TOKENS=
+```
+
+观测账本是 best-effort：Blobs 写入失败只写服务端告警，不阻断生成。回滚时将 `MODEL_RUN_LEDGER_ENABLED=false` 和 `MODEL_COST_TRACKING_ENABLED=false`；独立账本不会修改或迁移 `global-project-store.*`、商业额度 reservation 与客户反馈数据。
+
 ## 产品边界
 
 这是营销增长闭环 MVP，不是 CRM/ERP/管理系统。

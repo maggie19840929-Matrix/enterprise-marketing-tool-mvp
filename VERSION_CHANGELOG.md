@@ -16,6 +16,16 @@
 
 ## 更新记录
 
+### v1.6.177 · AI运营调度观测地基版
+
+日期：2026-08-16
+
+1. 新增 `route_decision / model_run / quality_result` 三类内部观测证据，分别写入独立的 `routing/v1`、`model-runs/v1`、`quality/v1` Blobs 命名空间，不修改客户项目数据。
+2. 现有计划、复盘、文案、图片和视频继续使用原有固定模型路由；本版只记录实际路由、供应商尝试、延迟、fallback、估算成本和质量结果，不动态换模型。
+3. 新增受 `INTERNAL_ACCESS_TOKEN` 保护的只读接口 `GET /api/internal/model-observability?client_id=...`，客户侧无法枚举或读取模型、成本与质量账本。
+4. 观测写入失败只记录服务端告警，不阻断客户生成；客户套餐用量仍按最终交付计量，供应商重试不会重复扣客户额度。
+5. 增加 `MODEL_ROUTING_MODE=observe`、`MODEL_RUN_LEDGER_ENABLED`、`MODEL_COST_TRACKING_ENABLED` 和采样率开关，为后续缓存、轻重模型分工与质量升级提供真实数据。
+
 ### v1.6.176 · 小红书发布包排版优化版
 
 日期：2026-08-15

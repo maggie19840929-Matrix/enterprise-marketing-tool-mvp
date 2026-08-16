@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'ACCOUNT_AUTH_ENABLED', 'ACCOUNT_AUTH_SECRET', 'ACCOUNT_EMAIL_RESEND_SECONDS', 'ACCOUNT_EMAIL_DAILY_IP_MAX', 'AUTH_TEST_MODE', 'EMAIL_PROVIDER', 'EMAIL_FROM', 'RESEND_API_KEY', 'PAYMENT_P1_INTERNAL_ENABLED', 'PAYMENT_P1_SANDBOX_ENABLED', 'PAYMENT_P1_SANDBOX_TOKEN', 'WECHATPAY_MCHID', 'WECHATPAY_APPID', 'WECHATPAY_API_V3_KEY', 'ALIPAY_APP_ID', 'ALIPAY_APP_PRIVATE_KEY', 'ALIPAY_PUBLIC_KEY', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
+['ARK_API_KEY', 'VOLCENGINE_ARK_API_KEY', 'ARK_MODEL', 'ARK_PLAN_MODEL', 'DOUBAO_MODEL', 'VOLCENGINE_ARK_MODEL', 'CUSTOMER_PUBLIC_MODEL', 'CUSTOMER_PUBLIC_PLAN_TIMEOUT_MS', 'SAFE_TO_RUN', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GLM_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL', 'KIMI_TIMEOUT_MS', 'KIMI_BG_TIMEOUT_MS', 'KIMI_MAX_RETRIES', 'KIMI_MAX_TOKENS', 'KIMI_CONTINUATION_MAX_TOKENS', 'KIMI_COMPLETENESS_REPAIR_ROUNDS', 'KIMI_REGENERATION_MAX_TOKENS', 'BACKGROUND_GENERATION_TOKEN', 'BACKGROUND_GENERATION_LOCK_MS', 'INTERNAL_ACCESS_TOKEN', 'METERING_HASH_SECRET', 'RATE_LIMIT_ENFORCE', 'GENERATION_RATE_WINDOW_SECONDS', 'GENERATION_RATE_CLIENT_MAX', 'GENERATION_RATE_IP_MAX', 'GENERATION_DAILY_CLIENT_MAX', 'TRACKING_ENABLED', 'MODEL_ROUTING_MODE', 'MODEL_RUN_LEDGER_ENABLED', 'MODEL_COST_TRACKING_ENABLED', 'MODEL_ROUTING_SAMPLE_RATE', 'CUSTOMER_LEGACY_CLAIM_UNTIL', 'ACCOUNT_AUTH_ENABLED', 'ACCOUNT_AUTH_SECRET', 'ACCOUNT_EMAIL_RESEND_SECONDS', 'ACCOUNT_EMAIL_DAILY_IP_MAX', 'AUTH_TEST_MODE', 'EMAIL_PROVIDER', 'EMAIL_FROM', 'RESEND_API_KEY', 'PAYMENT_P1_INTERNAL_ENABLED', 'PAYMENT_P1_SANDBOX_ENABLED', 'PAYMENT_P1_SANDBOX_TOKEN', 'WECHATPAY_MCHID', 'WECHATPAY_APPID', 'WECHATPAY_API_V3_KEY', 'ALIPAY_APP_ID', 'ALIPAY_APP_PRIVATE_KEY', 'ALIPAY_PUBLIC_KEY', 'FEISHU_INBOUND_TOKEN', 'FEISHU_WEBHOOK_URL', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_BASE_TOKEN', 'FEISHU_WIKI_NODE_TOKEN', 'FEISHU_TABLE_EFFECT', 'FEISHU_TABLE_CHECKIN', 'FEISHU_TABLE_REPUTATION', 'FEISHU_TABLE_PLAN', 'FEISHU_WORKSPACE_URL', 'FEISHU_BOT_WEBHOOK', 'FEISHU_PULL_TIMEOUT_MS', 'FEISHU_PULL_PAGE_SIZE', 'FEISHU_PULL_MAX_RECORDS', 'FEISHU_PULL_DEADLINE_MS'].forEach((key) => {
   delete process.env[key];
 });
 ['COMMERCIALIZATION_ENABLED', 'FREE_TRIAL_STRATEGY_CYCLES', 'FREE_TRIAL_VALID_DAYS', 'FREE_MONTHLY_STRATEGY_CYCLES', 'PLUS_MONTHLY_STRATEGY_CYCLES', 'PRO_MONTHLY_STRATEGY_CYCLES', 'FREE_MONTHLY_COMPLETE_CONTENT', 'PLUS_MONTHLY_COMPLETE_CONTENT', 'PRO_MONTHLY_COMPLETE_CONTENT', 'PRO_PUBLIC_SALES_ENABLED', 'FREE_DAILY_GENERATIONS', 'PLUS_DAILY_GENERATIONS', 'PRO_DAILY_GENERATIONS', 'FREE_ACTIVE_PROJECTS', 'PLUS_ACTIVE_PROJECTS', 'PRO_ACTIVE_PROJECTS', 'PLUS_MONTHLY_PRICE_CNY', 'PRO_MONTHLY_PRICE_CNY', 'PLUS_YEARLY_PRICE_CNY', 'PRO_YEARLY_PRICE_CNY', 'BILLING_ORDER_TTL_HOURS', 'BILLING_CONTACT_EMAIL'].forEach((key) => {
@@ -19,6 +19,10 @@ process.env.GENERATION_RATE_CLIENT_MAX = '100';
 process.env.GENERATION_RATE_IP_MAX = '100';
 process.env.GENERATION_DAILY_CLIENT_MAX = '100';
 process.env.TRACKING_ENABLED = 'true';
+process.env.MODEL_ROUTING_MODE = 'observe';
+process.env.MODEL_RUN_LEDGER_ENABLED = 'true';
+process.env.MODEL_COST_TRACKING_ENABLED = 'true';
+process.env.MODEL_ROUTING_SAMPLE_RATE = '100';
 process.env.CUSTOMER_LEGACY_CLAIM_UNTIL = '2099-12-31T23:59:59.999Z';
 process.env.ACCOUNT_AUTH_ENABLED = 'true';
 process.env.ACCOUNT_AUTH_SECRET = 'smoke-account-auth-secret-v1-at-least-32-bytes';
@@ -176,7 +180,7 @@ const { assessment, diagnosis, plans } = data;
 assert(assessment.company_name === payload.company_name, 'POST /assessments should return the full assessment customer data');
 assert(assessment.target_customer === payload.target_customer, 'assessment response should preserve target_customer for customer snapshot UI');
 assert(diagnosis.strategy_score >= 80, `strategy_score should reflect clear inputs, got ${diagnosis.strategy_score}`);
-assert(diagnosis.app_version === '1.6.176', `public diagnosis should return app_version 1.6.176, got ${diagnosis.app_version}`);
+assert(diagnosis.app_version === '1.6.177', `public diagnosis should return app_version 1.6.177, got ${diagnosis.app_version}`);
 assert(assessment.benchmark.platform === '小红书', 'assessment should preserve benchmark platform');
 assert(diagnosis.benchmark_reference.recent_topics.length >= 2, 'diagnosis should include benchmark reference topics');
 assert(JSON.stringify(diagnosis.benchmark_reference).includes('不照抄'), 'benchmark reference should warn against copying');
@@ -414,9 +418,18 @@ const firstPlanTopics = ownPlanJob.result.plans.map((plan) => plan.topic);
 const repeatedPlanTopics = repeatedPlanJob.result.plans.map((plan) => plan.topic);
 assert(JSON.stringify(firstPlanTopics) !== JSON.stringify(repeatedPlanTopics), 'same customer input submitted twice should rotate the creative direction instead of returning the identical seven-topic order');
 const ownPlanJobText = JSON.stringify(ownPlanJob);
-['requested_model', 'actual_model', 'provider', 'fallback_reason', 'generation_meta', 'model_info', 'strategy_quality_context', 'strategy_quality'].forEach((word) => {
+['requested_model', 'actual_model', 'provider', 'fallback_reason', 'generation_meta', 'model_info', 'strategy_quality_context', 'strategy_quality', 'route_decision', 'model_run', 'quality_result', 'estimated_cost_cny'].forEach((word) => {
   assert(!ownPlanJobText.includes(word), `customer plan job response must hide model field ${word}`);
 });
+const publicModelObservabilityResponse = await handler(request('GET', 'internal/model-observability?client_id=plan-job-owner'));
+assert(publicModelObservabilityResponse.status === 401, 'public clients must not read model routing, cost, or quality ledgers');
+const planModelObservabilityResponse = await handler(internalRequest('GET', 'internal/model-observability?client_id=plan-job-owner'));
+assert(planModelObservabilityResponse.status === 200, 'internal operators should read a client-scoped model observability ledger');
+const planModelObservability = await planModelObservabilityResponse.json();
+assert(planModelObservability.readonly === true && planModelObservability.route_policy_version === 'routing-v1', 'model observability endpoint should remain read-only and version its routing evidence');
+assert(planModelObservability.decisions.some((item) => item.task_id === createdPlanJob.job_id && item.task_type === 'plan'), 'plan job should persist its current fixed route decision');
+assert(planModelObservability.runs.some((item) => item.task_id === createdPlanJob.job_id), 'completed plan job should persist model run evidence');
+assert(planModelObservability.quality_results.some((item) => item.task_id === createdPlanJob.job_id && item.passed === true), 'seven-plan structure gate should persist a passing quality result');
 const crossClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}?client_id=plan-job-other`));
 assert(crossClientPlanJobResponse.status === 401, `cross-client plan job read should fail authentication before lookup, got ${crossClientPlanJobResponse.status}`);
 const noClientPlanJobResponse = await handler(request('GET', `plan-jobs/${encodeURIComponent(createdPlanJob.job_id)}`));
@@ -457,6 +470,9 @@ assert(idempotentJobPromise && !duplicateJobPromise, 'idempotent network retry m
 await idempotentJobPromise;
 const meteringAfterIdempotent = await (await handler(internalRequest('GET', 'analytics/funnel'))).json();
 assert(meteringAfterIdempotent.metering.product_usage === meteringBefore.metering.product_usage + 1, 'idempotent retry should record product usage exactly once after delivery');
+const idempotentObservability = await (await handler(internalRequest('GET', `internal/model-observability?client_id=p0-idempotent-client&task_id=${encodeURIComponent(idempotentFirst.job_id)}`))).json();
+assert(idempotentObservability.decisions.length === 1, 'idempotent request retry should keep one route decision');
+assert(idempotentObservability.runs.filter((item) => item.status !== 'retried').length === 1, 'idempotent request retry should keep one final model run instead of double-counting cost');
 
 process.env.RATE_LIMIT_ENFORCE = 'false';
 process.env.GENERATION_RATE_CLIENT_MAX = '100';
@@ -2385,7 +2401,8 @@ assert(reviewData.review.next_actions.includes('加码'), 'review should generat
 const healthRes = await handler(request('GET', 'health'));
 assert(healthRes.status === 200, 'GET /health should succeed');
 const health = await healthRes.json();
-assert(health.version === '1.6.176' && health.version_label === 'v1.6.176 · 小红书发布包排版优化版', 'public application health version should report v1.6.176');
+assert(health.version === '1.6.177' && health.version_label === 'v1.6.177 · AI运营调度观测地基版', 'public application health version should report v1.6.177');
+assert(health.model_observability_version === 'model-observability-p0' && health.model_routing?.mode === 'observe' && health.model_routing?.ledger_enabled === true, 'health should expose the non-sensitive P0 observability mode and module version');
 assert(health.features?.includes('account_project_recovery'), 'health should expose the account project recovery capability');
 assert(health.features?.includes('commercial_entitlements_p2') && health.features?.includes('commercial_usage_reservations'), 'health should expose P2 entitlements and usage reservations');
 assert(health.features?.includes('referral_rewards_v1'), 'health should expose the account-scoped referral reward capability');
@@ -3213,6 +3230,13 @@ const qaPassed = await (await handler(internalRequest('POST', `generation-tasks/
 }))).json();
 assert(qaPassed.task.status === 'client_ready', 'QA passed should move task to client_ready');
 assert(qaPassed.task.qa.qa_status === 'passed', 'QA passed should record qa_status');
+const generationObservabilityResponse = await handler(internalRequest('GET', `internal/model-observability?client_id=${qaClientId}&project_id=${qaProjectId}&task_id=${encodeURIComponent(videoTask.task_id)}`));
+assert(generationObservabilityResponse.status === 200, 'internal model observability should filter one generation task');
+const generationObservability = await generationObservabilityResponse.json();
+assert(generationObservability.decisions.length === 1 && generationObservability.decisions[0].task_type === 'video', 'video task should persist one fixed routing decision');
+assert(generationObservability.runs.some((item) => item.provider === 'seedance-video' && item.fallback === true), 'Seedance mock fallback should remain explicit in the internal model run ledger');
+assert(generationObservability.quality_results.some((item) => item.source === 'internal_qa' && item.passed === false), 'failed QA evidence must remain in the ledger after a later pass');
+assert(generationObservability.quality_results.some((item) => item.source === 'internal_qa' && item.passed === true), 'passed QA evidence should be persisted separately');
 const clientTasksAfterPass = await (await handler(internalRequest('GET', `generation-tasks?client_id=${qaClientId}&project_id=${qaProjectId}&view=client`))).json();
 const visibleVideoTask = clientTasksAfterPass.tasks.find((task) => task.task_id === videoTask.task_id);
 assert(visibleVideoTask, 'passed QA task should appear in client delivery view');
